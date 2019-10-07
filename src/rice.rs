@@ -1,5 +1,4 @@
 use std::iter;
-use std::convert::TryFrom;
 use std::cmp::Reverse;
 
 use super::bits::*;
@@ -12,14 +11,10 @@ struct GolombRice {
     table: Option<(Vec<u32>, Vec<u32>)>,
 }
 
-fn table_into<U: Sym>(table: &[U]) -> Vec<u32> {
-    table.iter().map(|&n| n.into()).collect()
-}
-
-fn table_from<U: Sym>(
-    table: &[u32]
-) -> Result<Vec<U>, <U as TryFrom<u32>>::Error> {
-    table.iter().map(|&n| U::try_from(n)).collect()
+fn table_cast<U: Sym, V:Sym>(
+    table: &[U]
+) -> Result<Vec<V>, String> {
+    table.iter().map(|&n| 32.cast(n)).collect()
 }
 
 fn table_reverse(table: &[u32]) -> Vec<u32> {
@@ -44,7 +39,7 @@ impl GolombRice {
     #[allow(dead_code)]
     fn with_table<U: Sym>(k: usize, width: usize, table: &[U]) -> GolombRice {
         assert_eq!(table.len(), 2usize.pow(width as u32));
-        let table = table_into(table);
+        let table: Vec<u32> = table_cast(table).unwrap();
         let reverse_table = table_reverse(&table);
 
         GolombRice{
@@ -77,7 +72,7 @@ impl GolombRice {
             (0..=8).map(|k| {
                 let gr = GolombRice::with_width(k, width);
                 let size: usize = hist.iter().enumerate().map(|(n, &c)|
-                    c * gr.encode_sym(table[n as usize]).len()
+                    c * gr.encode_sym(table[n as usize]).unwrap().len()
                 ).sum();
                 (size, k)
             }).min().unwrap().1);
@@ -125,18 +120,20 @@ impl GolombRice {
 
     #[allow(dead_code)]
     fn table<U: Sym>(&self) -> Option<Vec<U>> {
-        self.table.as_ref().map(|(t, _)| table_from(t).ok().unwrap())
+        self.table.as_ref().map(|(t, _)| table_cast(t).unwrap())
     }
 
     #[allow(dead_code)]
     fn reverse_table<U: Sym>(&self) -> Option<Vec<U>> {
-        self.table.as_ref().map(|(_, t)| table_from(t).ok().unwrap())
+        self.table.as_ref().map(|(_, t)| table_cast(t).unwrap())
     }
 }
 
 impl SymEncode for GolombRice {
     #[allow(dead_code)]
-    fn encode_sym<U: Sym>(&self, n: U) -> BitVec {
+    fn encode_sym<U: Sym>(&self,
+        n: U
+    ) -> Result<BitVec, String> {
         let mut n = n.into();
         if let Some((table, _)) = &self.table {
             n = table[n as usize];
@@ -145,10 +142,10 @@ impl SymEncode for GolombRice {
         if self.k < self.width {
             let m = 1u32 << (self.k as u32);
             let (q, r) = (n/m, n%m);
-            iter::repeat(true).take(q as usize)
+            Ok(iter::repeat(true).take(q as usize)
                 .chain(iter::once(false))
-                .chain(self.k.encode_sym(r))
-                .collect()
+                .chain(self.k.encode_sym(r)?)
+                .collect())
         } else {
             self.width.encode_sym(n)
         }
@@ -173,9 +170,7 @@ impl SymEncode for GolombRice {
             n = reverse_table[n as usize];
         }
 
-        let n = U::try_from(n).map_err(|_|
-            "rice code exceeds valid width")?;
-        Ok((n, diff))
+        Ok((self.width.cast(n)?, diff))
     }
 }
 
@@ -189,48 +184,48 @@ mod tests {
     fn encode_u8_test() {
         assert_eq!(
             GolombRice::new(8).encode_u8(0b01011100u8),
-            bitvec![0,1,0,1,1,1,0,0]
+            Ok(bitvec![0,1,0,1,1,1,0,0])
         );
         assert_eq!(
             GolombRice::new(7).encode_u8(0b01011100u8),
-            bitvec![0,1,0,1,1,1,0,0]
+            Ok(bitvec![0,1,0,1,1,1,0,0])
         );
         assert_eq!(
             GolombRice::new(6).encode_u8(0b01011100u8),
-            bitvec![1,0,0,1,1,1,0,0]
+            Ok(bitvec![1,0,0,1,1,1,0,0])
         );
         assert_eq!(
             GolombRice::new(5).encode_u8(0b01011100u8),
-            bitvec![1,1,0,1,1,1,0,0]
+            Ok(bitvec![1,1,0,1,1,1,0,0])
         );
         assert_eq!(
             GolombRice::new(4).encode_u8(0b01011100u8),
-            bitvec![1,1,1,1,1,0,1,1,0,0]
+            Ok(bitvec![1,1,1,1,1,0,1,1,0,0])
         );
         assert_eq!(
             GolombRice::new(3).encode_u8(0b01011100u8),
-            bitvec![1,1,1,1,1,1,1,1,1,1,1,0,1,0,0]
+            Ok(bitvec![1,1,1,1,1,1,1,1,1,1,1,0,1,0,0])
         );
         assert_eq!(
             GolombRice::new(2).encode_u8(0b01011100u8),
-            bitvec![
+            Ok(bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0
-            ]
+            ])
         );
         assert_eq!(
             GolombRice::new(1).encode_u8(0b01011100u8),
-            bitvec![
+            Ok(bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0
-            ]
+            ])
         );
         assert_eq!(
             GolombRice::new(0).encode_u8(0b01011100u8),
-            bitvec![
+            Ok(bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-                1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0]
+                1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0])
         );
     }
 
@@ -301,11 +296,11 @@ mod tests {
         for i in 0..8 {
             let gr = GolombRice::new(i);
             assert_eq!(
-                gr.decode_u8(&gr.encode_u8(b'h')).map(|(n,_)| n),
+                gr.decode_u8(&gr.encode_u8(b'h').unwrap()).map(|(n,_)| n),
                 Ok(b'h')
             );
             assert_eq!(
-                gr.decode(&gr.encode(b"hello world!")),
+                gr.decode(&gr.encode(b"hello world!").unwrap()),
                 Ok(b"hello world!".to_vec())
             );
         }
@@ -345,18 +340,18 @@ mod tests {
         assert_eq!(gr.k(), 1);
         assert_eq!(
             gr.encode_u8(b'h'),
-            bitvec![1,1,1,0,0]
+            Ok(bitvec![1,1,1,0,0])
         );
         assert_eq!(
-            gr.decode_u8(&gr.encode_u8(b'h')), 
+            gr.decode_u8(&gr.encode_u8(b'h').unwrap()),
             Ok((b'h', 5))
         );
         assert_eq!(
-            gr.encode(b"hello world!").len(),
-            40
+            gr.encode(b"hello world!").map(|x| x.len()),
+            Ok(40)
         );
         assert_eq!(
-            gr.decode(&gr.encode(b"hello world!")),
+            gr.decode(&gr.encode(b"hello world!").unwrap()),
             Ok(b"hello world!".to_vec())
         );
 
@@ -365,18 +360,18 @@ mod tests {
         assert_eq!(gr.k(), 1);
         assert_eq!(
             gr.encode_u8(b'h'),
-            bitvec![0,0]
+            Ok(bitvec![0,0])
         );
         assert_eq!(
-            gr.decode_u8(&gr.encode_u8(b'h')), 
+            gr.decode_u8(&gr.encode_u8(b'h').unwrap()), 
             Ok((b'h', 2))
         );
         assert_eq!(
-            gr.encode(b"hhhhh world!").len(),
-            36
+            gr.encode(b"hhhhh world!").map(|x| x.len()),
+            Ok(36)
         );
         assert_eq!(
-            gr.decode(&gr.encode(b"hhhhh world!")),
+            gr.decode(&gr.encode(b"hhhhh world!").unwrap()),
             Ok(b"hhhhh world!".to_vec())
         );
 
@@ -385,18 +380,18 @@ mod tests {
         assert_eq!(gr.k(), 0);
         assert_eq!(
             gr.encode_u8(b'h'),
-            bitvec![0]
+            Ok(bitvec![0])
         );
         assert_eq!(
-            gr.decode_u8(&gr.encode_u8(b'h')), 
+            gr.decode_u8(&gr.encode_u8(b'h').unwrap()), 
             Ok((b'h', 1))
         );
         assert_eq!(
-            gr.encode(b"hhhhhhhhhhh!").len(),
-            13
+            gr.encode(b"hhhhhhhhhhh!").map(|x| x.len()),
+            Ok(13)
         );
         assert_eq!(
-            gr.decode(&gr.encode(b"hhhhhhhhhhh!")),
+            gr.decode(&gr.encode(b"hhhhhhhhhhh!").unwrap()),
             Ok(b"hhhhhhhhhhh!".to_vec())
         );
 
@@ -405,18 +400,18 @@ mod tests {
         assert_eq!(gr.k(), 0);
         assert_eq!(
             gr.encode_u8(b'h'),
-            bitvec![0]
+            Ok(bitvec![0])
         );
         assert_eq!(
-            gr.decode_u8(&gr.encode_u8(b'h')), 
+            gr.decode_u8(&gr.encode_u8(b'h').unwrap()), 
             Ok((b'h', 1))
         );
         assert_eq!(
-            gr.encode(b"hhhhhhhhhhhh").len(),
-            12
+            gr.encode(b"hhhhhhhhhhhh").map(|x| x.len()),
+            Ok(12)
         );
         assert_eq!(
-            gr.decode(&gr.encode(b"hhhhhhhhhhhh")),
+            gr.decode(&gr.encode(b"hhhhhhhhhhhh").unwrap()),
             Ok(b"hhhhhhhhhhhh".to_vec())
         );
     }

@@ -39,14 +39,20 @@ use super::bits::*;
 // if they save space.
 
 struct GLZ {
-    l: usize,
-    m: usize,
+    l: usize, // length of references
+    m: usize, // width of offset chunks
+    width: usize,
 }
 
 impl GLZ {
     #[allow(dead_code)]
     fn new(l: usize, m: usize) -> GLZ {
-        GLZ{l: l, m: m}
+        GLZ{l: l, m: m, width: 8}
+    }
+
+    #[allow(dead_code)]
+    fn with_width(l: usize, m: usize, width: usize) -> GLZ {
+        GLZ{l: l, m: m, width: width}
     }
 
     #[allow(dead_code)]
@@ -60,9 +66,14 @@ impl GLZ {
     }
 
     #[allow(dead_code)]
-    fn encode_imm(&self, c: u8) -> Result<BitVec, String> {
+    fn width(&self) -> usize {
+        self.width
+    }
+
+    #[allow(dead_code)]
+    fn encode_imm<U: Sym>(&self, c: U) -> Result<BitVec, String> {
         Ok(iter::once(false)
-            .chain(8.encode_u8(c))
+            .chain(self.width.encode_sym(c)?)
             .collect())
     }
 
@@ -82,148 +93,97 @@ impl GLZ {
         offs.reverse();
 
         let offsize = offs.len();
-        if !(offsize >= 0+1 && offsize <= 2usize.pow(8-self.l as u32)-1+1) {
+        if !(offsize >= 0+1
+            && offsize <= 2usize.pow((self.width-self.l) as u32)-1+1)
+        {
             return Err(format!("bad offset {} (off = {})", offsize, off));
         }
 
         Ok(iter::once(true)
-            .chain((8-self.l).encode_u8(offsize as u8 - 1))
-            .chain(self.l.encode_u8(len as u8 - 2))
-            .chain(offs.iter().map(|&off|
-                self.m.encode_u8(off as u8)
-            ).flatten())
+            .chain((self.width-self.l).encode_u32(offsize as u32 - 1)?)
+            .chain(self.l.encode_u32(len as u32 - 2)?)
+            .chain(offs.iter()
+                .map(|&off| self.m.encode_u32(off as u32))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter().flatten())
             .collect())
     }
 
     #[allow(dead_code)]
-    fn encode(&self, bytes: &[u8]) -> Result<BitVec, String> {
-        let (bits, offs) = self.encode_all(&[bytes])?;
-        assert_eq!(offs, vec![(0, bytes.len())]);
-        Ok(bits)
-    }
-
-    #[allow(dead_code)]
-    #[allow(unused_variables)]
-    fn encode_all(
+    fn encode1<'a, U: Sym>(
         &self,
-        slices: &[&[u8]]
-    ) -> Result<(BitVec, Vec<(usize, usize)>), String> {
-        let mut history: HashMap<&[u8], usize> = HashMap::new();
-        let mut outputs: Vec<BitVec> = Vec::new();
-        let mut off: usize = 0; // compressed offset
-
-        for slice in slices.iter().rev() {
-            let mut patterns: Vec<BitVec> = Vec::new();
-            let mut j = slice.len();
-            let mut lastmatch = j;
-            let mut forceimm = false;
-            while j > 0 {
-                // find longest suffix in dictionary that matches criteria
-                // this looks (and is) very expensive (O(n^2))
-                let mut prefix: &[u8] = &[slice[j-1]];// TODO make option?
-                let mut pref: Option<BitVec> = None;
-                for i in (0..j).rev() {
-                    if let Some(nref) = history
-                        .get(&slice[i..j])
-                        .and_then(|&poff|
-                            self.encode_ref(off-poff, slice[i..j].len()).ok()
-                        )
-                    {
-                        prefix = &slice[i..j];
-                        pref = Some(nref);
-                    }
-                }
-
-                let consume: usize;
-                let emit: usize;
-                if forceimm
-                    //|| prefix.len() == 1
-                    || pref.is_none()
-                    || 9*prefix.len() < pref.as_ref().unwrap().len()
+        history: &mut HashMap<&'a [U], usize>,
+        off: &mut usize,
+        slice: &'a [U]
+    ) -> Result<BitVec, String> {
+        let mut patterns: Vec<BitVec> = Vec::new();
+        let mut j = slice.len();
+        let mut lastmatch = j;
+        let mut forceimm = false;
+        while j > 0 {
+            // find longest suffix in dictionary that matches criteria
+            // this looks (and is) very expensive (O(n^2))
+            let mut prefix: &[U] = &[slice[j-1]];
+            let mut pref: Option<BitVec> = None;
+            for i in (0..j).rev() {
+                if let Some(nref) = history
+                    .get(&slice[i..j])
+                    .and_then(|&poff|
+                        self.encode_ref(*off-poff, slice[i..j].len()).ok()
+                    )
                 {
-                    // not worth the overhead of the reference, emit immediate
-                    consume = 1;
-                    emit = self.encode_imm(slice[j-1])?.len();
-                    patterns.push(self.encode_imm(slice[j-1])?);
-                    forceimm = false;
-
-                    // add every prefix to dictionary since last match, note we
-                    // also update the substrings of our original match, which
-                    // should improve offset locality. This is worst case O(n^2)
-                    // if no repetition is ever found.
-                    let i = j-consume;
-                    for r in i+2..lastmatch+1 {
-                        history.insert(&slice[i..r], off+emit);
-                    }
-                } else {
-                    // found a pattern, emit reference
-                    consume = prefix.len();
-                    emit = pref.as_ref().unwrap().len();
-                    patterns.push(pref.unwrap());
-
-                    // force an immediate to guarantee O(n) decompression (at
-                    // minimum one character per reference)
-                    lastmatch = j;
-                    forceimm = true;
+                    prefix = &slice[i..j];
+                    pref = Some(nref);
                 }
-
-                j -= consume;
-                off += emit;
             }
 
-            patterns.reverse();
-            outputs.push(patterns.iter().flatten().collect());
+            let consume: usize;
+            let emit: usize;
+            if forceimm || pref.as_ref().filter(|pref|
+                pref.len() < (1+self.width)*prefix.len()
+            ).is_none() {
+                // not worth the overhead of the reference, emit immediate
+                consume = 1;
+                emit = self.encode_imm(slice[j-1])?.len();
+                patterns.push(self.encode_imm(slice[j-1])?);
+                forceimm = false;
+
+                // add every prefix to dictionary since last match, note we
+                // also update the substrings of our original match, which
+                // should improve offset locality. This is worst case O(n^2)
+                // if no repetition is ever found.
+                let i = j-consume;
+                for r in i+2..lastmatch+1 {
+                    history.insert(&slice[i..r], *off+emit);
+                }
+            } else {
+                // found a pattern, emit reference
+                consume = prefix.len();
+                emit = pref.as_ref().unwrap().len();
+                patterns.push(pref.unwrap());
+
+                // force an immediate to guarantee O(n) decompression (at
+                // minimum one character per reference)
+                lastmatch = j;
+                forceimm = true;
+            }
+
+            j -= consume;
+            *off += emit;
         }
 
-        // flatten and build list of offsets
-        outputs.reverse();
-        let mut off = 0;
-        Ok((
-            outputs.iter().flatten().collect(),
-            outputs.iter().zip(slices).map(|(output, slice)| {
-                off += output.len();
-                (off-output.len(), slice.len())
-            }).collect(),
-        ))
+        patterns.reverse();
+        Ok(patterns.iter().flatten().collect())
     }
 
     #[allow(dead_code)]
-    fn decode(
-        &self,
-        bits: &BitSlice
-    ) -> Result<Vec<u8>, String> {
-        self.decode1(bits, 0, None, 0)
-    }
-
-    #[allow(dead_code)]
-    fn decode_all(
-        &self,
-        bits: &BitSlice,
-        offs: &[(usize, usize)]
-    ) -> Result<Vec<Vec<u8>>, String> {
-        offs.iter().map(|(off, len)|
-            self.decode_at(bits, *off, *len)
-        ).collect()
-    }
-
-    #[allow(dead_code)]
-    fn decode_at(
-        &self,
-        bits: &BitSlice,
-        off: usize,
-        len: usize
-    ) -> Result<Vec<u8>, String> {
-        self.decode1(bits, off, Some(len), 0)
-    }
-
-    #[allow(dead_code)]
-    fn decode1(
+    fn decode1<U: Sym>(
         &self,
         bits: &BitSlice,
         off: usize,
         len: Option<usize>,
         depth: u32,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<Vec<U>, String> {
         // check that we have bounded recursion
         if !(depth < 2) {
             return Err(format!(
@@ -231,7 +191,7 @@ impl GLZ {
                 depth, 2));
         }
 
-        let mut bytes: Vec<u8> = Vec::new();
+        let mut bytes: Vec<U> = Vec::new();
         let mut off = off;
         let mut cycles = 0;
         while match len {
@@ -239,34 +199,34 @@ impl GLZ {
             None => off < bits.len(),
         } {
             // decode symbol
-            let sym = 9.decode_u16_at(bits, off)?.0;
-            if sym & 0x100 == 0x00 {
+            let (sym, diff) = (self.width+1).decode_u32_at(bits, off)?;
+            if sym & (1 << self.width) == 0 {
                 // found an immediate
-                bytes.push((sym & 0xff) as u8);
-                off += 9;
+                bytes.push(self.width.cast(sym)?);
+                off += diff;
             } else {
                 // found an indirect reference
                 let refoffsize = (((sym >> self.l)
-                    & (2u16.pow(8-self.l as u32)-1))
+                    & (2u32.pow((self.width-self.l) as u32)-1))
                     + 1) as usize;
                 let reflen = ((sym
-                    & (2u16.pow(self.l as u32)-1))
+                    & (2u32.pow(self.l as u32)-1))
                     + 2) as usize;
 
                 let refoffsize = refoffsize as usize;
                 let mut refoff = 0;
                 for i in 0..refoffsize {
                     refoff = (refoff << self.m) + 1
-                        + self.m.decode_u32_at(bits, off+9+self.m*i)?.0;
+                        + self.m.decode_u32_at(bits, off+diff+self.m*i)?.0;
                 }
                 let refoff = (refoff - 1) as usize;
-                off += 9 + refoffsize*self.m;
+                off += diff + refoffsize*self.m;
 
                 // tail recurse?
                 if len.is_some() && reflen >= len.unwrap()-bytes.len() {
                     off += refoff;
                 } else {
-                    let ref_ = self.decode1(
+                    let ref_: Vec<U> = self.decode1(
                         bits,
                         off+refoff,
                         Some(reflen),
@@ -286,6 +246,59 @@ impl GLZ {
         }
 
         Ok(bytes)
+    }
+}
+
+impl Encode for GLZ {
+    #[allow(dead_code)]
+    fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec, String> {
+        self.encode1(&mut HashMap::new(), &mut 0, bytes)
+    }
+
+    #[allow(dead_code)]
+    fn decode<U: Sym>(
+        &self,
+        bits: &BitSlice
+    ) -> Result<Vec<U>, String> {
+        self.decode1(bits, 0, None, 0)
+    }
+}
+
+impl MultiEncode for GLZ {
+    #[allow(dead_code)]
+    fn encode_all<U: Sym>(
+        &self,
+        slices: &[&[U]]
+    ) -> Result<(BitVec, Vec<(usize, usize)>), String> {
+        let mut history: HashMap<&[U], usize> = HashMap::new();
+        let mut off = 0; // compressed offset
+
+        let bits: Vec<BitVec> = slices
+            .into_iter().rev()
+            .map(|slice|
+                self.encode1(&mut history, &mut off, slice)
+            ).collect::<Result<Vec<_>, _>>()?
+            .into_iter().rev()
+            .collect();
+
+        let mut off = 0; // uncompressed offset
+        Ok((
+            bits.iter().flatten().collect(),
+            bits.iter().zip(slices).map(|(bits, slice)| {
+                off += bits.len();
+                (off-bits.len(), slice.len())
+            }).collect()
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn decode_at<U: Sym>(
+        &self,
+        bits: &BitSlice,
+        off: usize,
+        len: usize
+    ) -> Result<Vec<U>, String> {
+        self.decode1(bits, off, Some(len), 0)
     }
 }
 
@@ -355,7 +368,7 @@ mod tests {
     #[test]
     fn symmetry_test() {
         let glz = GLZ::new(5, 3);
-        assert_eq!(glz.encode(b"hello world!").map(|x| x.len()), Ok(108));
+        assert_eq!(glz.encode(b"hello world!").unwrap().len(), 108);
         assert_eq!(
             glz.decode(&glz.encode(b"hello world!").unwrap()),
             Ok(b"hello world!".to_vec())
@@ -363,7 +376,7 @@ mod tests {
 
         let glz = GLZ::new(5, 3);
         let phrase = b"hello world hello hello world!";
-        assert_eq!(glz.encode(phrase).map(|x| x.len()), Ok(144));
+        assert_eq!(glz.encode(phrase).unwrap().len(), 144);
         assert_eq!(
             glz.decode(&glz.encode(phrase).unwrap()),
             Ok(phrase.to_vec())
@@ -371,7 +384,7 @@ mod tests {
 
         let glz = GLZ::new(5, 3);
         let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
-        assert_eq!(glz.encode(phrase).map(|x| x.len()), Ok(207));
+        assert_eq!(glz.encode(phrase).unwrap().len(), 207);
         assert_eq!(
             glz.decode(&glz.encode(phrase).unwrap()),
             Ok(phrase.to_vec())
@@ -379,7 +392,7 @@ mod tests {
 
         let glz = GLZ::new(5, 3);
         let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
-        assert_eq!(glz.encode(phrase).map(|x| x.len()), Ok(192));
+        assert_eq!(glz.encode(phrase).unwrap().len(), 192);
         assert_eq!(
             glz.decode(&glz.encode(phrase).unwrap()),
             Ok(phrase.to_vec())
@@ -387,7 +400,7 @@ mod tests {
 
         let glz = GLZ::new(5, 3);
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
-        assert_eq!(glz.encode(phrase).map(|x| x.len()), Ok(144));
+        assert_eq!(glz.encode(phrase).unwrap().len(), 144);
         assert_eq!(
             glz.decode(&glz.encode(phrase).unwrap()),
             Ok(phrase.to_vec())
@@ -395,7 +408,7 @@ mod tests {
 
         let glz = GLZ::new(5, 3);
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
-        assert_eq!(glz.encode(phrase).map(|x| x.len()), Ok(135));
+        assert_eq!(glz.encode(phrase).unwrap().len(), 135);
         assert_eq!(
             glz.decode(&glz.encode(phrase).unwrap()),
             Ok(phrase.to_vec())
