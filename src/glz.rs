@@ -1,4 +1,3 @@
-use std::iter;
 use std::collections::HashMap;
 
 use super::bits::*;
@@ -38,43 +37,62 @@ use super::bits::*;
 // The references themselves can get quite long, but we only emit them
 // if they save space.
 
-struct GLZ {
+pub struct GLZ<E: SymEncode = usize> {
     l: usize, // length of references
     m: usize, // width of offset chunks
     width: usize,
+    encoder: E,
 }
 
 impl GLZ {
     #[allow(dead_code)]
-    fn new(l: usize, m: usize) -> GLZ {
-        GLZ{l: l, m: m, width: 8}
+    pub fn new(l: usize, m: usize) -> GLZ {
+        GLZ::with_encoder(l, m, 8, 8+1)
     }
 
     #[allow(dead_code)]
-    fn with_width(l: usize, m: usize, width: usize) -> GLZ {
-        GLZ{l: l, m: m, width: width}
+    pub fn with_width(l: usize, m: usize, width: usize) -> GLZ {
+        GLZ::with_encoder(l, m, width, width+1)
+    }
+}
+
+impl<E: SymEncode> GLZ<E> {
+    #[allow(dead_code)]
+    pub fn with_encoder(
+        l: usize,
+        m: usize,
+        width: usize,
+        encoder: E,
+    ) -> GLZ<E> {
+        GLZ{
+            l: l,
+            m: m,
+            width: width,
+            encoder: encoder,
+        }
     }
 
     #[allow(dead_code)]
-    fn l(&self) -> usize {
+    pub fn l(&self) -> usize {
         self.l
     }
 
     #[allow(dead_code)]
-    fn m(&self) -> usize {
+    pub fn m(&self) -> usize {
         self.m
     }
 
     #[allow(dead_code)]
-    fn width(&self) -> usize {
+    pub fn width(&self) -> usize {
         self.width
     }
 
     #[allow(dead_code)]
     fn encode_imm<U: Sym>(&self, c: U) -> Result<BitVec, String> {
-        Ok(iter::once(false)
-            .chain(self.width.encode_sym(c)?)
-            .collect())
+        let imm: u32
+            = (0u32 << self.width)
+            | self.width.cast_u32(c)?;
+        self.encoder.encode_u32(imm)
     }
 
     #[allow(dead_code)]
@@ -99,9 +117,12 @@ impl GLZ {
             return Err(format!("bad offset {} (off = {})", offsize, off));
         }
 
-        Ok(iter::once(true)
-            .chain((self.width-self.l).encode_u32(offsize as u32 - 1)?)
-            .chain(self.l.encode_u32(len as u32 - 2)?)
+        let ref_: u32
+            = (1u32 << self.width)
+            | ((self.width-self.l).cast_u32(offsize as u32 - 1)? << self.l)
+            | self.l.cast_u32(len as u32 - 2)?;
+
+        Ok(self.encoder.encode_u32(ref_)?.iter()
             .chain(offs.iter()
                 .map(|&off| self.m.encode_u32(off as u32))
                 .collect::<Result<Vec<_>, _>>()?
@@ -199,7 +220,8 @@ impl GLZ {
             None => off < bits.len(),
         } {
             // decode symbol
-            let (sym, diff) = (self.width+1).decode_u32_at(bits, off)?;
+            let (sym, diff) = self.encoder.decode_u32_at(bits, off)?;
+
             if sym & (1 << self.width) == 0 {
                 // found an immediate
                 bytes.push(self.width.cast(sym)?);
@@ -247,9 +269,44 @@ impl GLZ {
 
         Ok(bytes)
     }
+
+    #[allow(dead_code)]
+    pub fn map_ops<U: Sym, V: Sym, F: FnMut(V)>(
+        &self,
+        slice: &[U],
+        f: F,
+    ) -> Result<(), String> {
+        self.map_ops_all(&[slice], f)
+    }
+
+    #[allow(dead_code)]
+    #[allow(unused_variables)]
+    pub fn map_ops_all<U: Sym, V: Sym, F: FnMut(V)>(
+        &self,
+        slices: &[&[U]],
+        mut f: F,
+    ) -> Result<(), String> {
+        let (bits, _) = self.encode_all(slices)?;
+        let mut off = 0;
+        while off < bits.len() {
+            let (op, diff) = self.encoder.decode_u32_at(&bits, off)?;
+
+            // pass to our callback
+            f((1+self.width).cast(op)?);
+
+            off += diff;
+            if op & 1u32 << 1+self.width != 0 {
+                off += (((op >> self.l)
+                    & (2u32.pow((self.width-self.l) as u32)-1))
+                    + 1) as usize;
+            }
+        }
+
+        Ok(())
+    }
 }
 
-impl Encode for GLZ {
+impl<E: SymEncode> Encode for GLZ<E> {
     #[allow(dead_code)]
     fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec, String> {
         self.encode1(&mut HashMap::new(), &mut 0, bytes)
@@ -264,7 +321,7 @@ impl Encode for GLZ {
     }
 }
 
-impl MultiEncode for GLZ {
+impl<E: SymEncode> GranularEncode for GLZ<E> {
     #[allow(dead_code)]
     fn encode_all<U: Sym>(
         &self,
@@ -301,6 +358,7 @@ impl MultiEncode for GLZ {
         self.decode1(bits, off, Some(len), 0)
     }
 }
+
 
 #[cfg(test)]
 mod tests {

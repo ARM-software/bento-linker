@@ -7,7 +7,12 @@ pub use bitvec::prelude::*;
 // Symbols that can be encoded (u8, u16, u32)
 // Note these can all be expanded to u32
 #[allow(dead_code)]
-pub trait Sym: TryFrom<u32> + Into<u32> + Copy + Eq + hash::Hash {
+pub trait Sym
+where
+    Self: TryFrom<u32> + Into<u32>,
+    Self: Copy,
+    Self: Eq + hash::Hash,
+{
     fn encode_sym(width: usize, n: Self) -> Result<BitVec, String>;
     fn decode_sym(width: usize, bits: &BitSlice) -> Result<Self, String>;
 }
@@ -58,15 +63,15 @@ macro_rules! mkrule {
         }
     };
 
-    ($name:ident { $target:ident!($u:ty$(, $x:ident: $xt:ty)*) }) => {
-        fn $name(&self, n: $u$(, $x: $xt)*) -> Result<BitVec, String> {
-            self.$target(n$(, $x)*)
-        }
-    };
-
     ($name:ident { $target:ident($($x:ident: $xt:ty),*) -> $u:ty }) => {
         fn $name(&self, bits: &BitSlice$(, $x: $xt)*) -> Result<$u, String> {
             self.$target(bits$(, $x)*)
+        }
+    };
+
+    ($name:ident { $target:ident(U$(, $x:ident: $xt:ty)*) -> $v:ty }) => {
+        fn $name<U: Sym>(&self, n: U$(, $x: $xt)*) -> Result<$v, String> {
+            self.$target(n$(, $x)*)
         }
     };
 }
@@ -76,9 +81,9 @@ pub trait Encode {
     fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec, String>;
     fn decode<U: Sym>(&self, bits: &BitSlice) -> Result<Vec<U>, String>;
 
-    mkrule!(encode_u8s  { encode!(&[u8])  });
-    mkrule!(encode_u16s { encode!(&[u16]) });
-    mkrule!(encode_u32s { encode!(&[u32]) });
+    mkrule!(encode_u8s  { encode(&[u8])  });
+    mkrule!(encode_u16s { encode(&[u16]) });
+    mkrule!(encode_u32s { encode(&[u32]) });
     mkrule!(decode_u8s  { decode() -> Vec<u8>  });
     mkrule!(decode_u16s { decode() -> Vec<u16> });
     mkrule!(decode_u32s { decode() -> Vec<u32> });
@@ -86,10 +91,15 @@ pub trait Encode {
 
 // Symbol encoder, operates on variable sized symbols
 pub trait SymEncode {
-    fn encode_sym<U: Sym>(&self, n: U)
-        -> Result<BitVec, String>;
-    fn decode_sym<U: Sym>(&self, bits: &BitSlice)
-        -> Result<(U, usize), String>;
+    fn encode_sym<U: Sym>(
+        &self,
+        n: U
+    ) -> Result<BitVec, String>;
+
+    fn decode_sym<U: Sym>(
+        &self,
+        bits: &BitSlice
+    ) -> Result<(U, usize), String>;
 
     fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V, String> {
         Ok(self.decode_sym(&self.encode_sym(n)?)?.0)
@@ -109,6 +119,10 @@ pub trait SymEncode {
     mkrule!(decode_u8  { decode_sym() -> (u8,  usize) });
     mkrule!(decode_u16 { decode_sym() -> (u16, usize) });
     mkrule!(decode_u32 { decode_sym() -> (u32, usize) });
+
+    mkrule!(cast_u8  { cast(U) -> u8  });
+    mkrule!(cast_u16 { cast(U) -> u16 });
+    mkrule!(cast_u32 { cast(U) -> u32 });
 
     mkrule!(decode_u8_at    { decode_sym_at(off: usize) -> (u8,  usize) });
     mkrule!(decode_u16_at   { decode_sym_at(off: usize) -> (u16, usize) });
@@ -137,7 +151,7 @@ impl<T: SymEncode> Encode for T {
     }
 }
 
-pub trait MultiEncode {
+pub trait GranularEncode {
     fn encode_all<U: Sym>(
         &self,
         slices: &[&[U]]
@@ -165,7 +179,7 @@ pub trait MultiEncode {
     mkrule!(decode_u32s_at { decode_at(off: usize, len: usize) -> Vec<u32> });
 }
 
-impl<T: SymEncode> MultiEncode for T {
+impl<T: SymEncode> GranularEncode for T {
     fn encode_all<U: Sym>(
         &self,
         slices: &[&[U]]

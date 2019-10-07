@@ -5,7 +5,7 @@ use super::bits::*;
 
 
 //// Golomb-Rice code conversions
-struct GolombRice {
+pub struct GolombRice {
     k: usize,
     width: usize,
     table: Option<(Vec<u32>, Vec<u32>)>,
@@ -27,17 +27,21 @@ fn table_reverse(table: &[u32]) -> Vec<u32> {
 
 impl GolombRice {
     #[allow(dead_code)]
-    fn new(k: usize) -> GolombRice {
+    pub fn new(k: usize) -> GolombRice {
         GolombRice{k: k, width: 8, table: None}
     }
 
     #[allow(dead_code)]
-    fn with_width(k: usize, width: usize) -> GolombRice {
+    pub fn with_width(k: usize, width: usize) -> GolombRice {
         GolombRice{k: k, width: width, table: None}
     }
 
     #[allow(dead_code)]
-    fn with_table<U: Sym>(k: usize, width: usize, table: &[U]) -> GolombRice {
+    pub fn with_table<U: Sym>(
+        k: usize,
+        width: usize,
+        table: &[U]
+    ) -> GolombRice {
         assert_eq!(table.len(), 2usize.pow(width as u32));
         let table: Vec<u32> = table_cast(table).unwrap();
         let reverse_table = table_reverse(&table);
@@ -53,12 +57,11 @@ impl GolombRice {
     }
 
     #[allow(dead_code)]
-    fn from_hist(
+    pub fn from_hist(
         k: Option<usize>,
-        width: Option<usize>,
+        width: usize,
         hist: &[usize]
     ) -> GolombRice {
-        let width = width.unwrap_or(8);
         assert_eq!(hist.len(), 2usize.pow(width as u32));
 
         // build reverse table
@@ -69,7 +72,7 @@ impl GolombRice {
 
         // either use provided k, or find best k for our histogram
         let k = k.unwrap_or_else(||
-            (0..=8).map(|k| {
+            (0..=width).map(|k| {
                 let gr = GolombRice::with_width(k, width);
                 let size: usize = hist.iter().enumerate().map(|(n, &c)|
                     c * gr.encode_sym(table[n as usize]).unwrap().len()
@@ -88,43 +91,41 @@ impl GolombRice {
     }
 
     #[allow(dead_code)]
-    fn from_seed<I, U>(
+    pub fn from_seed<I, U>(
         k: Option<usize>,
-        width: Option<usize>,
+        width: usize,
         seed: I
     ) -> GolombRice
     where
         I: IntoIterator<Item=U>,
         U: Sym,
     {
-        let width = width.unwrap_or(8);
-
         // build up histogram
         let mut hist = vec![0; 2usize.pow(width as u32)];
         for x in seed {
             hist[x.into() as usize] += 1;
         }
 
-        GolombRice::from_hist(k, Some(width), &hist)
+        GolombRice::from_hist(k, width, &hist)
     }
 
     #[allow(dead_code)]
-    fn k(&self) -> usize {
+    pub fn k(&self) -> usize {
         self.k
     }
 
     #[allow(dead_code)]
-    fn width(&self) -> usize {
+    pub fn width(&self) -> usize {
         self.width
     }
 
     #[allow(dead_code)]
-    fn table<U: Sym>(&self) -> Option<Vec<U>> {
+    pub fn table<U: Sym>(&self) -> Option<Vec<U>> {
         self.table.as_ref().map(|(t, _)| table_cast(t).unwrap())
     }
 
     #[allow(dead_code)]
-    fn reverse_table<U: Sym>(&self) -> Option<Vec<U>> {
+    pub fn reverse_table<U: Sym>(&self) -> Option<Vec<U>> {
         self.table.as_ref().map(|(_, t)| table_cast(t).unwrap())
     }
 }
@@ -316,19 +317,19 @@ mod tests {
         let gr = GolombRice::with_table(4, 8, &order);
         assert_eq!(gr.k(), 4);
 
-        let gr = GolombRice::from_seed(Some(4), Some(8),
+        let gr = GolombRice::from_seed(Some(4), 8,
             [0u8;100].iter().copied());
         assert_eq!(gr.k(), 4);
 
-        let gr = GolombRice::from_seed(None, None,
+        let gr = GolombRice::from_seed(None, 8,
             iter::repeat(0u8).take(100));
         assert_eq!(gr.k(), 0);
 
-        let gr = GolombRice::from_seed(None, None,
+        let gr = GolombRice::from_seed(None, 8,
             order.iter().copied());
         assert_eq!(gr.k(), 8);
 
-        let gr = GolombRice::from_seed(None, None,
+        let gr = GolombRice::from_seed(None, 8,
             (0..=255).chain(iter::repeat(0u8).take(1000)));
         assert_eq!(gr.k(), 4);
     }
@@ -336,7 +337,7 @@ mod tests {
     #[test]
     fn hist_symmetry_test() {
         let gr = GolombRice::from_seed(
-            None, None, b"hello world!".iter().copied());
+            None, 8, b"hello world!".iter().copied());
         assert_eq!(gr.k(), 1);
         assert_eq!(
             gr.encode_u8(b'h'),
@@ -356,7 +357,7 @@ mod tests {
         );
 
         let gr = GolombRice::from_seed(
-            None, None, b"hhhhh world!".iter().copied());
+            None, 8, b"hhhhh world!".iter().copied());
         assert_eq!(gr.k(), 1);
         assert_eq!(
             gr.encode_u8(b'h'),
@@ -376,7 +377,7 @@ mod tests {
         );
 
         let gr = GolombRice::from_seed(
-            None, None, b"hhhhhhhhhhh!".iter().copied());
+            None, 8, b"hhhhhhhhhhh!".iter().copied());
         assert_eq!(gr.k(), 0);
         assert_eq!(
             gr.encode_u8(b'h'),
@@ -396,7 +397,7 @@ mod tests {
         );
 
         let gr = GolombRice::from_seed(
-            None, None, b"hhhhhhhhhhhh".iter().copied());
+            None, 8, b"hhhhhhhhhhhh".iter().copied());
         assert_eq!(gr.k(), 0);
         assert_eq!(
             gr.encode_u8(b'h'),
