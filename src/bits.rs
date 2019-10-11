@@ -1,76 +1,112 @@
+use crate::errors::*;
+
 use std::convert::TryFrom;
 use std::hash;
+use std::rc::Rc;
+use std::mem;
+
+use error_chain::ensure;
 
 pub use bitvec::prelude::*;
 
 
 // Symbols that can be encoded (u8, u16, u32)
 // Note these can all be expanded to u32
-#[allow(dead_code)]
 pub trait Sym
 where
     Self: TryFrom<u32> + Into<u32>,
     Self: Copy,
     Self: Eq + hash::Hash,
 {
-    fn encode_sym(width: usize, n: Self) -> Result<BitVec, String>;
-    fn decode_sym(width: usize, bits: &BitSlice) -> Result<Self, String>;
+    fn encode_sym(width: usize, n: Self) -> Result<BitVec>;
+    fn decode_sym(width: usize, bits: &BitSlice) -> Result<Self>;
 }
 
-#[allow(dead_code)]
+fn ensure_width<U: Sym>(width: usize, n: Option<u32>, op: &str) -> Result<()> {
+    let realwidth = 8*mem::size_of::<U>();
+    ensure!(width <= realwidth,
+        "attempted to {} {}-bit symbol as u{}",
+        op, width, realwidth);
+    if let Some(n) = n {
+        ensure!(width >= 32 || u32::from(n) < 2u32.pow(width as u32),
+            "{} would overflow a {}-bit symbol", op, width);
+    }
+    Ok(())
+}
+
+macro_rules! ensure_width {
+    ($u:ty, $width:expr, $op:expr) => {
+        ensure_width::<$u>($width, None, $op)?
+    };
+
+    ($u:ty, $width:expr, $n:expr, $op:expr) => {
+        ensure_width::<$u>($width, Some($n.into()), $op)?
+    };
+}
+
+fn encode_sym<U: Sym>(width: usize, n: U) -> Result<BitVec> {
+    Ok(n.into().as_bitslice::<BigEndian>()[32-width..].iter().collect())
+}
+
+fn decode_sym<U: Sym>(width: usize, bits: &BitSlice) -> Result<U> {
+    ensure!(bits.len() >= width, "found truncated {}-bit symbol", width);
+
+    Ok(U::try_from(bits[..width].iter().enumerate().fold(0, |s, (i, v)|
+        s | (u32::from(v) << ((width - i - 1) as u32))
+    )).ok().unwrap())
+}
+
 impl Sym for u8 {
-    fn encode_sym(width: usize, n: u8) -> Result<BitVec, String> {
+    fn encode_sym(width: usize, n: u8) -> Result<BitVec> {
+        ensure_width!(u8, width, n, "encode");
         Ok(BitVec::from_bitslice(&n.as_bitslice::<BigEndian>()[8-width..]))
     }
 
-    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u8, String> {
-        u32::decode_sym(width, bits).map(|n| n as u8)
+    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u8> {
+        ensure_width!(u8, width, "decode");
+        decode_sym(width, bits)
     }
 }
 
-#[allow(dead_code)]
 impl Sym for u16 {
-    fn encode_sym(width: usize, n: u16) -> Result<BitVec, String> {
-        u32::encode_sym(width, u32::from(n))
+    fn encode_sym(width: usize, n: u16) -> Result<BitVec> {
+        ensure_width!(u16, width, n, "encode");
+        encode_sym(width, n)
     }
 
-    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u16, String> {
-        u32::decode_sym(width, bits).map(|n| n as u16)
+    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u16> {
+        ensure_width!(u16, width, "decode");
+        decode_sym(width, bits)
     }
 }
 
-#[allow(dead_code)]
 impl Sym for u32 {
-    fn encode_sym(width: usize, n: u32) -> Result<BitVec, String> {
-        Ok(n.as_bitslice::<BigEndian>()[32-width..].iter().collect())
+    fn encode_sym(width: usize, n: u32) -> Result<BitVec> {
+        ensure_width!(u32, width, n, "encode");
+        encode_sym(width, n)
     }
 
-    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u32, String> {
-        if bits.len() < width {
-            return Err(format!("found truncated u{}", width));
-        }
-
-        Ok(bits[..width].iter().enumerate().fold(0, |s, (i, v)|
-            s | (u32::from(v) << ((width - i - 1) as u32))
-        ))
+    fn decode_sym(width: usize, bits: &BitSlice) -> Result<u32> {
+        ensure_width!(u32, width, "decode");
+        decode_sym(width, bits)
     }
 }
 
 macro_rules! mkrule {
     ($name:ident { $target:ident($u:ty$(, $x:ident: $xt:ty)*) }) => {
-        fn $name(&self, n: $u$(, $x: $xt)*) -> Result<BitVec, String> {
+        fn $name(&self, n: $u$(, $x: $xt)*) -> Result<BitVec> {
             self.$target(n$(, $x)*)
         }
     };
 
     ($name:ident { $target:ident($($x:ident: $xt:ty),*) -> $u:ty }) => {
-        fn $name(&self, bits: &BitSlice$(, $x: $xt)*) -> Result<$u, String> {
+        fn $name(&self, bits: &BitSlice$(, $x: $xt)*) -> Result<$u> {
             self.$target(bits$(, $x)*)
         }
     };
 
     ($name:ident { $target:ident(U$(, $x:ident: $xt:ty)*) -> $v:ty }) => {
-        fn $name<U: Sym>(&self, n: U$(, $x: $xt)*) -> Result<$v, String> {
+        fn $name<U: Sym>(&self, n: U$(, $x: $xt)*) -> Result<$v> {
             self.$target(n$(, $x)*)
         }
     };
@@ -78,15 +114,25 @@ macro_rules! mkrule {
 
 // Generalized encoder, operates on streams of symbols
 pub trait Encode {
-    fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec, String>;
-    fn decode<U: Sym>(&self, bits: &BitSlice) -> Result<Vec<U>, String>;
+    fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec> {
+        self.encode_with_prog(bytes, |_|())
+    }
 
-    mkrule!(encode_u8s  { encode(&[u8])  });
-    mkrule!(encode_u16s { encode(&[u16]) });
-    mkrule!(encode_u32s { encode(&[u32]) });
-    mkrule!(decode_u8s  { decode() -> Vec<u8>  });
-    mkrule!(decode_u16s { decode() -> Vec<u16> });
-    mkrule!(decode_u32s { decode() -> Vec<u32> });
+    fn decode<U: Sym>(&self, bits: &BitSlice) -> Result<Vec<U>> {
+        self.decode_with_prog(bits, |_|())
+    }
+
+    fn encode_with_prog<U: Sym>(
+        &self,
+        bytes: &[U],
+        prog: impl FnMut(usize),
+    ) -> Result<BitVec>;
+
+    fn decode_with_prog<U: Sym>(
+        &self,
+        bits: &BitSlice,
+        prog: impl FnMut(usize),
+    ) -> Result<Vec<U>>;
 }
 
 // Symbol encoder, operates on variable sized symbols
@@ -94,14 +140,14 @@ pub trait SymEncode {
     fn encode_sym<U: Sym>(
         &self,
         n: U
-    ) -> Result<BitVec, String>;
+    ) -> Result<BitVec>;
 
     fn decode_sym<U: Sym>(
         &self,
         bits: &BitSlice
-    ) -> Result<(U, usize), String>;
+    ) -> Result<(U, usize)>;
 
-    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V, String> {
+    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V> {
         Ok(self.decode_sym(&self.encode_sym(n)?)?.0)
     }
 
@@ -109,7 +155,7 @@ pub trait SymEncode {
         &self,
         bits: &BitSlice,
         off: usize
-    ) -> Result<(U, usize), String> {
+    ) -> Result<(U, usize)> {
         self.decode_sym(&bits[off..])
     }
 
@@ -131,20 +177,33 @@ pub trait SymEncode {
 
 // All symbol encoders are encoders
 impl<T: SymEncode> Encode for T {
-    fn encode<U: Sym>(&self, bytes: &[U]) -> Result<BitVec, String> {
+    fn encode_with_prog<U: Sym>(
+        &self,
+        bytes: &[U],
+        mut prog: impl FnMut(usize),
+    ) -> Result<BitVec> {
         Ok(bytes.iter()
-            .map(|&n| self.encode_sym(n))
-            .collect::<Result<Vec<_>, _>>()?
+            .map(|&n| {
+                let n = self.encode_sym(n);
+                prog(1);
+                n
+            })
+            .collect::<Result<Vec<_>>>()?
             .into_iter().flatten()
             .collect())
     }
 
-    fn decode<U: Sym>(&self, bits: &BitSlice) -> Result<Vec<U>, String> {
+    fn decode_with_prog<U: Sym>(
+        &self,
+        bits: &BitSlice,
+        mut prog: impl FnMut(usize)
+    ) -> Result<Vec<U>> {
         let mut words: Vec<U> = Vec::new();
         let mut off = 0;
         while off < bits.len() {
             let (n, diff) = self.decode_sym_at(bits, off)?;
             words.push(n);
+            prog(1);
             off += diff;
         }
         Ok(words)
@@ -155,16 +214,16 @@ pub trait GranularEncode {
     fn encode_all<U: Sym>(
         &self,
         slices: &[&[U]]
-    ) -> Result<(BitVec, Vec<(usize, usize)>), String>;
+    ) -> Result<(BitVec, Vec<(usize, usize)>)> {
+        self.encode_all_with_prog(slices, (|_|(), |_|()))
+    }
 
     fn decode_all<U: Sym>(
         &self,
         bits: &BitSlice,
         offs: &[(usize, usize)]
-    ) -> Result<Vec<Vec<U>>, String> {
-        offs.iter().map(|(off, len)|
-            self.decode_at(bits, *off, *len)
-        ).collect()
+    ) -> Result<Vec<Vec<U>>> {
+        self.decode_all_with_prog(bits, offs, (|_|(), |_|()))
     }
 
     fn decode_at<U: Sym>(
@@ -172,21 +231,52 @@ pub trait GranularEncode {
         bits: &BitSlice,
         off: usize,
         len: usize
-    ) -> Result<Vec<U>, String>;
+    ) -> Result<Vec<U>> {
+        self.decode_at_with_prog(bits, off, len, |_|())
+    }
 
-    mkrule!(decode_u8s_at  { decode_at(off: usize, len: usize) -> Vec<u8>  });
-    mkrule!(decode_u16s_at { decode_at(off: usize, len: usize) -> Vec<u16> });
-    mkrule!(decode_u32s_at { decode_at(off: usize, len: usize) -> Vec<u32> });
+    fn encode_all_with_prog<U: Sym>(
+        &self,
+        slices: &[&[U]],
+        prog: (impl FnMut(usize), impl FnMut(usize)),
+    ) -> Result<(BitVec, Vec<(usize, usize)>)>;
+
+    fn decode_all_with_prog<U: Sym>(
+        &self,
+        bits: &BitSlice,
+        offs: &[(usize, usize)],
+        mut prog: (impl FnMut(usize), impl FnMut(usize)),
+    ) -> Result<Vec<Vec<U>>> {
+        offs.iter().map(|(off, len)| {
+            let slice = self.decode_at_with_prog(bits, *off, *len, &mut prog.1);
+            prog.0(1);
+            slice
+        }).collect()
+    }
+
+    fn decode_at_with_prog<U: Sym>(
+        &self,
+        bits: &BitSlice,
+        off: usize,
+        len: usize,
+        prog: impl FnMut(usize),
+    ) -> Result<Vec<U>>;
 }
 
 impl<T: SymEncode> GranularEncode for T {
-    fn encode_all<U: Sym>(
+    fn encode_all_with_prog<U: Sym>(
         &self,
-        slices: &[&[U]]
-    ) -> Result<(BitVec, Vec<(usize, usize)>), String> {
+        slices: &[&[U]],
+        mut prog: (impl FnMut(usize), impl FnMut(usize)),
+    ) -> Result<(BitVec, Vec<(usize, usize)>)> {
         let bits = slices.iter()
-            .map(|slice| self.encode(slice))
-            .collect::<Result<Vec<_>, _>>()?;
+            .rev()
+            .map(|slice| {
+                let slice = self.encode_with_prog(slice, &mut prog.1);
+                prog.0(1);
+                slice
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         let mut off = 0;
         Ok((
@@ -198,44 +288,49 @@ impl<T: SymEncode> GranularEncode for T {
         ))
     }
 
-    fn decode_at<U: Sym>(
+    fn decode_at_with_prog<U: Sym>(
         &self,
         bits: &BitSlice,
         off: usize,
-        len: usize)
-    -> Result<Vec<U>, String> {
+        len: usize,
+        mut prog: impl FnMut(usize),
+    ) -> Result<Vec<U>> {
         let mut words = Vec::new();
         let mut off = off;
         while words.len() < len {
             let (n, diff) = self.decode_sym_at(bits, off)?;
             words.push(n);
+            prog(diff);
             off += diff;
         }
         Ok(words)
     }
 }
 
+// I should probably have more of these but oh well
+impl<T: SymEncode> SymEncode for Rc<T> {
+    fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
+        (**self).encode_sym(n)
+    }
+
+    fn decode_sym<U: Sym>(&self, bits: &BitSlice) -> Result<(U, usize)> {
+        (**self).decode_sym(bits)
+    }
+}
+
 // A usize value can be a symbol encoder (fixed width integers)
 impl SymEncode for usize {
-    fn encode_sym<U: Sym>(&self,
-        n: U
-    ) -> Result<BitVec, String> {
+    fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
         U::encode_sym(*self, n)
     }
 
-    fn decode_sym<U: Sym>(&self,
-        bits: &BitSlice
-    ) -> Result<(U, usize), String> {
+    fn decode_sym<U: Sym>(&self, bits: &BitSlice) -> Result<(U, usize)> {
         U::decode_sym(*self, bits).map(|v| (v, *self))
     }
 
-    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V, String> {
-        let n: u32 = n.into();
-        if *self >= 32 || n < 2u32.pow(*self as u32) {
-            Ok(V::try_from(n).ok().unwrap())
-        } else {
-            Err(format!("exceeded size of u{} with {}", *self, n))
-        }
+    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V> {
+        ensure_width!(V, *self, n, "cast");
+        Ok(V::try_from(n.into()).ok().unwrap())
     }
 }
 
@@ -245,47 +340,92 @@ mod tests {
     use super::*;
 
     #[test]
-    fn symmetry_test() {
+    fn encode_test() -> Result<()> {
+        assert_eq!(
+            8.encode_u8(0b11001001u8)?,
+            bitvec![1,1,0,0,1,0,0,1]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decode_test() -> Result<()> {
+        assert_eq!(
+            8.decode_u8(&bitvec![1,1,0,0,1,0,0,1])?,
+            (0b11001001u8, 8)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn errors_test() -> Result<()> {
+        assert!(
+            16.encode_u8(0b11001001u8)
+                .is_err()
+        );
+        assert!(
+            8.encode_u16(0b1100100100000000u16)
+                .is_err()
+        );
+        assert!(
+            16.decode_u8(&bitvec![1,1,0,0,1,0,0,1,0,0,0,0,0,0,0,0])
+                .is_err()
+        );
+        assert!(
+            16.decode_u16(&bitvec![1,1,0,0,1,0,0,1])
+                .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn symmetry_test() -> Result<()> {
         fn mask(n: u32, m: usize) -> u32 {
             n & 1u32.checked_shl(m as u32).unwrap_or(0).wrapping_sub(1)
         }
 
         for i in 1..=8 {
-            assert_eq!(i.encode_u8(0xc5u8).unwrap().len(), i);
+            let pattern = mask(0xc5c5c5c5, i) as u8;
+            assert_eq!(i.encode_u8(pattern)?.len(), i);
             assert_eq!(
-                i.decode_u8(&i.encode_u8(0xc5u8).unwrap()),
-                Ok((mask(0xc5, i) as u8, i))
+                i.decode_u8(&i.encode_u8(pattern)?)?,
+                (pattern, i)
             );
         }
 
         for i in 1..=16 {
-            assert_eq!(i.encode_u16(0xc5c5u16).unwrap().len(), i);
+            let pattern = mask(0xc5c5c5c5, i) as u16;
+            assert_eq!(i.encode_u16(pattern)?.len(), i);
             assert_eq!(
-                i.decode_u16(&i.encode_u16(0xc5c5u16).unwrap()),
-                Ok((mask(0xc5c5, i) as u16, i))
+                i.decode_u16(&i.encode_u16(pattern)?)?,
+                (pattern, i)
             );
         }
 
         for i in 1..=32 {
-            assert_eq!(i.encode_u32(0xc5c5c5c5u32).unwrap().len(), i);
+            let pattern = mask(0xc5c5c5c5, i) as u32;
+            assert_eq!(i.encode_u32(pattern)?.len(), i);
             assert_eq!(
-                i.decode_u32(&i.encode_u32(0xc5c5c5c5u32).unwrap()),
-                Ok((mask(0xc5c5c5c5, i) as u32, i))
+                i.decode_u32(&i.encode_u32(pattern)?)?,
+                (pattern, i)
             );
         }
 
         for i in 1..=32 {
-            assert_eq!(i.encode_sym(0xc5c5c5c5u32).unwrap().len(), i);
+            let pattern = mask(0xc5c5c5c5, i) as u32;
+            assert_eq!(i.encode_sym(pattern)?.len(), i);
             assert_eq!(
-                i.decode_sym(&i.encode_sym(0xc5c5c5c5u32).unwrap()),
-                Ok((mask(0xc5c5c5c5, i) as u32, i))
+                i.decode_sym(&i.encode_sym(pattern)?)?,
+                (pattern, i)
             );
         }
 
-        assert_eq!(8.encode(b"hello world!").unwrap().len(), 96);
+        assert_eq!(8.encode(b"hello world!")?.len(), 96);
         assert_eq!(
-            8.decode(&8.encode(b"hello world!").unwrap()),
-            Ok(b"hello world!".to_vec())
+            8.decode::<u8>(&8.encode(b"hello world!")?)?,
+            b"hello world!".to_vec()
         );
+
+        Ok(())
     }
 }
