@@ -272,32 +272,32 @@ impl<E: SymEncode> GLZ<E> {
         Ok(bytes)
     }
 
-    pub fn map_ops<U: Sym, V: Sym, F: FnMut(V)>(
+    pub fn map_syms<U: Sym, V: Sym, F: FnMut(V)>(
         &self,
         slice: &[U],
         f: F,
     ) -> Result<()> {
-        self.map_ops_with_prog(slice, f, |_|())
+        self.map_syms_with_prog(slice, f, |_|())
     }
 
-    pub fn map_ops_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
+    pub fn map_syms_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
         &self,
         slice: &[U],
         f: F,
         prog: impl FnMut(usize),
     ) -> Result<()> {
-        self.map_ops_all_with_prog(&[slice], f, (|_|(), prog))
+        self.map_syms_all_with_prog(&[slice], f, (|_|(), prog))
     }
 
-    pub fn map_ops_all<U: Sym, V: Sym, F: FnMut(V)>(
+    pub fn map_syms_all<U: Sym, V: Sym, F: FnMut(V)>(
         &self,
         slices: &[&[U]],
         f: F,
     ) -> Result<()> {
-        self.map_ops_all_with_prog(slices, f, (|_|(), |_|()))
+        self.map_syms_all_with_prog(slices, f, (|_|(), |_|()))
     }
 
-    pub fn map_ops_all_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
+    pub fn map_syms_all_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
         &self,
         slices: &[&[U]],
         mut f: F,
@@ -312,10 +312,10 @@ impl<E: SymEncode> GLZ<E> {
             f((1+self.width).cast(op)?);
 
             off += diff;
-            if op & 1u32 << 1+self.width != 0 {
+            if op & 1u32 << self.width != 0 {
                 off += (((op >> self.l)
                     & (2u32.pow((self.width-self.l) as u32)-1))
-                    + 1) as usize;
+                    + 1) as usize * self.m;
             }
         }
 

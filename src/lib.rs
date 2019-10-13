@@ -3,6 +3,8 @@ pub mod bits;
 pub use bits::*;
 pub mod errors;
 pub use errors::*;
+pub mod hist;
+pub use hist::*;
 
 // various encoding methods
 pub mod leb128;

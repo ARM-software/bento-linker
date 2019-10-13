@@ -3,6 +3,7 @@ use std::cmp::Reverse;
 
 use crate::bits::*;
 use crate::errors::*;
+use crate::hist::Hist;
 
 
 //// Golomb-Rice code conversions
@@ -58,25 +59,25 @@ impl GolombRice {
         }
     }
 
-    pub fn from_hist(
+    pub fn from_hist<U: Sym>(
         k: Option<usize>,
         width: usize,
-        hist: &[usize]
+        hist: &Hist<U>
     ) -> GolombRice {
-        assert_eq!(hist.len(), 2usize.pow(width as u32));
-
         // build reverse table
-        let mut decode_table: Vec<u32> = (
-            0..2u32.pow(width as u32)).collect();
-        decode_table.sort_by_key(|&k| Reverse(hist[k as usize]));
+        let mut decode_table: Vec<u32> = (0..2u32.pow(width as u32))
+            .collect();
+        decode_table.sort_by_key(|&k|
+            Reverse(hist[U::try_from(k).ok().unwrap()]));
         let encode_table = reverse_table(&decode_table);
 
         // either use provided k, or find best k for our histogram
         let k = k.unwrap_or_else(||
-            (0..=width).map(|k| {
+           (0..=width).map(|k| {
                 let gr = GolombRice::with_width(k, width);
-                let size: usize = hist.iter().enumerate().map(|(n, &c)|
-                    c * gr.encode_sym(encode_table[n as usize]).unwrap().len()
+                let size: usize = hist.iter().map(|(n, c)|
+                    c * gr.encode_sym(encode_table[n.into() as usize])
+                        .unwrap().len()
                 ).sum();
                 (size, k)
             }).min().unwrap().1);
@@ -101,12 +102,7 @@ impl GolombRice {
         U: Sym,
     {
         // build up histogram
-        let mut hist = vec![0; 2usize.pow(width as u32)];
-        for x in seed {
-            hist[x.into() as usize] += 1;
-        }
-
-        GolombRice::from_hist(k, width, &hist)
+        GolombRice::from_hist(k, width, &Hist::from_seed(seed))
     }
 
     pub fn k(&self) -> usize {

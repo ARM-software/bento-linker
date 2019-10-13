@@ -1,14 +1,16 @@
-use glz::GLZoR;
-use glz::LEB128;
 use glz::bits::*;
 use glz::errors::*;
+use glz::GLZoR;
+use glz::LEB128;
+use glz::GLZ;
+use glz::GolombRice;
+use glz::Hist;
 
 use std::io;
 use std::fs;
 use std::io::Write;
 use std::io::Read;
 use std::fs::File;
-use std::str::FromStr;
 use std::path::PathBuf;
 use std::time::Instant;
 use std::thread;
@@ -40,34 +42,9 @@ enum Field {
     BLOB = 0,
 }
 
-
-#[derive(Debug)]
-enum Mode {
-    Rice,
-    GLZ,
-    GLZoR,
-}
-
-impl FromStr for Mode {
-    type Err = String;
-    fn from_str(mode: &str) -> ::core::result::Result<Self, Self::Err> {
-        match mode {
-            "rice"  => Ok(Mode::Rice),
-            "glz"   => Ok(Mode::GLZ),
-            "glzor" => Ok(Mode::GLZoR),
-            _       => Err(format!("Unrecognized mode \"{}\"", mode)),
-        }
-    }
-}
-
 #[derive(Debug, StructOpt)]
 #[structopt(rename_all = "kebab")]
 struct CommonOpt {
-    /// Compression method, --mode=glzor combines glz and rice for
-    /// the best results.
-    #[structopt(long, default_value = "glzor")]
-    mode: Mode,
-
     /// Override K-constant, this is the width of the Golomb-Rice code's
     /// denominator in bits. By default the best K is approximated from
     /// the input data.
@@ -186,6 +163,7 @@ enum Opt {
 // Double progress bar (maybe single)
 fn with_prog_all<F, R>(
     msg: &str,
+    quiet: bool,
     paths: &[PathBuf],
     inputs: &[usize],
     f: F,
@@ -196,6 +174,10 @@ where
         Box<FnMut(usize)+'a>,
     )) -> Result<R>,
 {
+    if quiet {
+        return f((Box::new(|_|()), Box::new(|_|())))
+    }
+
     let mprog = MultiProgress::new();
     let prog1 = mprog.add(ProgressBar::hidden());
     prog1.set_style(ProgressStyle::default_bar()
@@ -261,6 +243,7 @@ where
 // Single progress bar
 fn with_prog<F, R>(
     msg: &str,
+    quiet: bool,
     paths: PathBuf,
     inputs: usize,
     f: F,
@@ -270,7 +253,7 @@ where
         Box<FnMut(usize)+'a>,
     ) -> Result<R>,
 {
-    with_prog_all(msg, &[paths], &[inputs], |(_, prog)| f(prog))
+    with_prog_all(msg, quiet, &[paths], &[inputs], |(_, prog)| f(prog))
 }
 
 // field reader/writers
@@ -349,7 +332,6 @@ impl<T: Read> FieldRead for T {
     }
 }
 
-#[allow(unused_variables)]
 fn encode(opt: &EncodeOpt) -> Result<()> {
     // time ourselves
     let time = Instant::now();
@@ -370,26 +352,32 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     // estimate k/table if necessary
     let (k, table) = match (opt.common.k, &opt.common.table) {
         (k, table) if table == &[] => {
-            with_prog_all("finding constants...",
+            let hist = with_prog_all(
+                "finding constants...",
+                opt.common.quiet,
                 &paths,
                 &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
                 |prog| {
-                    let glzor = GLZoR::from_seed_all_with_prog(
-                        k, l, m, GLZoR::DEFAULT_WIDTH, &inputs, prog);
-
-                    Ok((
-                        glzor.k(),
-                        glzor.decode_table().unwrap(),
-                    ))
+                    let glz = GLZ::with_width(l, m, GLZoR::DEFAULT_WIDTH);
+                    let mut hist: Hist<u32> = Hist::new();
+                    glz.map_syms_all_with_prog(&inputs,
+                        |op| hist.increment(op), prog)?;
+                    Ok(hist)
                 }
-            )?
+            )?;
+
+            if !opt.common.quiet {
+                hist.draw(None);
+            }
+
+            let gr = GolombRice::from_hist(k, 1+GLZoR::DEFAULT_WIDTH, &hist);
+            (gr.k(), gr.decode_table().unwrap())
         },
         (Some(k), table) => {
             (k, table.clone())
         },
         _ => {
-            bail!("can't solve for just K, \
-                please provide --table");
+            bail!("can't solve for just K, please provide --table");
         }
     };
 
@@ -403,7 +391,7 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         println!("L = {}", l);
     }
     if m != GLZoR::DEFAULT_M {
-        println!("M = {}", l);
+        println!("M = {}", m);
     }
     print!("table = [");
     if opt.common.print_table {
@@ -433,7 +421,9 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     println!("]");
 
     let glzor = GLZoR::with_table(k, l, m, GLZoR::DEFAULT_WIDTH, &table);
-    let (output, ranges) = with_prog_all("compressing...",
+    let (output, ranges) = with_prog_all(
+        "compressing...",
+        opt.common.quiet,
         &paths,
         &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
         |prog| {
@@ -484,7 +474,7 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
 
     let before = inputs.iter().fold(0, |s, a| s+a.len());
     let after = (output.len()+8-1) / 8;
-    println!("compressed {} -> {} (%{})",
+    println!("compressed {} -> {} ({}%)",
         HumanBytes(before as u64),
         HumanBytes(after as u64),
         (100*(before as i32 - after as i32)) / before as i32
@@ -494,7 +484,6 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     Ok(())
 }
 
-#[allow(unused_variables)]
 fn decode(opt: &DecodeOpt) -> Result<()> {
     // time ourselves
     let time = Instant::now();
@@ -604,7 +593,7 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
         println!("L = {}", l);
     }
     if m != GLZoR::DEFAULT_M {
-        println!("M = {}", l);
+        println!("M = {}", m);
     }
     print!("table = [");
     if opt.common.print_table {
@@ -635,7 +624,9 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     println!("file = (\"{}\", {}, {})", name, off, len);
 
     let glzor = GLZoR::with_table(k, l, m, GLZoR::DEFAULT_WIDTH, &table);
-    let output: Vec<u8> = with_prog("decompressing...",
+    let output: Vec<u8> = with_prog(
+        "decompressing...",
+        opt.common.quiet,
         PathBuf::from(name), len, |prog| {
             glzor.decode_at_with_prog(input, off, len, prog)
         }
@@ -654,7 +645,6 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     Ok(())
 }
 
-#[allow(unused_variables)]
 fn ls(opt: &LsOpt) -> Result<()> {
     // read file into buffer
     let mut f = File::open(&opt.input)?;
@@ -781,7 +771,7 @@ fn ls(opt: &LsOpt) -> Result<()> {
 
     let before = total;
     let after = (input.len()+8-1) / 8;
-    println!("total {} compressed {} (%{})",
+    println!("total {} compressed {} ({}%)",
         HumanBytes(before as u64),
         HumanBytes(after as u64),
         (100*(before as i32 - after as i32)) / before as i32,

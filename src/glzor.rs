@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use crate::bits::*;
 use crate::errors::*;
+use crate::hist::Hist;
 use crate::glz::GLZ;
 use crate::rice::GolombRice;
 
@@ -47,12 +48,12 @@ impl GLZoR {
         }
     }
 
-    pub fn from_hist(
+    pub fn from_hist<U: Sym>(
         k: Option<usize>,
         l: usize,
         m: usize,
         width: usize,
-        hist: &[usize],
+        hist: &Hist<U>,
     ) -> GLZoR {
         let rice = Rc::new(GolombRice::from_hist(k, 1+width, hist));
         GLZoR{
@@ -96,10 +97,10 @@ impl GLZoR {
         prog: (impl FnMut(usize), impl FnMut(usize)),
     ) -> GLZoR {
         let glz = GLZ::with_width(l, m, width);
-        let mut hist: Vec<usize> = vec![0; 2usize.pow(1+width as u32)];
-        glz.map_ops_all_with_prog(&seeds, |op: u32| {
-            hist[op as usize] += 1;
-        }, prog).ok();
+        let mut hist: Hist<u32> = Hist::new();
+        glz.map_syms_all_with_prog(&seeds, |op|
+            hist.increment(op),
+        prog).unwrap();
 
         GLZoR::from_hist(k, l, m, width, &hist)
     }
@@ -194,8 +195,8 @@ mod tests {
 
         let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
         let glz = GLZoR::from_seed(None, 5, 3, 8, phrase.iter().copied());
-        assert_eq!(glz.k(), 2);
-        assert_eq!(glz.encode(phrase)?.len(), 282);
+        assert_eq!(glz.k(), 1);
+        assert_eq!(glz.encode(phrase)?.len(), 83);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -203,8 +204,8 @@ mod tests {
 
         let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
         let glz = GLZoR::from_seed(None, 5, 3, 8, phrase.iter().copied());
-        assert_eq!(glz.k(), 2);
-        assert_eq!(glz.encode(phrase)?.len(), 153);
+        assert_eq!(glz.k(), 1);
+        assert_eq!(glz.encode(phrase)?.len(), 70);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -212,8 +213,8 @@ mod tests {
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
         let glz = GLZoR::from_seed(None, 5, 3, 8, phrase.iter().copied());
-        assert_eq!(glz.k(), 2);
-        assert_eq!(glz.encode(phrase)?.len(), 134);
+        assert_eq!(glz.k(), 0);
+        assert_eq!(glz.encode(phrase)?.len(), 54);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -221,8 +222,8 @@ mod tests {
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
         let glz = GLZoR::from_seed(None, 5, 3, 8, phrase.iter().copied());
-        assert_eq!(glz.k(), 1);
-        assert_eq!(glz.encode(phrase)?.len(), 62);
+        assert_eq!(glz.k(), 0);
+        assert_eq!(glz.encode(phrase)?.len(), 47);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
