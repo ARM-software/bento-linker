@@ -4,6 +4,7 @@ use std::convert::TryFrom;
 use std::hash;
 use std::rc::Rc;
 use std::mem;
+use std::fmt::Debug;
 
 use error_chain::ensure;
 
@@ -17,6 +18,7 @@ where
     Self: TryFrom<u32> + Into<u32>,
     Self: Copy,
     Self: Eq + hash::Hash,
+    Self: Debug,
 {
     fn encode_sym(width: usize, n: Self) -> Result<BitVec>;
     fn decode_sym(width: usize, bits: &BitSlice) -> Result<Self>;
