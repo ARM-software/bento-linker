@@ -381,10 +381,10 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         }
     };
 
-    if table.len() != 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32) {
-        bail!("table is incorrect size, found {}, expected {}",
-            table.len(), 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32));
-    }
+//    if table.len() != 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32) {
+//        bail!("table is incorrect size, found {}, expected {}",
+//            table.len(), 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32));
+//    }
 
     println!("K = {}", k);
     if l != GLZoR::DEFAULT_L {
@@ -470,7 +470,7 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         f.write_field(Field::BLOB, &output)?;
     }
 
-    glzor.decode_at::<u8>(&output, 0, 62)?;
+    //glzor.decode_at::<u8>(&output, 0, 62)?;
 
     let before = inputs.iter().fold(0, |s, a| s+a.len());
     let after = (output.len()+8-1) / 8;

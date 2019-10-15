@@ -45,7 +45,7 @@ impl GolombRice {
         width: usize,
         decode_table: &[U]
     ) -> GolombRice {
-        assert_eq!(decode_table.len(), 2usize.pow(width as u32));
+        assert!(decode_table.len() <= 2usize.pow(width as u32));
         let decode_table: Vec<u32> = table_cast(decode_table).unwrap();
         let encode_table = reverse_table(&decode_table);
 
@@ -65,8 +65,11 @@ impl GolombRice {
         hist: &Hist<U>
     ) -> GolombRice {
         // build reverse table
-        let mut decode_table: Vec<u32> = (0..2u32.pow(width as u32))
-            .collect();
+//        let mut decode_table: Vec<u32> = (0..2u32.pow(width as u32))
+//            .collect();
+        let mut decode_table: Vec<u32> = (0..hist.iter()
+            .max_by_key(|(i, _)| (*i).into())
+            .unwrap().0.into() as u32+1).collect();
         decode_table.sort_by_key(|&k|
             Reverse(hist[U::try_from(k).ok().unwrap()]));
         let encode_table = reverse_table(&decode_table);
@@ -125,8 +128,11 @@ impl GolombRice {
 impl SymEncode for GolombRice {
     fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
         let mut n = n.into();
-        if let Some((encode_table, _)) = &self.table {
-            n = encode_table[n as usize];
+        if let Some((encode_table, decode_table)) = &self.table {
+            let top = n >> (1+self.width);
+            let bot = n % decode_table.len() as u32;
+            n = encode_table[bot as usize]
+                | (top * (decode_table.len() as u32))
         }
 
         if self.k < self.width {
@@ -153,7 +159,10 @@ impl SymEncode for GolombRice {
         };
 
         if let Some((_, decode_table)) = &self.table {
-            n = decode_table[n as usize];
+            let top = n / decode_table.len() as u32;
+            let bot = n % decode_table.len() as u32;
+            n = decode_table[bot as usize]
+                | (top << (1+self.width))
         }
 
         Ok((self.width.cast(n)?, diff))
