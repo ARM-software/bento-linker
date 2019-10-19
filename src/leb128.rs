@@ -45,7 +45,7 @@ impl SymEncode for LEB128 {
             }
         }
 
-        Ok(((7*count).cast(res)?, 8*count))
+        Ok((U::cast(res)?, 8*count))
     }
 }
 

@@ -273,9 +273,7 @@ impl<T: Write> FieldWrite for T {
     ) -> Result<()> {
         let res: Result<_> = (|| {
             let mut bits = BitVec::from(bits);
-            while bits.len() % 8 != 0 {
-                bits.push(false);
-            }
+            bits.resize(((bits.len()+8-1)/8)*8, false);
             let bytes = 8usize.decode::<u8>(&bits)?;
 
             self.write_all(&[field as u8])?;
@@ -359,14 +357,16 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                 &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
                 |prog| {
                     let glz = GLZ::with_width(l, m, GLZoR::DEFAULT_WIDTH);
-                    let mut hist: Hist<u32> = Hist::new();
+                    let mut hist: Hist = Hist::new();
                     glz.map_syms_all_with_prog(&inputs,
-                        |op| hist.increment(op), prog)?;
+                        |op: u32| hist.increment(op), prog)?;
                     Ok(hist)
                 }
             )?;
 
             if !opt.common.quiet {
+                let mut hist = hist.clone();
+                hist.sort();
                 hist.draw(None);
             }
 

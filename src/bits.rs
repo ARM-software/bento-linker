@@ -2,7 +2,6 @@ use crate::errors::*;
 
 use std::convert::TryFrom;
 use std::hash;
-use std::rc::Rc;
 use std::mem;
 use std::fmt::Debug;
 
@@ -16,12 +15,17 @@ pub use bitvec::prelude::*;
 pub trait Sym
 where
     Self: TryFrom<u32> + Into<u32>,
-    Self: Copy,
-    Self: Eq + hash::Hash,
+    Self: CastNonsense<u32> + CastNonsense<usize>,
+    Self: Copy + Default,
+    Self: Eq + hash::Hash + Ord,
     Self: Debug,
 {
     fn encode_sym(width: usize, n: Self) -> Result<BitVec>;
     fn decode_sym(width: usize, bits: &BitSlice) -> Result<Self>;
+
+    fn cast<U: Sym>(n: U) -> Result<Self> {
+        Ok(Self::cast_nonsense(n.into())?)
+    }
 }
 
 fn ensure_width<U: Sym>(width: usize, n: Option<u32>, op: &str) -> Result<()> {
@@ -30,7 +34,7 @@ fn ensure_width<U: Sym>(width: usize, n: Option<u32>, op: &str) -> Result<()> {
         "attempted to {} {}-bit symbol as u{}",
         op, width, realwidth);
     if let Some(n) = n {
-        ensure!(width >= 32 || u32::from(n) < 2u32.pow(width as u32),
+        ensure!(width >= 32 || n < 2u32.pow(width as u32),
             "{} would overflow a {}-bit symbol", op, width);
     }
     Ok(())
@@ -42,20 +46,20 @@ macro_rules! ensure_width {
     };
 
     ($u:ty, $width:expr, $n:expr, $op:expr) => {
-        ensure_width::<$u>($width, Some($n.into()), $op)?
+        ensure_width::<$u>($width, Some(u32::cast($n)?), $op)?
     };
 }
 
 fn encode_sym<U: Sym>(width: usize, n: U) -> Result<BitVec> {
-    Ok(n.into().as_bitslice::<BigEndian>()[32-width..].iter().collect())
+    Ok(u32::cast(n)?.as_bitslice::<BigEndian>()[32-width..].iter().collect())
 }
 
 fn decode_sym<U: Sym>(width: usize, bits: &BitSlice) -> Result<U> {
     ensure!(bits.len() >= width, "found truncated {}-bit symbol", width);
 
-    Ok(U::try_from(bits[..width].iter().enumerate().fold(0, |s, (i, v)|
-        s | (u32::from(v) << ((width - i - 1) as u32))
-    )).ok().unwrap())
+    U::cast(bits[..width].iter().enumerate().fold(0, |s, (i, v)| {
+        s | ((v as u32) << ((width - i - 1) as u32))
+    }))
 }
 
 impl Sym for u8 {
@@ -139,19 +143,8 @@ pub trait Encode {
 
 // Symbol encoder, operates on variable sized symbols
 pub trait SymEncode {
-    fn encode_sym<U: Sym>(
-        &self,
-        n: U
-    ) -> Result<BitVec>;
-
-    fn decode_sym<U: Sym>(
-        &self,
-        bits: &BitSlice
-    ) -> Result<(U, usize)>;
-
-    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V> {
-        Ok(self.decode_sym(&self.encode_sym(n)?)?.0)
-    }
+    fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec>;
+    fn decode_sym<U: Sym>(&self, bits: &BitSlice) -> Result<(U, usize)>;
 
     fn decode_sym_at<U: Sym>(
         &self,
@@ -167,10 +160,6 @@ pub trait SymEncode {
     mkrule!(decode_u8  { decode_sym() -> (u8,  usize) });
     mkrule!(decode_u16 { decode_sym() -> (u16, usize) });
     mkrule!(decode_u32 { decode_sym() -> (u32, usize) });
-
-    mkrule!(cast_u8  { cast(U) -> u8  });
-    mkrule!(cast_u16 { cast(U) -> u16 });
-    mkrule!(cast_u32 { cast(U) -> u32 });
 
     mkrule!(decode_u8_at    { decode_sym_at(off: usize) -> (u8,  usize) });
     mkrule!(decode_u16_at   { decode_sym_at(off: usize) -> (u16, usize) });
@@ -309,17 +298,6 @@ impl<T: SymEncode> GranularEncode for T {
     }
 }
 
-// I should probably have more of these but oh well
-impl<T: SymEncode> SymEncode for Rc<T> {
-    fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
-        (**self).encode_sym(n)
-    }
-
-    fn decode_sym<U: Sym>(&self, bits: &BitSlice) -> Result<(U, usize)> {
-        (**self).decode_sym(bits)
-    }
-}
-
 // A usize value can be a symbol encoder (fixed width integers)
 impl SymEncode for usize {
     fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
@@ -328,11 +306,6 @@ impl SymEncode for usize {
 
     fn decode_sym<U: Sym>(&self, bits: &BitSlice) -> Result<(U, usize)> {
         U::decode_sym(*self, bits).map(|v| (v, *self))
-    }
-
-    fn cast<U: Sym, V: Sym>(&self, n: U) -> Result<V> {
-        ensure_width!(V, *self, n, "cast");
-        Ok(V::try_from(n.into()).ok().unwrap())
     }
 }
 
