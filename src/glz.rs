@@ -3,7 +3,6 @@ use std::iter;
 
 use crate::bits::*;
 use crate::errors::*;
-use crate::rice::GolombRice;
 use crate::rice::GolombRice_;
 use crate::hist::Hist;
 use crate::hist::BijectEncoder;
@@ -62,7 +61,7 @@ enum GLZSym<U: Sym> {
 impl GLZ_ {
     pub const DEFAULT_K: usize  = GLZ_::WIDTH+1;
     pub const DEFAULT_L: usize  = 5;
-    pub const DEFAULT_M: usize  = 5;
+    pub const DEFAULT_M: usize  = 4;
     pub const WIDTH: usize      = 8;
 
     pub fn new() -> Self {
@@ -104,10 +103,7 @@ impl GLZ_ {
     ) -> Self {
         // use hist as bijecter to map probabilities to best rice code
         let mut hist = hist.clone();
-        hist.sort_bounded(
-            2usize.pow(Self::WIDTH as u32) +
-            2usize.pow(l as u32) +
-            2usize.pow(m as u32));
+        hist.sort();
 
         let rice = if let Some(k) = k {
             GolombRice_::new(k)
@@ -165,7 +161,7 @@ impl GLZ_ {
         match sym {
             GLZSym::Imm{count, imm: x} => {
                 let mut counts: Vec<u32> = Vec::new();
-                let mut ncount = (count + 1 - 2) as u32;
+                let mut ncount = (count - 1) as u32;
                 while ncount != 0 {
                     ncount -= 1;
                     counts.push(
@@ -176,12 +172,13 @@ impl GLZ_ {
                     ncount >>= self.m;
                 }
                 counts.reverse();
+                let x = u32::cast(x)?;
 
-                return Ok(counts.iter()
+                Ok(counts.iter()
                     .map(|&nibble| self.rice.encode_u32(nibble))
                     .collect::<Result<Vec<_>>>()?
                     .into_iter().flatten()
-                    .chain(self.rice.encode_sym(x)?.into_iter())
+                    .chain(self.rice.encode_u32(x)?.into_iter())
                     .collect())
 
 
@@ -218,7 +215,7 @@ impl GLZ_ {
                     "bad size {}", size);
 
                 let mut offs: Vec<u32> = Vec::new();
-                let mut noff = (off + 1 - 2) as u32;
+                let mut noff = off as u32;
                 while noff != 0 {
                     noff -= 1;
                     offs.push(
@@ -229,11 +226,10 @@ impl GLZ_ {
                     noff >>= self.m;
                 }
                 offs.reverse();
-
                 let nsize = (size - 2) as u32
                     + 2u32.pow(Self::WIDTH as u32);
 
-                return Ok(offs.iter()
+                Ok(offs.iter()
                     .map(|&nibble| self.rice.encode_u32(nibble))
                     .collect::<Result<Vec<_>>>()?
                     .into_iter().flatten()
@@ -295,19 +291,17 @@ impl GLZ_ {
             if sym >= 2u32.pow(Self::WIDTH as u32) + 2u32.pow(self.l as u32) {
                 // found arg nibble
                 arg <<= self.m;
-                arg += sym + 1;
+                arg += sym - (2u32.pow(Self::WIDTH as u32) + 2u32.pow(self.l as u32)) + 1;
             } else if sym >= 2u32.pow(Self::WIDTH as u32) {
                 // found indirect reference
-                let ref_ = sym - 2u32.pow(Self::WIDTH as u32) + 2;
                 return Ok((GLZSym::Ref{
                     off: arg as usize,
-                    size: ref_ as usize,
+                    size: sym as usize - 2usize.pow(Self::WIDTH as u32) + 2,
                 }, off));
             } else {
-                let imm = sym;
                 return Ok((GLZSym::Imm{
-                    count: arg as usize,
-                    imm: U::cast(imm)?,
+                    count: arg as usize + 1,
+                    imm: U::cast(sym)?,
                 }, off));
             }
         }
@@ -391,38 +385,6 @@ impl GLZ_ {
         self.decode_sym(&bits[off..])
     }
 
-    fn traverse_sym_raw<U: Sym, F: FnMut(U)>(
-        &self,
-        bits: &BitSlice,
-        mut f: F,
-    ) -> Result<usize> {
-        // pass to our callback
-        let (op, _) = self.rice.decode_u32(&bits)?;
-        f(U::cast(op)?);
-
-        // get size to skip
-        let (_, diff) = self.decode_sym::<U>(&bits)?;
-        Ok(diff)
-    }
-
-    fn traverse_sym<U: Sym, F: FnMut(U)>(
-        &self,
-        bits: &BitSlice,
-        f: F,
-    ) -> Result<usize> {
-        self.traverse_sym_raw(bits, f)
-            .chain_err(|| "could not decode GLZ symbol")
-    }
-
-    fn traverse_sym_at<U: Sym, F: FnMut(U)>(
-        &self,
-        bits: &BitSlice,
-        off: usize,
-        f: F,
-    ) -> Result<usize> {
-        self.traverse_sym(&bits[off..], f)
-    }
-
     fn encode1<'a, U: Sym>(
         &self,
         history: &mut HashMap<&'a [U], usize>,
@@ -485,7 +447,7 @@ impl GLZ_ {
             if forceimm || pref.as_ref().filter(|pref| {
                 (pref.len() as f64 / prefconsume as f64) < (pimm.len() as f64 / pimmconsume as f64)
             }).is_none() {
-                println!("imm {} {:?} -> {}", pimmconsume, &slice[j-pimmconsume..j], pimm);
+                //println!("imm {} {:?} -> {}", pimmconsume, &slice[j-pimmconsume..j], pimm);
                 // not worth the overhead of the reference, emit immediate
                 // but how manyy??
 //                consume = 0;
@@ -515,7 +477,7 @@ impl GLZ_ {
                     history.insert(&slice[i..r], *off+emit);
                 }
             } else {
-                println!("ref {} {:?} -> {}", prefix.len(), prefix, pref.as_ref().unwrap());
+                //println!("ref {} {:?} -> {}", prefix.len(), prefix, pref.as_ref().unwrap());
                 // found a pattern, emit reference
                 consume = prefix.len();
                 emit = pref.as_ref().unwrap().len();
@@ -556,7 +518,10 @@ impl GLZ_ {
         } {
             // decode symbol
             match self.decode_sym_at::<U>(bits, off)? {
-                (GLZSym::Imm{count, imm: x}, diff) => {
+                (GLZSym::Imm{mut count, imm: x}, diff) => {
+                    if size.is_some() && count > size.unwrap()-bytes.len() {
+                        count = size.unwrap()-bytes.len();
+                    }
                     prog(count);
                     bytes.extend(iter::repeat(x).take(count));
                     off += diff;
@@ -614,7 +579,6 @@ impl GLZ_ {
 //
 //        Ok(())
         let mut off = 0;
-        let mut arg = 0;
         while off < bits.len() {
             // decode symbol
             let (sym, diff) = self.rice.decode_sym_at(bits, off)?;
@@ -705,561 +669,6 @@ impl GranularEncode for GLZ_ {
     }
 }
 
-//////////////////////////////////////////////////
-
-#[derive(Debug)]
-pub struct GLZ<E: SymEncode = GolombRice_> {
-    l: usize, // length of references
-    m: usize, // width of offset chunks
-    width: usize,
-    encoder: E,
-}
-
-impl GLZ {
-    pub const DEFAULT_L: usize          = 5;
-    pub const DEFAULT_M: usize          = 3;
-    pub const DEFAULT_WIDTH: usize      = 8;
-
-    pub fn new(l: usize, m: usize) -> GLZ {
-        GLZ::with_encoder(l, m, GLZ::DEFAULT_WIDTH,
-            GolombRice_::new(GLZ::DEFAULT_WIDTH))
-//        GLZ::with_encoder(l, m, GLZ::DEFAULT_WIDTH,
-//            GolombRice::with_width(GLZ::DEFAULT_WIDTH+1, 16))
-    }
-
-    pub fn with_width(l: usize, m: usize, width: usize) -> GLZ {
-        GLZ::with_encoder(l, m, width,
-            GolombRice_::new(width))
-    }
-}
-
-impl<E: SymEncode> GLZ<E> {
-    pub fn with_encoder(
-        l: usize,
-        m: usize,
-        width: usize,
-        encoder: E,
-    ) -> GLZ<E> {
-        GLZ{
-            l: l,
-            m: m,
-            width: width,
-            encoder: encoder,
-        }
-    }
-
-    pub fn l(&self) -> usize {
-        self.l
-    }
-
-    pub fn m(&self) -> usize {
-        self.m
-    }
-
-    pub fn width(&self) -> usize {
-        self.width
-    }
-
-    fn encode_sym_raw<U: Sym>(&self, sym: GLZSym<U>) -> Result<BitVec> {
-        match sym {
-            GLZSym::Imm{count, imm: x} => {
-                let mut counts: Vec<usize> = Vec::new();
-                let mut ncount = count + 1 - 2;
-                while ncount != 0 {
-                    ncount -= 1;
-                    counts.push(ncount & (2usize.pow(self.m as u32)-1));
-                    ncount >>= self.m;
-                }
-                counts.reverse();
-
-                let countsize = counts.len();
-
-                let imm: u32
-                    = (0u32 << self.width)
-                    | u32::cast(x)?;
-
-                Ok(self.encoder.encode_u32(((countsize as u32 - 0) << (1+self.width as u32)) + imm)?.iter()
-                    .chain(counts.iter()
-                        .map(|&count| self.m.encode_u32(count as u32))
-                        .collect::<Result<Vec<_>>>()?
-                        .into_iter().flatten())
-                    .collect())
-            }
-            GLZSym::Ref{off, size} => {
-                ensure!(size >= 0+2 && size <= 2usize.pow(self.l as u32)-1+2,
-                    "bad size {}", size);
-
-                let mut offs: Vec<usize> = Vec::new();
-                let mut noff = off + 1;
-                while noff != 0 {
-                    noff -= 1;
-                    offs.push(noff & (2usize.pow(self.m as u32)-1));
-                    noff >>= self.m;
-                }
-                offs.reverse();
-
-                let offsize = offs.len();
-//                ensure!(offsize >= 0+1 &&
-//                    offsize <= 2usize.pow((self.width-self.l) as u32)-1+1,
-//                    "bad offset {} (off = {})", offsize, off);
-
-                let ref_: u32
-                    = (1u32 << self.width)
-//                    | ((self.width-self.l).cast_u32(offsize as u32 - 1)?
-//                        << self.l)
-                    | u32::cast(size as u32 - 2)?;
-
-                Ok(self.encoder.encode_u32(((offsize as u32 - 0) << (/*1+*/self.width as u32)) + ref_)?.iter()
-                    .chain(offs.iter()
-                        .map(|&off| self.m.encode_u32(off as u32))
-                        .collect::<Result<Vec<_>>>()?
-                        .into_iter().flatten())
-                    .collect())
-            }
-        }
-    }
-
-    fn encode_sym<U: Sym>(&self, sym: GLZSym<U>) -> Result<BitVec> {
-        self.encode_sym_raw(sym)
-            .chain_err(|| format!("could not encode GLZ symbol {:?}", sym))
-    }
-
-    fn decode_sym_raw<U: Sym>(
-        &self,
-        bits: &BitSlice
-    ) -> Result<(GLZSym<U>, usize)> {
-        // decode symbol
-        let (sym, diff) = self.encoder.decode_u32(bits)
-            .chain_err(|| format!("could not decode GLZ symbol"))?;
-
-        //if sym & (1 << self.width) == 0 {
-        if sym < (1 << self.width) {
-            // found an immediate
-
-            let countsize = (sym >> (1 + self.width)) + 0;
-            let imm = sym & ((1 << self.width)-1);
-
-            let countsize = countsize as usize;
-            let mut count = 0;
-            for i in 0..countsize {
-                count = (count << self.m) + 1
-                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
-            }
-            let count = count as usize + 2 - 1;
-            Ok((
-                GLZSym::Imm{
-                    count: count,
-                    imm: U::cast(imm)?
-                },
-                diff + countsize*self.m
-            ))
-        } else {
-            // found an indirect reference
-//            let refoffsize = (((sym >> self.l)
-//                & (2u32.pow((self.width-self.l) as u32)-1))
-//                + 1) as usize;
-            //let refoffsize = (sym >> (1 + self.width)) + 0;
-            let refoffsize = (sym >> (self.width)) - 1 + 0;
-            //let refoffsize = (sym - (1 << self.width)) >> self.l;
-            let refsize = ((sym
-                & (2u32.pow(self.l as u32)-1))
-                + 2) as usize;
-
-            let refoffsize = refoffsize as usize;
-            let mut refoff = 0;
-            for i in 0..refoffsize {
-                refoff = (refoff << self.m) + 1
-                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
-            }
-            let refoff = refoff as usize - 1;
-            Ok((
-                GLZSym::Ref{off: refoff, size: refsize},
-                diff + refoffsize*self.m
-            ))
-        }
-    }
-
-    fn decode_sym<U: Sym>(
-        &self,
-        bits: &BitSlice
-    ) -> Result<(GLZSym<U>, usize)> {
-        self.decode_sym_raw(bits)
-            .chain_err(|| "could not decode GLZ symbol")
-    }
-
-    fn decode_sym_at<U: Sym>(
-        &self,
-        bits: &BitSlice,
-        off: usize
-    ) -> Result<(GLZSym<U>, usize)> {
-        self.decode_sym(&bits[off..])
-    }
-
-    fn encode1<'a, U: Sym>(
-        &self,
-        history: &mut HashMap<&'a [U], usize>,
-        off: &mut usize,
-        slice: &'a [U],
-        mut prog: impl FnMut(usize),
-    ) -> Result<BitVec> {
-        let mut patterns: Vec<BitVec> = Vec::new();
-        let mut j = slice.len();
-        let mut lastmatch = j;
-        let mut forceimm = false;
-        while j > 0 {
-            // find longest suffix in dictionary that matches criteria
-            // this looks (and is) very expensive (O(n^2))
-            let mut prefix: &[U] = &[slice[j-1]];
-            let mut pref: Option<BitVec> = None;
-            let lookahead = j
-                .checked_sub(2usize.pow(self.l as u32))
-                .unwrap_or(0);
-            for i in (lookahead..j).rev() {
-                if let Some(nref) = history
-                    .get(&slice[i..j])
-                    .and_then(|&poff|
-                        self.encode_sym::<U>(GLZSym::Ref{
-                            off: *off-poff,
-                            size: slice[i..j].len(),
-                        }).ok()
-                    )
-                {
-                    prefix = &slice[i..j];
-                    pref = Some(nref);
-                }
-            }
-            let prefconsume = prefix.len();
-
-            let (pimm, pimmconsume) = {
-                let consume = 1;
-//                let mut i = j;
-//                let mut consume = 0;
-//                while i.checked_sub(1)
-//                    .and_then(|i| slice.get(i))
-//                    .filter(|c| **c == slice[j-1])
-//                    .is_some()
-//                {
-//                    i -= 1;
-//                    consume += 1;
-//                }
-
-                (
-                    self.encode_sym(GLZSym::Imm{count: consume, imm: slice[j-1]})?,
-                    consume,
-                )
-            };
-
-            // compare against a simple immediate
-            //let imm = self.encode_sym(GLZSym::Imm{count: 1, imm: slice[j-1]})?;
-
-            let consume: usize;
-            let emit: usize;
-            if forceimm || pref.as_ref().filter(|pref| {
-                (pref.len() as f64 / prefconsume as f64) < (pimm.len() as f64 / pimmconsume as f64)
-            }).is_none() {
-                // not worth the overhead of the reference, emit immediate
-                // but how manyy??
-//                consume = 0;
-//                let mut i = j;
-//                while i.checked_sub(1)
-//                    .and_then(|i| slice.get(i))
-//                    .filter(|c| **c == slice[j-1])
-//                    .is_some()
-//                {
-//                    i -= 1;
-//                    consume += 1;
-//                }
-//                //consume = 1;
-//
-//                let imm = self.encode_sym(GLZSym::Imm{count: consume, imm: slice[j-1]})?;
-                consume = pimmconsume;
-                emit = pimm.len();
-                patterns.push(pimm);
-                forceimm = false;
-
-                // add every prefix to dictionary since last match, note we
-                // also update the substrings of our original match, which
-                // should improve offset locality. This is worst case O(n^2)
-                // if no repetition is ever found.
-                let i = j-consume;
-                for r in (i+2..lastmatch+1).take(2usize.pow(self.l as u32)) {
-                    history.insert(&slice[i..r], *off+emit);
-                }
-            } else {
-                // found a pattern, emit reference
-                consume = prefix.len();
-                emit = pref.as_ref().unwrap().len();
-                patterns.push(pref.unwrap());
-
-                // force an immediate to guarantee O(n) decompression (at
-                // minimum one character per reference)
-                lastmatch = j;
-                forceimm = true;
-            }
-
-            prog(consume);
-            j -= consume;
-            *off += emit;
-        }
-
-        patterns.reverse();
-        Ok(patterns.iter().flatten().collect())
-    }
-
-    fn decode1<U: Sym>(
-        &self,
-        bits: &BitSlice,
-        off: usize,
-        size: Option<usize>,
-        prog: &mut impl FnMut(usize),
-        depth: u32,
-    ) -> Result<Vec<U>> {
-        // check that we have bounded recursion
-        ensure!(depth < 2, "exceeded max depth ({} < {})", depth, 2);
-
-        let mut bytes: Vec<U> = Vec::new();
-        let mut off = off;
-        let mut cycles = 0;
-        while match size {
-            Some(size) => bytes.len() < size,
-            None => off < bits.len(),
-        } {
-            // decode symbol
-            match self.decode_sym_at::<U>(bits, off)? {
-                (GLZSym::Imm{count, imm: x}, diff) => {
-                    prog(count);
-                    bytes.extend(iter::repeat(x).take(count));
-                    off += diff;
-                }
-                (GLZSym::Ref{off: refoff, size: refsize}, diff) => {
-                    off += diff;
-                    if size.is_some() && refsize >= size.unwrap()-bytes.len() {
-                        off += refoff;
-                    } else {
-                        let ref_: Vec<U> = self.decode1(
-                            bits,
-                            off + refoff,
-                            Some(refsize),
-                            prog,
-                            depth + 1,
-                        )?;
-                        bytes.extend(ref_);
-                    }
-                }
-            }
-
-            // check that runtime is linear
-            cycles += 1;
-            if size.is_some() {
-                ensure!(cycles <= 2*size.unwrap() as u32,
-                    "exceeded runtime limit ({} <= {})",
-                        cycles, 2*size.unwrap());
-            }
-        }
-
-        Ok(bytes)
-    }
-
-    pub fn map_syms<U: Sym, V: Sym, F: FnMut(V)>(
-        &self,
-        slice: &[U],
-        f: F,
-    ) -> Result<()> {
-        self.map_syms_with_prog(slice, f, |_|())
-    }
-
-    pub fn map_syms_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
-        &self,
-        slice: &[U],
-        f: F,
-        prog: impl FnMut(usize),
-    ) -> Result<()> {
-        self.map_syms_all_with_prog(&[slice], f, (|_|(), prog))
-    }
-
-    pub fn map_syms_all<U: Sym, V: Sym, F: FnMut(V)>(
-        &self,
-        slices: &[&[U]],
-        f: F,
-    ) -> Result<()> {
-        self.map_syms_all_with_prog(slices, f, (|_|(), |_|()))
-    }
-
-    pub fn map_syms_all_with_prog<U: Sym, V: Sym, F: FnMut(V)>(
-        &self,
-        slices: &[&[U]],
-        f: F,
-        prog: (impl FnMut(usize), impl FnMut(usize)),
-    ) -> Result<()> {
-        let (bits, _) = self.encode_all_with_prog(slices, prog)?;
-        self.traverse_syms(&bits, f)
-//
-//
-//        let mut off = 0;
-//        while off < bits.len() {
-//            let (op, _) = self.encoder.decode_u32_at(&bits, off)?;
-//
-//            // pass to our callback
-//            f(V::cast(op & ((1<<(1+self.width))-1))?);
-//
-//            // get size to skip
-//            let (_, diff) = self.decode_sym_at::<U>(&bits, off)?;
-//            off += diff;
-//        }
-//
-//        Ok(())
-    }
-
-    // traversal functions, intended for building up histograms
-    pub fn traverse_syms<U: Sym, F: FnMut(U)>(
-        &self,
-        bits: &BitSlice,
-        f: F
-    ) -> Result<()> {
-        self.traverse_syms_with_prog(bits, f, |_|())
-    }
-
-    pub fn traverse_syms_with_prog<U: Sym, F: FnMut(U)>(
-        &self,
-        bits: &BitSlice,
-        mut f: F,
-        mut prog: impl FnMut(usize)
-    ) -> Result<()> {
-        let mut off = 0;
-        while off < bits.len() {
-            let (op, _) = self.encoder.decode_u32_at(&bits, off)?;
-
-            // pass to our callback
-            prog(1);
-            f(U::cast(op)?);
-
-            // get size to skip
-            let (_, diff) = self.decode_sym_at::<U>(&bits, off)?;
-            off += diff;
-        }
-
-        Ok(())
-    }
-
-
-//
-//    pub fn traverse_syms_with_prog<U: Sym, F: FnMut(U)>(&self, bits: &BitSlice) {
-//        
-//    }
-//
-//
-//    fn traverse_syms_all<U: Sym>(
-//        &self,
-//        bits: &BitSlice,
-//        offs: &[(usize, usize)]
-//    ) -> Result<Vec<Vec<U>>> {
-//        self.traverse_syms_all_with_prog(bits, offs, (|_|(), |_|()))
-//    }
-//
-//    fn traverse_syms_at<U: Sym>(
-//        &self,
-//        bits: &BitSlice,
-//        off: usize,
-//        len: usize
-//    ) -> Result<Vec<U>> {
-//        self.traverse_syms_at_with_prog(bits, off, len, |_|())
-//    }
-//
-//    fn traverse_syms_all_with_prog<U: Sym>(
-//        &self,
-//        bits: &BitSlice,
-//        offs: &[(usize, usize)],
-//        mut prog: (impl FnMut(usize), impl FnMut(usize)),
-//    ) -> Result<Vec<Vec<U>>> {
-//        offs.iter().map(|(off, len)| {
-//            let slice = self.traverse_syms_at_with_prog(bits, *off, *len, &mut prog.1);
-//            prog.0(1);
-//            slice
-//        }).collect()
-//    }
-//
-//    fn traverse_syms_at_with_prog<U: Sym>(
-//        &self,
-//        bits: &BitSlice,
-//        mut off: usize,
-//        len: usize,
-//        prog: impl FnMut(usize),
-//    ) -> Result<Vec<U>> {
-//        while off < bits.len() {
-//            let (op, _) = self.encoder.decode_u32_at(&bits, off)?;
-//
-//            // pass to our callback
-//            f(V::cast(op & ((1<<(1+self.width))-1))?);
-//
-//            // get size to skip
-//            let (_, diff) = self.decode_sym_at::<U>(&bits, off)?;
-//            off += diff;
-//        }
-//
-//        Ok(())
-//    }
-
-}
-
-impl<E: SymEncode> Encode for GLZ<E> {
-    fn encode_with_prog<U: Sym>(
-        &self,
-        bytes: &[U],
-        prog: impl FnMut(usize),
-    ) -> Result<BitVec> {
-        self.encode1(&mut HashMap::new(), &mut 0, bytes, prog)
-    }
-
-    fn decode_with_prog<U: Sym>(
-        &self,
-        bits: &BitSlice,
-        mut prog: impl FnMut(usize),
-    ) -> Result<Vec<U>> {
-        self.decode1(bits, 0, None, &mut prog, 0)
-    }
-}
-
-impl<E: SymEncode> GranularEncode for GLZ<E> {
-    fn encode_all_with_prog<U: Sym>(
-        &self,
-        slices: &[&[U]],
-        mut prog: (impl FnMut(usize), impl FnMut(usize)),
-    ) -> Result<(BitVec, Vec<(usize, usize)>)> {
-        let mut history: HashMap<&[U], usize> = HashMap::new();
-        let mut off = 0; // compressed offset
-
-        let bits: Vec<BitVec> = slices
-            .into_iter().rev()
-            .map(|slice| {
-                let bits = self.encode1(
-                    &mut history, &mut off, slice, &mut prog.1);
-                prog.0(1);
-                bits
-            }).collect::<Result<Vec<_>>>()?
-            .into_iter().rev()
-            .collect();
-
-        let mut off = 0; // uncompressed offset
-        Ok((
-            bits.iter().flatten().collect(),
-            bits.iter().zip(slices).map(|(bits, slice)| {
-                off += bits.len();
-                (off-bits.len(), slice.len())
-            }).collect()
-        ))
-    }
-
-    fn decode_at_with_prog<U: Sym>(
-        &self,
-        bits: &BitSlice,
-        off: usize,
-        len: usize,
-        mut prog: impl FnMut(usize),
-    ) -> Result<Vec<U>> {
-        self.decode1(bits, off, Some(len), &mut prog, 0)
-    }
-}
-
 
 #[cfg(test)]
 mod tests {
@@ -1267,27 +676,28 @@ mod tests {
 
     #[test]
     fn encode_imm_test() -> Result<()> {
-        let glz = GLZ_::with_config(8, 5, 3);
+        let glz = GLZ_::with_config(9, 5, 3);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Imm{count: 1, imm: b'a'})?,
             bitvec![
-                0, 0,1,1,0,0,0,0,1
+                0,0,0,1,1,0,0,0,0,1
             ]
         );
-        let glz = GLZ_::with_config(8, 5, 3);
+        let glz = GLZ_::with_config(9, 5, 3);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Imm{count: 2, imm: b'a'})?,
             bitvec![
-                1,0, 1,0,0,0,0,0,0,1,
-                0,0,0,
+                0,1,0,0,1,0,0,0,0,0,
+                0,0,0,1,1,0,0,0,0,1
             ]
         );
-        let glz = GLZ_::with_config(8, 5, 3);
+        let glz = GLZ_::with_config(9, 5, 3);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Imm{count: 11, imm: b'a'})?,
             bitvec![
-                1,1,0, 1,0,1,0,0,0,0,1,
-                0,0,0, 0,0,1,
+                0,1,0,0,1,0,0,0,0,0,
+                0,1,0,0,1,0,0,0,0,1,
+                0,0,0,1,1,0,0,0,0,1,
             ]
         );
 
@@ -1296,36 +706,40 @@ mod tests {
 
     #[test]
     fn encode_ref_test() -> Result<()> {
-        let glz = GLZ_::with_config(8, 5, 3);
+        let glz = GLZ_::with_config(9, 5, 3);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
             bitvec![
-                1,1,1,0, 0,1,0,0,1,0,1,0,
-                0,0,1, 1,0,1,
+                0,1,0,0,1,0,0,0,0,1,
+                0,1,0,0,1,0,0,1,0,0,
+                0,1,0,0,0,0,1,0,1,0,
             ]
         );
-        let glz = GLZ_::with_config(8, 7, 7);
+        let glz = GLZ_::with_config(9, 7, 7);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
             bitvec![
-                1,1,0, 1,0,0,0,1,0,1,0,
-                0,0,1,0,1,0,1,
+                0,1,1,0,0,1,0,1,0,0,
+                0,1,0,0,0,0,1,0,1,0,
             ]
         );
-        let glz = GLZ_::with_config(8, 8, 8);
+        let glz = GLZ_::with_config(9, 8, 8);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
             bitvec![
-                1,1,1,0, 0,0,0,0,1,0,1,0,
-                0,0,0,1,0,1,0,1,
+                1,0,0,0,0,0,1,0,1,0,0,
+                0,1,0,0,0,0,1,0,1,0,
             ]
         );
-        let glz = GLZ_::with_config(8, 4, 1);
+        let glz = GLZ_::with_config(9, 4, 1);
         assert_eq!(
             glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
             bitvec![
-                1,1,1,1,1,0, 0,1,0,0,1,0,1,0,
-                0,1,1,1,
+                0,1,0,0,0,1,0,0,0,0,
+                0,1,0,0,0,1,0,0,0,1,
+                0,1,0,0,0,1,0,0,0,1,
+                0,1,0,0,0,1,0,0,0,0,
+                0,1,0,0,0,0,1,0,1,0,
             ]
         );
 
@@ -1343,27 +757,27 @@ mod tests {
         let sym = GLZSym::Imm{count: 2, imm: b'a'};
         assert_eq!(
             glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
-            (sym, 13)
+            (sym, 19)
         );
         let sym = GLZSym::Imm{count: 11, imm: b'a'};
         assert_eq!(
             glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
-            (sym, 17)
+            (sym, 29)
         );
         let sym = GLZSym::Ref{off: 21, size: 12};
         assert_eq!(
             glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
-            (sym, 18)
+            (sym, 30)
         );
         let sym = GLZSym::Ref{off: 0, size: 2};
         assert_eq!(
             glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
-            (sym, 14)
+            (sym, 10)
         );
         let sym = GLZSym::Ref{off: 123456, size: 31};
         assert_eq!(
             glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
-            (sym, 34)
+            (sym, 70)
         );
 
         Ok(())
@@ -1372,42 +786,42 @@ mod tests {
     #[test]
     fn symmetry_test() -> Result<()> {
         let glz = GLZ_::with_config(8, 5, 3);
-        assert_eq!(glz.encode(b"hello world!")?.len(), 103);
+        assert_eq!(glz.encode(b"hello world!")?.len(), 109);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(b"hello world!")?)?,
             b"hello world!".to_vec()
         );
 
         let phrase = b"hello world hello hello world!";
-        assert_eq!(glz.encode(phrase)?.len(), 144);
+        assert_eq!(glz.encode(phrase)?.len(), 158);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
         );
 
         let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
-        assert_eq!(glz.encode(phrase)?.len(), 85);
+        assert_eq!(glz.encode(phrase)?.len(), 105);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
         );
 
         let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
-        assert_eq!(glz.encode(phrase)?.len(), 94);
+        assert_eq!(glz.encode(phrase)?.len(), 104);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
         );
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
-        assert_eq!(glz.encode(phrase)?.len(), 26);
+        assert_eq!(glz.encode(phrase)?.len(), 38);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
         );
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
-        assert_eq!(glz.encode(phrase)?.len(), 17);
+        assert_eq!(glz.encode(phrase)?.len(), 29);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1420,8 +834,8 @@ mod tests {
     fn seeded_symmetry_test() -> Result<()> {
         let phrase = b"hello world!";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 4);
-        assert_eq!(glz.encode(phrase)?.len(), 76);
+        assert_eq!(glz.k(), 1);
+        assert_eq!(glz.encode(phrase)?.len(), 44);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1429,8 +843,8 @@ mod tests {
 
         let phrase = b"hello world hello hello world!";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 6);
-        assert_eq!(glz.encode(phrase)?.len(), 127);
+        assert_eq!(glz.k(), 2);
+        assert_eq!(glz.encode(phrase)?.len(), 93);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1438,8 +852,8 @@ mod tests {
 
         let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 7);
-        assert_eq!(glz.encode(phrase)?.len(), 81);
+        assert_eq!(glz.k(), 1);
+        assert_eq!(glz.encode(phrase)?.len(), 35);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1447,8 +861,8 @@ mod tests {
 
         let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 7);
-        assert_eq!(glz.encode(phrase)?.len(), 89);
+        assert_eq!(glz.k(), 0);
+        assert_eq!(glz.encode(phrase)?.len(), 28);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1456,8 +870,8 @@ mod tests {
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 7);
-        assert_eq!(glz.encode(phrase)?.len(), 26);
+        assert_eq!(glz.k(), 0);
+        assert_eq!(glz.encode(phrase)?.len(), 10);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()
@@ -1465,8 +879,8 @@ mod tests {
 
         let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
         let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
-        assert_eq!(glz.k(), 8);
-        assert_eq!(glz.encode(phrase)?.len(), 17);
+        assert_eq!(glz.k(), 0);
+        assert_eq!(glz.encode(phrase)?.len(), 6);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()

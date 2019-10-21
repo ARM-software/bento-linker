@@ -1,11 +1,7 @@
 use glz::bits::*;
 use glz::errors::*;
-use glz::GLZoR;
 use glz::LEB128;
-use glz::GLZ;
 use glz::GLZ_;
-use glz::GolombRice;
-use glz::GolombRice_;
 use glz::Hist;
 
 use std::io;
@@ -57,12 +53,16 @@ struct CommonOpt {
     #[structopt(long)]
     table: Vec<u32>,
 
+    /// Number of passes to use when finding optimal Golomb-Rice table
+    #[structopt(long, default_value = "1")]
+    passes: u32,
+
     /// Width of reference length in bits.
     #[structopt(short = "L", default_value = "5")]
     l: usize,
 
     /// Width of reference offset chunks in bits.
-    #[structopt(short = "M", default_value = "3")]
+    #[structopt(short = "M", default_value = "4")]
     m: usize,
 
     /// Limit CLI noise
@@ -137,17 +137,17 @@ struct LsOpt {
 #[structopt(
     name = "glz",
     rename_all = "kebab",
-    about = "compressor and decompressor for GLZoR, \
+    about = "compressor and decompressor for GLZ over Rice, \
         a granular compression algorithm"
 )]
 enum Opt {
-    /// Compress a set of files with GLZoR
+    /// Compress a set of files with GLZ
     Encode {
         #[structopt(flatten)]
         encode: EncodeOpt,
     },
 
-    /// Decompress a file with GLZoR
+    /// Decompress a file with GLZ
     Decode {
         #[structopt(flatten)]
         decode: DecodeOpt,
@@ -245,7 +245,6 @@ where
 fn with_prog<F, R>(
     msg: &str,
     quiet: bool,
-    paths: PathBuf,
     inputs: usize,
     f: F,
 ) -> Result<R>
@@ -254,7 +253,7 @@ where
         Box<FnMut(usize)+'a>,
     ) -> Result<R>,
 {
-    with_prog_all(msg, quiet, &[paths], &[inputs], |(_, prog)| f(prog))
+    with_prog_all(msg, quiet, &[], &[inputs], |(_, prog)| f(prog))
 }
 
 // field reader/writers
@@ -349,33 +348,34 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     let m = opt.common.m;
 
     // estimate k/table if necessary
-    let (k, table) = match (opt.common.k, &opt.common.table) {
-        (k, table) if table == &[] => {
-            let hist = with_prog_all(
-                "finding constants...",
-                opt.common.quiet,
-                &paths,
-                &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
-                |mut prog| {
-                    let glz = GLZ_::with_config(GLZ_::DEFAULT_K, l, m);
-                    let mut hist: Hist = Hist::new();
-                    let (bits, _) = glz.encode_all_with_prog(&inputs, (&mut prog.0, &mut prog.1))?;
-                    glz.traverse_syms_with_prog(&bits, |op: u32| {
-                        hist.increment(op);
-                    }, &mut prog.1)?;
-//                    glz.map_syms_all_with_prog(&inputs, 
-//                        |op: u32| hist.increment(op), prog)?;
-
-//                    // second pass?
-//                    let glz = GLZ_::from_hist(k, l, m, &hist);
-//                    let mut hist: Hist = Hist::new();
-//                    let (bits, _) = glz.encode_all_with_prog(&inputs, (&mut prog.0, &mut prog.1))?;
-//                    glz.traverse_syms_with_prog(&bits, |op: u32| {
-//                        hist.increment(op);
-//                    }, &mut prog.1)?;
-                    Ok(hist)
-                }
-            )?;
+    let glz = match (opt.common.k, &opt.common.table) {
+        (k, table) if table.len() == 0 => {
+            let mut hist = Hist::new();
+            for _ in 0..opt.common.passes {
+                let (glz, bits) = with_prog_all(
+                    "finding constants...",
+                    opt.common.quiet,
+                    &paths,
+                    &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
+                    |prog| {
+                        let glz = GLZ_::with_config(GLZ_::DEFAULT_K, l, m);
+                        let (bits, _) = glz.encode_all_with_prog(&inputs, prog)?;
+                        Ok((glz, bits))
+                    }
+                )?;
+                hist = with_prog(
+                    "optimizing...",
+                    opt.common.quiet,
+                    bits.len() / (GLZ_::WIDTH+1),
+                    |prog| {
+                        let mut hist = Hist::new();
+                        glz.traverse_syms_with_prog(&bits, |op: u32| {
+                            hist.increment(op);
+                        }, prog)?;
+                        Ok(hist)
+                    }
+                )?;
+            }
 
             if !opt.common.quiet {
                 let mut hist = hist.clone();
@@ -383,24 +383,27 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                 hist.draw(None);
             }
 
-            //let gr = GolombRice::from_hist(k, 1+GLZoR::DEFAULT_WIDTH, &hist);
-            //let gr = GolombRice_::from_hist(&hist);
-            //(gr.k(), gr.decode_table().unwrap())
-            let glz = GLZ_::from_hist(k, l, m, &hist);
-            (glz.k(), glz.decode_table()?)
+            GLZ_::from_hist(k, l, m, &hist)
+            
         },
         (Some(k), table) => {
-            (k, table.clone())
+            GLZ_::with_table(k, l, m, table)
         },
         _ => {
             bail!("can't solve for just K, please provide --table");
         }
     };
 
-//    if table.len() != 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32) {
-//        bail!("table is incorrect size, found {}, expected {}",
-//            table.len(), 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32));
-//    }
+    let k = glz.k();
+    let table = glz.decode_table::<u32>()?;
+
+    let bound = 2usize.pow(GLZ_::WIDTH as u32)
+        + 2usize.pow(l as u32)
+        + 2usize.pow(m as u32);
+    if table.len() != bound {
+        bail!("table is incorrect size, found {}, expected {}",
+            table.len(), bound);
+    }
 
     println!("K = {}", k);
     if l != GLZ_::DEFAULT_L {
@@ -436,7 +439,6 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     }
     println!("]");
 
-    let glz = GLZ_::with_table(k, l, m, &table);
     let (output, ranges) = with_prog_all(
         "compressing...",
         opt.common.quiet,
@@ -480,13 +482,11 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                 )?;
             }
             f.write_field(Field::TABLE,
-                &(1+GLZoR::DEFAULT_WIDTH).encode(&table)?
+                &(1+GLZ_::WIDTH).encode(&table)?
             )?;
         }
         f.write_field(Field::BLOB, &output)?;
     }
-
-    //glzor.decode_at::<u8>(&output, 0, 62)?;
 
     let before = inputs.iter().fold(0, |s, a| s+a.len());
     let after = (output.len()+8-1) / 8;
@@ -547,7 +547,7 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     };
 
     let table = if let Some(bits) = fields.get(&Field::TABLE) {
-        (1+GLZoR::DEFAULT_WIDTH).decode(bits)?
+        (1+GLZ_::WIDTH).decode(bits)?
     } else if opt.common.table.len() > 0 {
         opt.common.table.clone()
     } else {
@@ -599,16 +599,19 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
         bail!("no blob?")
     };
 
-    if table.len() != 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32) {
+    let bound = 2usize.pow(GLZ_::WIDTH as u32)
+        + 2usize.pow(l as u32)
+        + 2usize.pow(m as u32);
+    if table.len() != bound {
         bail!("table is incorrect size, found {}, expected {}",
-            table.len(), 2usize.pow(1+GLZoR::DEFAULT_WIDTH as u32));
+            table.len(), bound);
     }
 
     println!("K = {}", k);
-    if l != GLZoR::DEFAULT_L {
+    if l != GLZ_::DEFAULT_L {
         println!("L = {}", l);
     }
-    if m != GLZoR::DEFAULT_M {
+    if m != GLZ_::DEFAULT_M {
         println!("M = {}", m);
     }
     print!("table = [");
@@ -639,12 +642,13 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     println!("]");
     println!("file = (\"{}\", {}, {})", name, off, len);
 
-    let glzor = GLZoR::with_table(k, l, m, GLZoR::DEFAULT_WIDTH, &table);
+    let glz = GLZ_::with_table(k, l, m, &table);
     let output: Vec<u8> = with_prog(
         "decompressing...",
         opt.common.quiet,
-        PathBuf::from(name), len, |prog| {
-            glzor.decode_at_with_prog(input, off, len, prog)
+        len,
+        |prog| {
+            glz.decode_at_with_prog(input, off, len, prog)
         }
     )?;
 
@@ -705,7 +709,7 @@ fn ls(opt: &LsOpt) -> Result<()> {
     };
 
     let table = if let Some(bits) = fields.get(&Field::TABLE) {
-        (1+GLZoR::DEFAULT_WIDTH).decode(bits)?
+        (1+GLZ_::WIDTH).decode(bits)?
     } else if opt.common.table.len() > 0 {
         opt.common.table.clone()
     } else {
@@ -719,10 +723,10 @@ fn ls(opt: &LsOpt) -> Result<()> {
     };
 
     println!("K = {}", k);
-    if l != GLZoR::DEFAULT_L {
+    if l != GLZ_::DEFAULT_L {
         println!("L = {}", l);
     }
-    if m != GLZoR::DEFAULT_M {
+    if m != GLZ_::DEFAULT_M {
         println!("M = {}", l);
     }
     print!("table = [");

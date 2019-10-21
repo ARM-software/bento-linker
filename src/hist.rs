@@ -14,30 +14,11 @@ use std::fmt::Debug;
 pub struct Hist {
     hist: Vec<usize>,
     table: Option<(Vec<u32>, Vec<u32>)>,
-    //bound: Option<usize>,
 }
 
 impl Hist {
     pub fn new() -> Self {
         Self::with_capacity(0)
-    }
-
-    pub fn with_table<U: Sym>(decode_table: &[U]) -> Self {
-        // convert to u32s
-        let decode_table: Vec<u32> = decode_table.iter()
-            .map(|n| (*n).into())
-            .collect();
-
-        // invert for encode table
-        let mut encode_table = vec![0; decode_table.len()];
-        for (i, &n) in decode_table.iter().enumerate() {
-            encode_table[n as usize] = i as u32;
-        }
-
-        Self{
-            hist: Vec::with_capacity(decode_table.len()),
-            table: Some((encode_table, decode_table)),
-        }
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
@@ -46,6 +27,13 @@ impl Hist {
             table: None,
         }
     }
+
+    pub fn with_table<U: Sym>(decode_table: &[U]) -> Self {
+        let mut hist = Self::with_capacity(decode_table.len());
+        hist.set_table(decode_table);
+        hist
+    }
+
 
     pub fn from_seed<I: IntoIterator<Item=U>, U: Sym>(seed: I) -> Self {
         let mut hist = Self::new();
@@ -179,6 +167,15 @@ impl Hist {
         // sort histogram keys by reversed frequency
         let mut decode_table: Vec<u32> = (0..bound as u32).collect();
         decode_table.sort_by_key(|&k| Reverse(self.get_bounded(k, bound)));
+
+        self.set_table(&decode_table);
+    }
+
+    pub fn set_table<U: Sym>(&mut self, decode_table: &[U]) {
+        // convert to u32s
+        let decode_table: Vec<u32> = decode_table.iter()
+            .map(|n| (*n).into())
+            .collect();
 
         // invert for encode table
         let mut encode_table = vec![0; decode_table.len()];

@@ -13,5 +13,3 @@ pub mod rice;
 pub use rice::*;
 pub mod glz;
 pub use crate::glz::*;
-pub mod glzor;
-pub use glzor::*;
