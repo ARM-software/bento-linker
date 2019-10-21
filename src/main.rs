@@ -365,6 +365,14 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                     }, &mut prog.1)?;
 //                    glz.map_syms_all_with_prog(&inputs, 
 //                        |op: u32| hist.increment(op), prog)?;
+
+//                    // second pass?
+//                    let glz = GLZ_::from_hist(k, l, m, &hist);
+//                    let mut hist: Hist = Hist::new();
+//                    let (bits, _) = glz.encode_all_with_prog(&inputs, (&mut prog.0, &mut prog.1))?;
+//                    glz.traverse_syms_with_prog(&bits, |op: u32| {
+//                        hist.increment(op);
+//                    }, &mut prog.1)?;
                     Ok(hist)
                 }
             )?;

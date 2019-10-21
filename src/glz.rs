@@ -60,9 +60,9 @@ enum GLZSym<U: Sym> {
 }
 
 impl GLZ_ {
-    pub const DEFAULT_K: usize  = GLZ_::WIDTH+1-1;
+    pub const DEFAULT_K: usize  = GLZ_::WIDTH+1;
     pub const DEFAULT_L: usize  = 5;
-    pub const DEFAULT_M: usize  = 3;
+    pub const DEFAULT_M: usize  = 5;
     pub const WIDTH: usize      = 8;
 
     pub fn new() -> Self {
@@ -106,7 +106,8 @@ impl GLZ_ {
         let mut hist = hist.clone();
         hist.sort_bounded(
             2usize.pow(Self::WIDTH as u32) +
-            2usize.pow(l as u32));
+            2usize.pow(l as u32) +
+            2usize.pow(m as u32));
 
         let rice = if let Some(k) = k {
             GolombRice_::new(k)
@@ -163,70 +164,114 @@ impl GLZ_ {
     fn encode_sym_raw<U: Sym>(&self, sym: GLZSym<U>) -> Result<BitVec> {
         match sym {
             GLZSym::Imm{count, imm: x} => {
-                let mut counts: Vec<usize> = Vec::new();
-                let mut ncount = count + 1 - 2;
+                let mut counts: Vec<u32> = Vec::new();
+                let mut ncount = (count + 1 - 2) as u32;
                 while ncount != 0 {
                     ncount -= 1;
-                    counts.push(ncount & (2usize.pow(self.m as u32)-1));
+                    counts.push(
+                        (ncount & (2u32.pow(self.m as u32)-1))
+                        + 2u32.pow(Self::WIDTH as u32)
+                        + 2u32.pow(self.l as u32)
+                    );
                     ncount >>= self.m;
                 }
                 counts.reverse();
 
-                let countsize = counts.len();
-
-                let imm: u32
-                    = (0u32 << Self::WIDTH)
-                    | u32::cast(x)?;
-
-                Ok(self.rice.encode_u32(((countsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + imm)?.iter()
-                    .chain(counts.iter()
-                        .map(|&count| self.m.encode_u32(count as u32))
-                        .collect::<Result<Vec<_>>>()?
-                        .into_iter().flatten())
+                return Ok(counts.iter()
+                    .map(|&nibble| self.rice.encode_u32(nibble))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter().flatten()
+                    .chain(self.rice.encode_sym(x)?.into_iter())
                     .collect())
-//                Ok(self.rice.encode_u32(((countsize as u32 - 0) << (1+Self::WIDTH as u32)) + imm)?.iter()
+
+
+//                let mut counts: Vec<usize> = Vec::new();
+//                let mut ncount = count + 1 - 2;
+//                while ncount != 0 {
+//                    ncount -= 1;
+//                    counts.push(ncount & (2usize.pow(self.m as u32)-1));
+//                    ncount >>= self.m;
+//                }
+//                counts.reverse();
+//
+//                let countsize = counts.len();
+//
+//                let imm: u32
+//                    = (0u32 << Self::WIDTH)
+//                    | u32::cast(x)?;
+//
+//                Ok(self.rice.encode_u32(((countsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + imm)?.iter()
 //                    .chain(counts.iter()
 //                        .map(|&count| self.m.encode_u32(count as u32))
 //                        .collect::<Result<Vec<_>>>()?
 //                        .into_iter().flatten())
 //                    .collect())
+////                Ok(self.rice.encode_u32(((countsize as u32 - 0) << (1+Self::WIDTH as u32)) + imm)?.iter()
+////                    .chain(counts.iter()
+////                        .map(|&count| self.m.encode_u32(count as u32))
+////                        .collect::<Result<Vec<_>>>()?
+////                        .into_iter().flatten())
+////                    .collect())
             }
             GLZSym::Ref{off, size} => {
                 ensure!(size >= 0+2 && size <= 2usize.pow(self.l as u32)-1+2,
                     "bad size {}", size);
 
-                let mut offs: Vec<usize> = Vec::new();
-                let mut noff = off + 1;
+                let mut offs: Vec<u32> = Vec::new();
+                let mut noff = (off + 1 - 2) as u32;
                 while noff != 0 {
                     noff -= 1;
-                    offs.push(noff & (2usize.pow(self.m as u32)-1));
+                    offs.push(
+                        (noff & (2u32.pow(self.m as u32)-1))
+                        + 2u32.pow(Self::WIDTH as u32)
+                        + 2u32.pow(self.l as u32)
+                    );
                     noff >>= self.m;
                 }
                 offs.reverse();
 
-                let offsize = offs.len();
-//                ensure!(offsize >= 0+1 &&
-//                    offsize <= 2usize.pow((Self::WIDTH-self.l) as u32)-1+1,
-//                    "bad offset {} (off = {})", offsize, off);
+                let nsize = (size - 2) as u32
+                    + 2u32.pow(Self::WIDTH as u32);
 
-                let ref_: u32
-                    = (1u32 << Self::WIDTH)
-//                    | ((Self::WIDTH-self.l).cast_u32(offsize as u32 - 1)?
-//                        << self.l)
-                    | u32::cast(size as u32 - 2)?;
-
-                Ok(self.rice.encode_u32(((offsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + ref_)?.iter()
-                    .chain(offs.iter()
-                        .map(|&off| self.m.encode_u32(off as u32))
-                        .collect::<Result<Vec<_>>>()?
-                        .into_iter().flatten())
+                return Ok(offs.iter()
+                    .map(|&nibble| self.rice.encode_u32(nibble))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter().flatten()
+                    .chain(self.rice.encode_u32(nsize)?.into_iter())
                     .collect())
-//                Ok(self.rice.encode_u32(((offsize as u32 - 0) << (1+Self::WIDTH as u32)) + ref_)?.iter()
+
+//                let mut offs: Vec<usize> = Vec::new();
+//                let mut noff = off + 1;
+//                while noff != 0 {
+//                    noff -= 1;
+//                    offs.push(noff & (2usize.pow(self.m as u32)-1));
+//                    noff >>= self.m;
+//                }
+//                offs.reverse();
+//
+//                let offsize = offs.len();
+////                ensure!(offsize >= 0+1 &&
+////                    offsize <= 2usize.pow((Self::WIDTH-self.l) as u32)-1+1,
+////                    "bad offset {} (off = {})", offsize, off);
+//
+//                let ref_: u32
+//                    = (1u32 << Self::WIDTH)
+////                    | ((Self::WIDTH-self.l).cast_u32(offsize as u32 - 1)?
+////                        << self.l)
+//                    | u32::cast(size as u32 - 2)?;
+//
+//                Ok(self.rice.encode_u32(((offsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + ref_)?.iter()
 //                    .chain(offs.iter()
 //                        .map(|&off| self.m.encode_u32(off as u32))
 //                        .collect::<Result<Vec<_>>>()?
 //                        .into_iter().flatten())
 //                    .collect())
+////                Ok(self.rice.encode_u32(((offsize as u32 - 0) << (1+Self::WIDTH as u32)) + ref_)?.iter()
+////                    .chain(offs.iter()
+////                        .map(|&off| self.m.encode_u32(off as u32))
+////                        .collect::<Result<Vec<_>>>()?
+////                        .into_iter().flatten())
+////                    .collect())
             }
         }
     }
@@ -240,58 +285,94 @@ impl GLZ_ {
         &self,
         bits: &BitSlice
     ) -> Result<(GLZSym<U>, usize)> {
-        // decode symbol
-        let (sym, diff) = self.rice.decode_u32(bits)
-            .chain_err(|| format!("could not decode GLZ symbol"))?;
+        let mut off = 0;
+        let mut arg = 0;
+        loop {
+            // decode symbol
+            let (sym, diff) = self.rice.decode_u32_at(bits, off)?;
+            off += diff;
 
-        //if sym & (1 << Self::WIDTH) == 0 {
-        //if sym < (1 << Self::WIDTH) {
-        if (sym % ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) < (1 << Self::WIDTH) {
-            // found an immediate
-
-            //let countsize = (sym >> (1 + Self::WIDTH)) + 0;
-            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
-            let countsize = (sym / bound) + 0;
-            let imm = sym % bound;
-
-            let countsize = countsize as usize;
-            let mut count = 0;
-            for i in 0..countsize {
-                count = (count << self.m) + 1
-                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
+            if sym >= 2u32.pow(Self::WIDTH as u32) + 2u32.pow(self.l as u32) {
+                // found arg nibble
+                arg <<= self.m;
+                arg += sym + 1;
+            } else if sym >= 2u32.pow(Self::WIDTH as u32) {
+                // found indirect reference
+                let ref_ = sym - 2u32.pow(Self::WIDTH as u32) + 2;
+                return Ok((GLZSym::Ref{
+                    off: arg as usize,
+                    size: ref_ as usize,
+                }, off));
+            } else {
+                let imm = sym;
+                return Ok((GLZSym::Imm{
+                    count: arg as usize,
+                    imm: U::cast(imm)?,
+                }, off));
             }
-            let count = count as usize + 2 - 1;
-            Ok((
-                GLZSym::Imm{
-                    count: count,
-                    imm: U::cast(imm)?
-                },
-                diff + countsize*self.m
-            ))
-        } else {
-            // found an indirect reference
-//            let refoffsize = (((sym >> self.l)
-//                & (2u32.pow((Self::WIDTH-self.l) as u32)-1))
-//                + 1) as usize;
-            //let refoffsize = (sym >> (1 + Self::WIDTH)) + 0;
-            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
-            let refoffsize = (sym / bound) + 0;
-            //let refoffsize = (sym >> (Self::WIDTH)) - 1;
-            //let refoffsize = (sym - (1 << Self::WIDTH)) >> self.l;
-            let refsize = (((sym % bound) - (1 << Self::WIDTH)) + 2) as usize;
-
-            let refoffsize = refoffsize as usize;
-            let mut refoff = 0;
-            for i in 0..refoffsize {
-                refoff = (refoff << self.m) + 1
-                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
-            }
-            let refoff = refoff as usize - 1;
-            Ok((
-                GLZSym::Ref{off: refoff, size: refsize},
-                diff + refoffsize*self.m
-            ))
         }
+//
+//        
+//
+//        
+//
+//
+//
+//
+//
+//
+//        // decode symbol
+//        let (sym, diff) = self.rice.decode_u32(bits)
+//            .chain_err(|| format!("could not decode GLZ symbol"))?;
+//
+//        //if sym & (1 << Self::WIDTH) == 0 {
+//        //if sym < (1 << Self::WIDTH) {
+//        if (sym % ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) < (1 << Self::WIDTH) {
+//            // found an immediate
+//
+//            //let countsize = (sym >> (1 + Self::WIDTH)) + 0;
+//            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
+//            let countsize = (sym / bound) + 0;
+//            let imm = sym % bound;
+//
+//            let countsize = countsize as usize;
+//            let mut count = 0;
+//            for i in 0..countsize {
+//                count = (count << self.m) + 1
+//                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
+//            }
+//            let count = count as usize + 2 - 1;
+//            Ok((
+//                GLZSym::Imm{
+//                    count: count,
+//                    imm: U::cast(imm)?
+//                },
+//                diff + countsize*self.m
+//            ))
+//        } else {
+//            // found an indirect reference
+////            let refoffsize = (((sym >> self.l)
+////                & (2u32.pow((Self::WIDTH-self.l) as u32)-1))
+////                + 1) as usize;
+//            //let refoffsize = (sym >> (1 + Self::WIDTH)) + 0;
+//            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
+//            let refoffsize = (sym / bound) + 0;
+//            //let refoffsize = (sym >> (Self::WIDTH)) - 1;
+//            //let refoffsize = (sym - (1 << Self::WIDTH)) >> self.l;
+//            let refsize = (((sym % bound) - (1 << Self::WIDTH)) + 2) as usize;
+//
+//            let refoffsize = refoffsize as usize;
+//            let mut refoff = 0;
+//            for i in 0..refoffsize {
+//                refoff = (refoff << self.m) + 1
+//                    + self.m.decode_u32_at(bits, diff+self.m*i)?.0;
+//            }
+//            let refoff = refoff as usize - 1;
+//            Ok((
+//                GLZSym::Ref{off: refoff, size: refsize},
+//                diff + refoffsize*self.m
+//            ))
+//        }
     }
 
     fn decode_sym<U: Sym>(
@@ -524,11 +605,41 @@ impl GLZ_ {
         mut f: F,
         mut prog: impl FnMut(usize)
     ) -> Result<()> {
+//        let mut off = 0;
+//        while off < bits.len() {
+//            let diff = self.traverse_sym_at(&bits, off, &mut f)?;
+//            prog(1);
+//            off += diff;
+//        }
+//
+//        Ok(())
         let mut off = 0;
+        let mut arg = 0;
         while off < bits.len() {
-            let diff = self.traverse_sym_at(&bits, off, &mut f)?;
+            // decode symbol
+            let (sym, diff) = self.rice.decode_sym_at(bits, off)?;
+            f(sym);
             prog(1);
             off += diff;
+//
+//            if sym >= 2u32.pow(Self::WIDTH as u32) + 2u32.pow(self.l as u32) {
+//                // found arg nibble
+//                arg <<= self.m;
+//                arg += sym + 1;
+//            } else if sym >= 2u32.pow(Self::WIDTH as u32) {
+//                // found indirect reference
+//                let ref_ = sym - 2u32.pow(Self::WIDTH as u32) + 2;
+//                return Ok((GLZSym::Ref{
+//                    off: arg as usize,
+//                    size: ref_ as usize,
+//                }, off));
+//            } else {
+//                let imm = sym;
+//                return Ok((GLZSym::Imm{
+//                    count: arg as usize,
+//                    imm: U::cast(imm)?,
+//                }, off));
+//            }
         }
 
         Ok(())
