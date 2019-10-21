@@ -3,7 +3,9 @@ use glz::errors::*;
 use glz::GLZoR;
 use glz::LEB128;
 use glz::GLZ;
+use glz::GLZ_;
 use glz::GolombRice;
+use glz::GolombRice_;
 use glz::Hist;
 
 use std::io;
@@ -37,7 +39,6 @@ enum Field {
     TABLE = 3,
     L = 4,
     M = 5,
-    WIDTH = 6,
     NAMES = 1,
     BLOB = 0,
 }
@@ -355,11 +356,15 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                 opt.common.quiet,
                 &paths,
                 &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
-                |prog| {
-                    let glz = GLZ::with_width(l, m, GLZoR::DEFAULT_WIDTH);
+                |mut prog| {
+                    let glz = GLZ_::with_config(GLZ_::DEFAULT_K, l, m);
                     let mut hist: Hist = Hist::new();
-                    glz.map_syms_all_with_prog(&inputs,
-                        |op: u32| hist.increment(op), prog)?;
+                    let (bits, _) = glz.encode_all_with_prog(&inputs, (&mut prog.0, &mut prog.1))?;
+                    glz.traverse_syms_with_prog(&bits, |op: u32| {
+                        hist.increment(op);
+                    }, &mut prog.1)?;
+//                    glz.map_syms_all_with_prog(&inputs, 
+//                        |op: u32| hist.increment(op), prog)?;
                     Ok(hist)
                 }
             )?;
@@ -370,8 +375,11 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
                 hist.draw(None);
             }
 
-            let gr = GolombRice::from_hist(k, 1+GLZoR::DEFAULT_WIDTH, &hist);
-            (gr.k(), gr.decode_table().unwrap())
+            //let gr = GolombRice::from_hist(k, 1+GLZoR::DEFAULT_WIDTH, &hist);
+            //let gr = GolombRice_::from_hist(&hist);
+            //(gr.k(), gr.decode_table().unwrap())
+            let glz = GLZ_::from_hist(k, l, m, &hist);
+            (glz.k(), glz.decode_table()?)
         },
         (Some(k), table) => {
             (k, table.clone())
@@ -387,10 +395,10 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
 //    }
 
     println!("K = {}", k);
-    if l != GLZoR::DEFAULT_L {
+    if l != GLZ_::DEFAULT_L {
         println!("L = {}", l);
     }
-    if m != GLZoR::DEFAULT_M {
+    if m != GLZ_::DEFAULT_M {
         println!("M = {}", m);
     }
     print!("table = [");
@@ -420,14 +428,14 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     }
     println!("]");
 
-    let glzor = GLZoR::with_table(k, l, m, GLZoR::DEFAULT_WIDTH, &table);
+    let glz = GLZ_::with_table(k, l, m, &table);
     let (output, ranges) = with_prog_all(
         "compressing...",
         opt.common.quiet,
         &paths,
         &inputs.iter().map(|x| x.len()).collect::<Vec<_>>(),
         |prog| {
-            glzor.encode_all_with_prog(&inputs, prog)
+            glz.encode_all_with_prog(&inputs, prog)
         }
     )?;
 
@@ -453,12 +461,12 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
             f.write_field(Field::K,
                 &LEB128.encode_u32(k as u32)?
             )?;
-            if l != GLZoR::DEFAULT_L {
+            if l != GLZ_::DEFAULT_L {
                 f.write_field(Field::L,
                     &LEB128.encode_u32(l as u32)?
                 )?;
             }
-            if m != GLZoR::DEFAULT_M {
+            if m != GLZ_::DEFAULT_M {
                 f.write_field(Field::M,
                     &LEB128.encode_u32(m as u32)?
                 )?;

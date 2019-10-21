@@ -104,7 +104,9 @@ impl GLZ_ {
     ) -> Self {
         // use hist as bijecter to map probabilities to best rice code
         let mut hist = hist.clone();
-        hist.sort();
+        hist.sort_bounded(
+            2usize.pow(Self::WIDTH as u32) +
+            2usize.pow(l as u32));
 
         let rice = if let Some(k) = k {
             GolombRice_::new(k)
@@ -128,7 +130,14 @@ impl GLZ_ {
         m: usize,
         seed: I,
     ) -> Self {
-        Self::from_hist(k, l, m, &Hist::from_seed(seed))
+        let glz = Self::with_config(k.unwrap_or(Self::DEFAULT_K), l, m);
+        let mut hist = Hist::new();
+        let bits = glz.encode(&seed.into_iter().collect::<Vec<_>>()).unwrap();
+        glz.traverse_syms(&bits, |op: u32| {
+            hist.increment(op);
+        }).unwrap();
+
+        Self::from_hist(k, l, m, &hist)
     }
 
     pub fn k(&self) -> usize {
@@ -169,12 +178,18 @@ impl GLZ_ {
                     = (0u32 << Self::WIDTH)
                     | u32::cast(x)?;
 
-                Ok(self.rice.encode_u32(((countsize as u32 - 0) << (1+Self::WIDTH as u32)) + imm)?.iter()
+                Ok(self.rice.encode_u32(((countsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + imm)?.iter()
                     .chain(counts.iter()
                         .map(|&count| self.m.encode_u32(count as u32))
                         .collect::<Result<Vec<_>>>()?
                         .into_iter().flatten())
                     .collect())
+//                Ok(self.rice.encode_u32(((countsize as u32 - 0) << (1+Self::WIDTH as u32)) + imm)?.iter()
+//                    .chain(counts.iter()
+//                        .map(|&count| self.m.encode_u32(count as u32))
+//                        .collect::<Result<Vec<_>>>()?
+//                        .into_iter().flatten())
+//                    .collect())
             }
             GLZSym::Ref{off, size} => {
                 ensure!(size >= 0+2 && size <= 2usize.pow(self.l as u32)-1+2,
@@ -200,12 +215,18 @@ impl GLZ_ {
 //                        << self.l)
                     | u32::cast(size as u32 - 2)?;
 
-                Ok(self.rice.encode_u32(((offsize as u32 - 0) << (1+Self::WIDTH as u32)) + ref_)?.iter()
+                Ok(self.rice.encode_u32(((offsize as u32 - 0) * ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) + ref_)?.iter()
                     .chain(offs.iter()
                         .map(|&off| self.m.encode_u32(off as u32))
                         .collect::<Result<Vec<_>>>()?
                         .into_iter().flatten())
                     .collect())
+//                Ok(self.rice.encode_u32(((offsize as u32 - 0) << (1+Self::WIDTH as u32)) + ref_)?.iter()
+//                    .chain(offs.iter()
+//                        .map(|&off| self.m.encode_u32(off as u32))
+//                        .collect::<Result<Vec<_>>>()?
+//                        .into_iter().flatten())
+//                    .collect())
             }
         }
     }
@@ -223,11 +244,15 @@ impl GLZ_ {
         let (sym, diff) = self.rice.decode_u32(bits)
             .chain_err(|| format!("could not decode GLZ symbol"))?;
 
-        if sym & (1 << Self::WIDTH) == 0 {
+        //if sym & (1 << Self::WIDTH) == 0 {
+        //if sym < (1 << Self::WIDTH) {
+        if (sym % ((1 << Self::WIDTH as u32) + (1 << self.l as u32))) < (1 << Self::WIDTH) {
             // found an immediate
 
-            let countsize = (sym >> (1 + Self::WIDTH)) + 0;
-            let imm = sym & ((1 << Self::WIDTH)-1);
+            //let countsize = (sym >> (1 + Self::WIDTH)) + 0;
+            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
+            let countsize = (sym / bound) + 0;
+            let imm = sym % bound;
 
             let countsize = countsize as usize;
             let mut count = 0;
@@ -248,10 +273,12 @@ impl GLZ_ {
 //            let refoffsize = (((sym >> self.l)
 //                & (2u32.pow((Self::WIDTH-self.l) as u32)-1))
 //                + 1) as usize;
-            let refoffsize = (sym >> (1 + Self::WIDTH)) + 0;
-            let refsize = ((sym
-                & (2u32.pow(self.l as u32)-1))
-                + 2) as usize;
+            //let refoffsize = (sym >> (1 + Self::WIDTH)) + 0;
+            let bound = (1 << Self::WIDTH as u32) + (1 << self.l as u32);
+            let refoffsize = (sym / bound) + 0;
+            //let refoffsize = (sym >> (Self::WIDTH)) - 1;
+            //let refoffsize = (sym - (1 << Self::WIDTH)) >> self.l;
+            let refsize = (((sym % bound) - (1 << Self::WIDTH)) + 2) as usize;
 
             let refoffsize = refoffsize as usize;
             let mut refoff = 0;
@@ -281,6 +308,38 @@ impl GLZ_ {
         off: usize
     ) -> Result<(GLZSym<U>, usize)> {
         self.decode_sym(&bits[off..])
+    }
+
+    fn traverse_sym_raw<U: Sym, F: FnMut(U)>(
+        &self,
+        bits: &BitSlice,
+        mut f: F,
+    ) -> Result<usize> {
+        // pass to our callback
+        let (op, _) = self.rice.decode_u32(&bits)?;
+        f(U::cast(op)?);
+
+        // get size to skip
+        let (_, diff) = self.decode_sym::<U>(&bits)?;
+        Ok(diff)
+    }
+
+    fn traverse_sym<U: Sym, F: FnMut(U)>(
+        &self,
+        bits: &BitSlice,
+        f: F,
+    ) -> Result<usize> {
+        self.traverse_sym_raw(bits, f)
+            .chain_err(|| "could not decode GLZ symbol")
+    }
+
+    fn traverse_sym_at<U: Sym, F: FnMut(U)>(
+        &self,
+        bits: &BitSlice,
+        off: usize,
+        f: F,
+    ) -> Result<usize> {
+        self.traverse_sym(&bits[off..], f)
     }
 
     fn encode1<'a, U: Sym>(
@@ -319,6 +378,7 @@ impl GLZ_ {
             let prefconsume = prefix.len();
 
             let (pimm, pimmconsume) = {
+//                let consume = 1;
                 let mut i = j;
                 let mut consume = 0;
                 while i.checked_sub(1)
@@ -344,6 +404,7 @@ impl GLZ_ {
             if forceimm || pref.as_ref().filter(|pref| {
                 (pref.len() as f64 / prefconsume as f64) < (pimm.len() as f64 / pimmconsume as f64)
             }).is_none() {
+                println!("imm {} {:?} -> {}", pimmconsume, &slice[j-pimmconsume..j], pimm);
                 // not worth the overhead of the reference, emit immediate
                 // but how manyy??
 //                consume = 0;
@@ -373,6 +434,7 @@ impl GLZ_ {
                     history.insert(&slice[i..r], *off+emit);
                 }
             } else {
+                println!("ref {} {:?} -> {}", prefix.len(), prefix, pref.as_ref().unwrap());
                 // found a pattern, emit reference
                 consume = prefix.len();
                 emit = pref.as_ref().unwrap().len();
@@ -464,14 +526,8 @@ impl GLZ_ {
     ) -> Result<()> {
         let mut off = 0;
         while off < bits.len() {
-            let (op, _) = self.rice.decode_u32_at(&bits, off)?;
-
-            // pass to our callback
+            let diff = self.traverse_sym_at(&bits, off, &mut f)?;
             prog(1);
-            f(U::cast(op)?);
-
-            // get size to skip
-            let (_, diff) = self.decode_sym_at::<U>(&bits, off)?;
             off += diff;
         }
 
@@ -642,7 +698,7 @@ impl<E: SymEncode> GLZ<E> {
 //                        << self.l)
                     | u32::cast(size as u32 - 2)?;
 
-                Ok(self.encoder.encode_u32(((offsize as u32 - 0) << (1+self.width as u32)) + ref_)?.iter()
+                Ok(self.encoder.encode_u32(((offsize as u32 - 0) << (/*1+*/self.width as u32)) + ref_)?.iter()
                     .chain(offs.iter()
                         .map(|&off| self.m.encode_u32(off as u32))
                         .collect::<Result<Vec<_>>>()?
@@ -665,7 +721,8 @@ impl<E: SymEncode> GLZ<E> {
         let (sym, diff) = self.encoder.decode_u32(bits)
             .chain_err(|| format!("could not decode GLZ symbol"))?;
 
-        if sym & (1 << self.width) == 0 {
+        //if sym & (1 << self.width) == 0 {
+        if sym < (1 << self.width) {
             // found an immediate
 
             let countsize = (sym >> (1 + self.width)) + 0;
@@ -690,7 +747,9 @@ impl<E: SymEncode> GLZ<E> {
 //            let refoffsize = (((sym >> self.l)
 //                & (2u32.pow((self.width-self.l) as u32)-1))
 //                + 1) as usize;
-            let refoffsize = (sym >> (1 + self.width)) + 0;
+            //let refoffsize = (sym >> (1 + self.width)) + 0;
+            let refoffsize = (sym >> (self.width)) - 1 + 0;
+            //let refoffsize = (sym - (1 << self.width)) >> self.l;
             let refsize = ((sym
                 & (2u32.pow(self.l as u32)-1))
                 + 2) as usize;
@@ -761,16 +820,17 @@ impl<E: SymEncode> GLZ<E> {
             let prefconsume = prefix.len();
 
             let (pimm, pimmconsume) = {
-                let mut i = j;
-                let mut consume = 0;
-                while i.checked_sub(1)
-                    .and_then(|i| slice.get(i))
-                    .filter(|c| **c == slice[j-1])
-                    .is_some()
-                {
-                    i -= 1;
-                    consume += 1;
-                }
+                let consume = 1;
+//                let mut i = j;
+//                let mut consume = 0;
+//                while i.checked_sub(1)
+//                    .and_then(|i| slice.get(i))
+//                    .filter(|c| **c == slice[j-1])
+//                    .is_some()
+//                {
+//                    i -= 1;
+//                    consume += 1;
+//                }
 
                 (
                     self.encode_sym(GLZSym::Imm{count: consume, imm: slice[j-1]})?,
@@ -1094,127 +1154,213 @@ impl<E: SymEncode> GranularEncode for GLZ<E> {
 mod tests {
     use super::*;
 
-//    #[test]
-//    fn encode_imm_test() -> Result<()> {
-//        let glz = GLZ_::with_config(GLZ_::DEFAULT_K, 5, 3);
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Imm{count: 1, imm: b'a'})?,
-//            bitvec![
-//                0,0,1,1,0,0,0,0,1
-//            ]
-//        );
-//
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Imm{count: 2, imm: b'a'})?,
-//            bitvec![
-//                1,1,0,0,1,1,0,0,0,0,1,
-//                0,0,0,
-//            ]
-//        );
-//
-//        Ok(())
-//    }
-//
-//    #[test]
-//    fn encode_ref_test() -> Result<()> {
-//        let glz = GLZ_::with_config(GLZ_::DEFAULT_K, 5, 3);
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
-//            bitvec![
-//                1,1,1,1,1,0, 0,0,0,0,1,0,1,0,
-//                0,0,1, 1,0,1,
-//                //11111000, 00101000, 1101
-//                0, 0, 1,
-//                0, 1, 0, 1, 0,
-//                0, 0, 1,
-//                1, 0, 1
-//            ]
-//        );
-//        let glz = GLZ_::with_config(8, 7, 7);
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
-//            bitvec![
-//                1,
-//                0,
-//                0, 0, 0, 1, 0, 1, 0,
-//                0, 0, 1, 0, 1, 0, 1
-//            ]
-//        );
-//        let glz = GLZ_::with_config(8, 8, 8);
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
-//            bitvec![
-//                1,
-//                0, 0, 0, 0, 1, 0, 1, 0,
-//                0, 0, 0, 1, 0, 1, 0, 1
-//            ]
-//        );
-//        let glz = GLZ_::with_config(8, 4, 1);
-//        assert_eq!(
-//            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
-//            bitvec![
-//                1,
-//                0, 0, 1, 1,
-//                1, 0, 1, 0,
-//                0,
-//                1,
-//                1,
-//                1
-//            ]
-//        );
-//
-//        Ok(())
-//    }
-//
-//    #[test]
-//    fn symmetry_test() -> Result<()> {
-//        let glz = GLZ::new(5, 3);
-//        assert_eq!(glz.encode(b"hello world!")?.len(), 108);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(b"hello world!")?)?,
-//            b"hello world!".to_vec()
-//        );
-//
-//        let glz = GLZ::new(5, 3);
-//        let phrase = b"hello world hello hello world!";
-//        assert_eq!(glz.encode(phrase)?.len(), 144);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(phrase)?)?,
-//            phrase.to_vec()
-//        );
-//
-//        let glz = GLZ::new(5, 3);
-//        let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
-//        assert_eq!(glz.encode(phrase)?.len(), 207);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(phrase)?)?,
-//            phrase.to_vec()
-//        );
-//
-//        let glz = GLZ::new(5, 3);
-//        let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
-//        assert_eq!(glz.encode(phrase)?.len(), 192);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(phrase)?)?,
-//            phrase.to_vec()
-//        );
-//
-//        let glz = GLZ::new(5, 3);
-//        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
-//        assert_eq!(glz.encode(phrase)?.len(), 144);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(phrase)?)?,
-//            phrase.to_vec()
-//        );
-//
-//        let glz = GLZ::new(5, 3);
-//        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
-//        assert_eq!(glz.encode(phrase)?.len(), 135);
-//        assert_eq!(
-//            glz.decode::<u8>(&glz.encode(phrase)?)?,
-//            phrase.to_vec()
-//        );
-//
-//        Ok(())
-//    }
+    #[test]
+    fn encode_imm_test() -> Result<()> {
+        let glz = GLZ_::with_config(8, 5, 3);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Imm{count: 1, imm: b'a'})?,
+            bitvec![
+                0, 0,1,1,0,0,0,0,1
+            ]
+        );
+        let glz = GLZ_::with_config(8, 5, 3);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Imm{count: 2, imm: b'a'})?,
+            bitvec![
+                1,0, 1,0,0,0,0,0,0,1,
+                0,0,0,
+            ]
+        );
+        let glz = GLZ_::with_config(8, 5, 3);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Imm{count: 11, imm: b'a'})?,
+            bitvec![
+                1,1,0, 1,0,1,0,0,0,0,1,
+                0,0,0, 0,0,1,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_ref_test() -> Result<()> {
+        let glz = GLZ_::with_config(8, 5, 3);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
+            bitvec![
+                1,1,1,0, 0,1,0,0,1,0,1,0,
+                0,0,1, 1,0,1,
+            ]
+        );
+        let glz = GLZ_::with_config(8, 7, 7);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
+            bitvec![
+                1,1,0, 1,0,0,0,1,0,1,0,
+                0,0,1,0,1,0,1,
+            ]
+        );
+        let glz = GLZ_::with_config(8, 8, 8);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
+            bitvec![
+                1,1,1,0, 0,0,0,0,1,0,1,0,
+                0,0,0,1,0,1,0,1,
+            ]
+        );
+        let glz = GLZ_::with_config(8, 4, 1);
+        assert_eq!(
+            glz.encode_sym::<u8>(GLZSym::Ref{off:21, size:12})?,
+            bitvec![
+                1,1,1,1,1,0, 0,1,0,0,1,0,1,0,
+                0,1,1,1,
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn sym_symmetry_test() -> Result<()> {
+        let glz = GLZ_::with_config(8, 5, 3);
+        let sym = GLZSym::Imm{count: 1, imm: b'a'};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 9)
+        );
+        let sym = GLZSym::Imm{count: 2, imm: b'a'};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 13)
+        );
+        let sym = GLZSym::Imm{count: 11, imm: b'a'};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 17)
+        );
+        let sym = GLZSym::Ref{off: 21, size: 12};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 18)
+        );
+        let sym = GLZSym::Ref{off: 0, size: 2};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 14)
+        );
+        let sym = GLZSym::Ref{off: 123456, size: 31};
+        assert_eq!(
+            glz.decode_sym::<u8>(&glz.encode_sym::<u8>(sym)?)?,
+            (sym, 34)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn symmetry_test() -> Result<()> {
+        let glz = GLZ_::with_config(8, 5, 3);
+        assert_eq!(glz.encode(b"hello world!")?.len(), 103);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(b"hello world!")?)?,
+            b"hello world!".to_vec()
+        );
+
+        let phrase = b"hello world hello hello world!";
+        assert_eq!(glz.encode(phrase)?.len(), 144);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
+        assert_eq!(glz.encode(phrase)?.len(), 85);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
+        assert_eq!(glz.encode(phrase)?.len(), 94);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
+        assert_eq!(glz.encode(phrase)?.len(), 26);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
+        assert_eq!(glz.encode(phrase)?.len(), 17);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn seeded_symmetry_test() -> Result<()> {
+        let phrase = b"hello world!";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 4);
+        assert_eq!(glz.encode(phrase)?.len(), 76);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hello world hello hello world!";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 6);
+        assert_eq!(glz.encode(phrase)?.len(), 127);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhh wwwww hhhhh hhhhh wwwww!";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 7);
+        assert_eq!(glz.encode(phrase)?.len(), 81);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 7);
+        assert_eq!(glz.encode(phrase)?.len(), 89);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhh!";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 7);
+        assert_eq!(glz.encode(phrase)?.len(), 26);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        let phrase = b"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh";
+        let glz = GLZ_::from_seed(None, 5, 3, phrase.iter().copied());
+        assert_eq!(glz.k(), 8);
+        assert_eq!(glz.encode(phrase)?.len(), 17);
+        assert_eq!(
+            glz.decode::<u8>(&glz.encode(phrase)?)?,
+            phrase.to_vec()
+        );
+
+        Ok(())
+    }
 }

@@ -130,7 +130,9 @@ impl GolombRice {
     ) -> GolombRice {
         // build tables
         let mut hist = hist.clone();
-        hist.sort();
+        let bound = 2usize.pow(width as u32);
+        let bound = hist.upper_bounded::<u32>(bound).unwrap().0 as usize;
+        hist.sort_bounded(bound);
         let encode_table = hist.encode_table().unwrap();
         let decode_table = hist.decode_table().unwrap();
 
@@ -138,10 +140,9 @@ impl GolombRice {
         let k = k.unwrap_or_else(||
            (0..=width).map(|k| {
                 let gr = GolombRice::with_width(k, width);
-                let size: usize = hist.iter::<u32>().map(|(n, c)|
-                    c * gr.encode_sym(n)
-                        .unwrap().len()
-                ).sum();
+                let size: usize = hist.iter_bounded::<u32>(bound).map(|(n, c)| {
+                    c * gr.encode_sym(n).unwrap().len()
+                }).sum();
                 (size, k)
             }).min().unwrap().1);
 
