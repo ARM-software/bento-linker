@@ -110,12 +110,6 @@ macro_rules! mkrule {
             self.$target(bits$(, $x)*)
         }
     };
-
-    ($name:ident { $target:ident(U$(, $x:ident: $xt:ty)*) -> $v:ty }) => {
-        fn $name<U: Sym>(&self, n: U$(, $x: $xt)*) -> Result<$v> {
-            self.$target(n$(, $x)*)
-        }
-    };
 }
 
 // Generalized encoder, operates on streams of symbols

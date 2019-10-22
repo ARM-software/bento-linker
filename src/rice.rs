@@ -5,13 +5,13 @@ use crate::errors::*;
 use crate::hist::Hist;
 
 
-//// Golomb-Rice code conversions
+// Golomb-Rice code conversions
 #[derive(Debug, Clone)]
-pub struct GolombRice_ {
+pub struct GolombRice {
     k: usize,
 }
 
-impl GolombRice_ {
+impl GolombRice {
     pub fn new(k: usize) -> Self {
         Self{k: k}
     }
@@ -51,7 +51,7 @@ impl GolombRice_ {
     }
 }
 
-impl SymEncode for GolombRice_ {
+impl SymEncode for GolombRice {
     fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
         let (m, n) = (1u32 << (self.k as u32), n.into());
         let (q, r) = (n/m, n%m);
@@ -77,7 +77,7 @@ mod tests {
     use super::*;
     use crate::hist::BijectEncoder;
 
-    impl SymEncode for &GolombRice_ {
+    impl SymEncode for &GolombRice {
         fn encode_sym<U: Sym>(&self, n: U) -> Result<BitVec> {
             (**self).encode_sym(n)
         }
@@ -90,44 +90,44 @@ mod tests {
     #[test]
     fn encode_test() -> Result<()> {
         assert_eq!(
-            GolombRice_::new(8).encode_u8(0b01011100u8)?,
+            GolombRice::new(8).encode_u8(0b01011100u8)?,
             bitvec![0,0,1,0,1,1,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(7).encode_u8(0b01011100u8)?,
+            GolombRice::new(7).encode_u8(0b01011100u8)?,
             bitvec![0,1,0,1,1,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(6).encode_u8(0b01011100u8)?,
+            GolombRice::new(6).encode_u8(0b01011100u8)?,
             bitvec![1,0,0,1,1,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(5).encode_u8(0b01011100u8)?,
+            GolombRice::new(5).encode_u8(0b01011100u8)?,
             bitvec![1,1,0,1,1,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(4).encode_u8(0b01011100u8)?,
+            GolombRice::new(4).encode_u8(0b01011100u8)?,
             bitvec![1,1,1,1,1,0,1,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(3).encode_u8(0b01011100u8)?,
+            GolombRice::new(3).encode_u8(0b01011100u8)?,
             bitvec![1,1,1,1,1,1,1,1,1,1,1,0,1,0,0]
         );
         assert_eq!(
-            GolombRice_::new(2).encode_u8(0b01011100u8)?,
+            GolombRice::new(2).encode_u8(0b01011100u8)?,
             bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0
             ]
         );
         assert_eq!(
-            GolombRice_::new(1).encode_u8(0b01011100u8)?,
+            GolombRice::new(1).encode_u8(0b01011100u8)?,
             bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0
             ]
         );
         assert_eq!(
-            GolombRice_::new(0).encode_u8(0b01011100u8)?,
+            GolombRice::new(0).encode_u8(0b01011100u8)?,
             bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -141,46 +141,46 @@ mod tests {
     #[test]
     fn decode_test() -> Result<()> {
         assert_eq!(
-            GolombRice_::new(8).decode_u8(&bitvec![0,0,1,0,1,1,1,0,0])?,
+            GolombRice::new(8).decode_u8(&bitvec![0,0,1,0,1,1,1,0,0])?,
             (0b01011100u8, 9)
         );
         assert_eq!(
-            GolombRice_::new(7).decode_u8(&bitvec![0,1,0,1,1,1,0,0])?,
+            GolombRice::new(7).decode_u8(&bitvec![0,1,0,1,1,1,0,0])?,
             (0b01011100u8, 8)
         );
         assert_eq!(
-            GolombRice_::new(6).decode_u8(&bitvec![1,0,0,1,1,1,0,0])?,
+            GolombRice::new(6).decode_u8(&bitvec![1,0,0,1,1,1,0,0])?,
             (0b01011100u8, 8)
         );
         assert_eq!(
-            GolombRice_::new(5).decode_u8(&bitvec![1,1,0,1,1,1,0,0])?,
+            GolombRice::new(5).decode_u8(&bitvec![1,1,0,1,1,1,0,0])?,
             (0b01011100u8, 8)
         );
         assert_eq!(
-            GolombRice_::new(4).decode_u8(&bitvec![1,1,1,1,1,0,1,1,0,0])?,
+            GolombRice::new(4).decode_u8(&bitvec![1,1,1,1,1,0,1,1,0,0])?,
             (0b01011100u8, 10)
         );
         assert_eq!(
-            GolombRice_::new(3).decode_u8(&bitvec![
+            GolombRice::new(3).decode_u8(&bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,0,1,0,0
             ])?,
             (0b01011100u8, 15)
         );
         assert_eq!(
-            GolombRice_::new(2).decode_u8(&bitvec![
+            GolombRice::new(2).decode_u8(&bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0
             ])?,
             (0b01011100u8, 23+3)
         );
         assert_eq!(
-            GolombRice_::new(1).decode_u8(&bitvec![
+            GolombRice::new(1).decode_u8(&bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0
             ])?,
             (0b01011100u8, 2*23+2)
         );
         assert_eq!(
-            GolombRice_::new(0).decode_u8(&bitvec![
+            GolombRice::new(0).decode_u8(&bitvec![
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
@@ -194,11 +194,11 @@ mod tests {
 
     #[test]
     fn errors_test() -> Result<()> {
-        assert!(GolombRice_::new(4)
+        assert!(GolombRice::new(4)
             .decode_u8(&bitvec![1,1,1,1,1,1,1,1]).is_err());
-        assert!(GolombRice_::new(4)
+        assert!(GolombRice::new(4)
             .decode_u8(&bitvec![1,1,1,0]).is_err());
-        assert!(GolombRice_::new(4)
+        assert!(GolombRice::new(4)
             .decode_u8(&bitvec![]).is_err());
 
         Ok(())
@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn rice_symmetry_test() -> Result<()> {
         for i in 0..8 {
-            let gr = GolombRice_::new(i);
+            let gr = GolombRice::new(i);
             assert_eq!(
                 gr.decode_u8(&gr.encode_u8(b'h')?).map(|(n,_)| n)?,
                 b'h'
@@ -223,23 +223,23 @@ mod tests {
 
     #[test]
     fn hist_k_test() -> Result<()> {
-        let gr = GolombRice_::from_seed(
+        let gr = GolombRice::from_seed(
             [0u8;0].iter().copied());
         assert_eq!(gr.k(), 0);
 
-        let gr = GolombRice_::from_seed(
+        let gr = GolombRice::from_seed(
             [0u8;100].iter().copied());
         assert_eq!(gr.k(), 0);
 
-        let gr = GolombRice_::from_seed(
+        let gr = GolombRice::from_seed(
             iter::repeat(0u8).take(100));
         assert_eq!(gr.k(), 0);
 
-        let gr = GolombRice_::from_seed(
+        let gr = GolombRice::from_seed(
             0..=255u8);
         assert_eq!(gr.k(), 6);
 
-        let gr = GolombRice_::from_seed(
+        let gr = GolombRice::from_seed(
             (0..=255u8).chain(iter::repeat(0u8).take(1000)));
         assert_eq!(gr.k(), 4);
 
@@ -250,7 +250,7 @@ mod tests {
     fn hist_symmetry_test() -> Result<()> {
         let mut hist = Hist::from_seed(b"hello world!".iter().copied());
         hist.sort();
-        let gr = BijectEncoder::new(GolombRice_::from_hist(&hist), hist);
+        let gr = BijectEncoder::new(GolombRice::from_hist(&hist), hist);
         assert_eq!(gr.encoder().k(), 1);
         assert_eq!(
             gr.encode_u8(b'h')?,
@@ -271,7 +271,7 @@ mod tests {
 
         let mut hist = Hist::from_seed(b"hhhhh world!".iter().copied());
         hist.sort();
-        let gr = BijectEncoder::new(GolombRice_::from_hist(&hist), hist);
+        let gr = BijectEncoder::new(GolombRice::from_hist(&hist), hist);
         assert_eq!(gr.encoder().k(), 1);
         assert_eq!(
             gr.encode_u8(b'h')?,
@@ -292,7 +292,7 @@ mod tests {
 
         let mut hist = Hist::from_seed(b"hhhhhhhhhhh!".iter().copied());
         hist.sort();
-        let gr = BijectEncoder::new(GolombRice_::from_hist(&hist), hist);
+        let gr = BijectEncoder::new(GolombRice::from_hist(&hist), hist);
         assert_eq!(gr.encoder().k(), 0);
         assert_eq!(
             gr.encode_u8(b'h')?,
@@ -313,7 +313,7 @@ mod tests {
 
         let mut hist = Hist::from_seed(b"hhhhhhhhhhhh".iter().copied());
         hist.sort();
-        let gr = BijectEncoder::new(GolombRice_::from_hist(&hist), hist);
+        let gr = BijectEncoder::new(GolombRice::from_hist(&hist), hist);
         assert_eq!(gr.encoder().k(), 0);
         assert_eq!(
             gr.encode_u8(b'h')?,

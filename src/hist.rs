@@ -7,12 +7,13 @@ use std::ops::Index;
 use std::iter;
 use std::fmt;
 use std::fmt::Debug;
+use std::rc::Rc;
 
 
 // Simple histogram class for Sym types
 #[derive(Clone)]
 pub struct Hist {
-    hist: Vec<usize>,
+    hist: Rc<Vec<usize>>,
     table: Option<(Vec<u32>, Vec<u32>)>,
 }
 
@@ -23,7 +24,7 @@ impl Hist {
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self{
-            hist: Vec::with_capacity(capacity),
+            hist: Rc::new(Vec::with_capacity(capacity)),
             table: None,
         }
     }
@@ -72,8 +73,9 @@ impl Hist {
 
     pub fn increment_by<U: Sym>(&mut self, n: U, diff: usize) {
         let n = self.map_decode(n).unwrap().into() as usize;
-        self.hist.resize(max(n+1, self.hist.len()), 0);
-        self.hist[n] += diff;
+        let hist = Rc::make_mut(&mut self.hist);
+        hist.resize(max(n+1, hist.len()), 0);
+        hist[n] += diff;
     }
 
     pub fn decrement<U: Sym>(&mut self, n: U) {
@@ -82,10 +84,11 @@ impl Hist {
 
     pub fn decrement_by<U: Sym>(&mut self, n: U, diff: usize) {
         let n = self.map_decode(n).unwrap().into() as usize;
-        *self.hist.get_mut(n).unwrap_or(&mut 0) -= diff;
+        let hist = Rc::make_mut(&mut self.hist);
+        *hist.get_mut(n).unwrap_or(&mut 0) -= diff;
     }
 
-    pub fn iter<'a, U: Sym>(&'a self) -> Box<Iterator<Item=(U, usize)> + 'a> {
+    pub fn iter<'b, U: Sym>(&'b self) -> Box<Iterator<Item=(U, usize)> + 'b> {
         Box::new(self.hist.iter()
             .enumerate()
             .filter(|(_, n)| **n > 0)
@@ -95,10 +98,10 @@ impl Hist {
             }))
     }
 
-    pub fn iter_bounded<'a, U: Sym>(
-        &'a self,
+    pub fn iter_bounded<'b, U: Sym>(
+        &'b self,
         bound: usize,
-    ) -> Box<Iterator<Item=(U, usize)> + 'a> {
+    ) -> Box<Iterator<Item=(U, usize)> + 'b> {
         Box::new((0..bound)
             .map(|i| U::cast(i as u32).unwrap())
             .map(move |i| (i, self.get_bounded(i, bound)))
@@ -187,7 +190,7 @@ impl Hist {
     }
 }
 
-impl<U: Sym> Index<U> for Hist {
+impl<'a, U: Sym> Index<U> for Hist {
     type Output = usize;
 
     fn index(&self, n: U) -> &usize {
