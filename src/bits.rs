@@ -3,6 +3,7 @@ use crate::errors::*;
 use std::convert::TryFrom;
 use std::hash;
 use std::mem;
+use std::iter;
 use std::fmt::Debug;
 
 use error_chain::ensure;
@@ -200,7 +201,8 @@ pub trait GranularEncode {
         &self,
         slices: &[&[U]]
     ) -> Result<(BitVec, Vec<(usize, usize)>)> {
-        self.encode_all_with_prog(slices, (|_|(), |_|()))
+        self.encode_all_with_prog(slices,
+            (iter::repeat(()), |_|(), |_|()))
     }
 
     fn decode_all<U: Sym>(
@@ -208,7 +210,8 @@ pub trait GranularEncode {
         bits: &BitSlice,
         offs: &[(usize, usize)]
     ) -> Result<Vec<Vec<U>>> {
-        self.decode_all_with_prog(bits, offs, (|_|(), |_|()))
+        self.decode_all_with_prog(bits, offs,
+            (iter::repeat(()), |_|(), |_|()))
     }
 
     fn decode_at<U: Sym>(
@@ -220,23 +223,27 @@ pub trait GranularEncode {
         self.decode_at_with_prog(bits, off, len, |_|())
     }
 
-    fn encode_all_with_prog<U: Sym>(
+    fn encode_all_with_prog<U: Sym, T>(
         &self,
         slices: &[&[U]],
-        prog: (impl FnMut(usize), impl FnMut(usize)),
+        prog: (impl IntoIterator<Item=T>, impl FnMut(T), impl FnMut(usize)),
     ) -> Result<(BitVec, Vec<(usize, usize)>)>;
 
-    fn decode_all_with_prog<U: Sym>(
+    fn decode_all_with_prog<U: Sym, T>(
         &self,
         bits: &BitSlice,
         offs: &[(usize, usize)],
-        mut prog: (impl FnMut(usize), impl FnMut(usize)),
+        prog: (impl IntoIterator<Item=T>, impl FnMut(T), impl FnMut(usize)),
     ) -> Result<Vec<Vec<U>>> {
-        offs.iter().map(|(off, len)| {
-            let slice = self.decode_at_with_prog(bits, *off, *len, &mut prog.1);
-            prog.0(1);
-            slice
-        }).collect()
+        let (tags, mut p1, mut p2) = prog;
+        offs.into_iter()
+            .copied()
+            .zip(tags)
+            .map(|((off, len), tag)| {
+                p1(tag);
+                self.decode_at_with_prog(bits, off, len, &mut p2)
+            })
+            .collect()
     }
 
     fn decode_at_with_prog<U: Sym>(
@@ -249,17 +256,17 @@ pub trait GranularEncode {
 }
 
 impl<T: SymEncode> GranularEncode for T {
-    fn encode_all_with_prog<U: Sym>(
+    fn encode_all_with_prog<U: Sym, S>(
         &self,
         slices: &[&[U]],
-        mut prog: (impl FnMut(usize), impl FnMut(usize)),
+        prog: (impl IntoIterator<Item=S>, impl FnMut(S), impl FnMut(usize)),
     ) -> Result<(BitVec, Vec<(usize, usize)>)> {
+        let (tags, mut p1, mut p2) = prog;
         let bits = slices.iter()
-            .rev()
-            .map(|slice| {
-                let slice = self.encode_with_prog(slice, &mut prog.1);
-                prog.0(1);
-                slice
+            .zip(tags)
+            .map(|(slice, tag)| {
+                p1(tag);
+                self.encode_with_prog(slice, &mut p2)
             })
             .collect::<Result<Vec<_>>>()?;
 

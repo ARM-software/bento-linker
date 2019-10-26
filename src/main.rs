@@ -6,6 +6,7 @@ use glz::Hist;
 
 use std::io;
 use std::fs;
+use std::iter;
 use std::io::Write;
 use std::io::Read;
 use std::fs::File;
@@ -69,8 +70,8 @@ struct CommonOpt {
     #[structopt(short, long)]
     quiet: bool,
 
-    /// Print full Golomb Rice table, can be useful with --no_headers.
-    #[structopt(short, long)]
+    /// Print full Golomb-Rice table, can be useful with --no_headers.
+    #[structopt(long)]
     print_table: bool,
 
     /// Don't use headers in compressed files. This requires that both
@@ -171,12 +172,17 @@ fn with_prog_all<F, R>(
 ) -> Result<R>
 where
     F: for<'a> FnOnce((
-        Box<FnMut(usize)+'a>,
-        Box<FnMut(usize)+'a>,
+        &'a mut Iterator<Item=(&PathBuf, &usize)>,
+        &'a mut FnMut((&PathBuf, &usize)),
+        &'a mut FnMut(usize),
     )) -> Result<R>,
 {
     if quiet {
-        return f((Box::new(|_|()), Box::new(|_|())))
+        return f((
+            &mut iter::repeat((&Default::default(), &0)),
+            &mut |_|(),
+            &mut |_|()
+        ))
     }
 
     let mprog = MultiProgress::new();
@@ -191,28 +197,21 @@ where
         prog2.set_style(ProgressStyle::default_bar()
             .template("{msg:<20} [{wide_bar}] {bytes:>8}/{total_bytes:8}")
             .progress_chars("##-"));
-        let prog2_reset = |i: usize| {
-            let i = inputs.len()-1-i;
-            let path = paths[i].to_string_lossy();
-            prog2.set_message(&path[path.len()-min(msg.len(), path.len())..]);
-            prog2.set_length(inputs[i] as u64);
-            prog2.reset();
-        };
-        prog2_reset(0);
         let mprog = thread::spawn(move || mprog.join().unwrap());
 
-        let mut i = 0;
         let r = f((
-            Box::new(|diff| {
-                i += diff;
+            &mut paths.iter().zip(inputs),
+            &mut |(path, input)| {
                 prog1.inc(prog2.position());
-                if i < inputs.len() {
-                    prog2_reset(i);
-                }
-            }),
-            Box::new(|diff| {
+
+                let path = path.to_string_lossy();
+                prog2.set_message(&path[path.len()-min(path.len(), 20)..]);
+                prog2.set_length(*input as u64);
+                prog2.reset();
+            },
+            &mut |diff| {
                 prog2.inc(diff as u64);
-            })
+            }
         ));
 
         if r.is_ok() {
@@ -226,10 +225,11 @@ where
         let mprog = thread::spawn(move || mprog.join().unwrap());
 
         let r = f((
-            Box::new(|_| ()),
-            Box::new(|diff| {
+            &mut iter::repeat((&Default::default(), &0)),
+            &mut |_| (),
+            &mut |diff| {
                 prog1.inc(diff as u64);
-            })
+            }
         ));
 
         if r.is_ok() {
@@ -250,10 +250,10 @@ fn with_prog<F, R>(
 ) -> Result<R>
 where
     F: for<'a> FnOnce(
-        Box<FnMut(usize)+'a>,
+        &'a mut FnMut(usize),
     ) -> Result<R>,
 {
-    with_prog_all(msg, quiet, &[], &[inputs], |(_, prog)| f(prog))
+    with_prog_all(msg, quiet, &[], &[inputs], |(_, _, prog)| f(prog))
 }
 
 // field reader/writers
@@ -434,7 +434,7 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
             table[2],
             table[table.len()-3],
             table[table.len()-2],
-            table[table.len()-1]
+            table[table.len()-1],
         );
     }
     println!("]");
@@ -636,7 +636,7 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
             table[2],
             table[table.len()-3],
             table[table.len()-2],
-            table[table.len()-1]
+            table[table.len()-1],
         );
     }
     println!("]");
@@ -751,7 +751,7 @@ fn ls(opt: &LsOpt) -> Result<()> {
             table[2],
             table[table.len()-3],
             table[table.len()-2],
-            table[table.len()-1]
+            table[table.len()-1],
         );
     }
     println!("]");

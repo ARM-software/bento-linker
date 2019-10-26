@@ -6,6 +6,7 @@ use crate::errors::*;
 use crate::rice::GolombRice;
 use crate::hist::Hist;
 use crate::hist::BijectEncoder;
+use std::cmp::Reverse;
 
 use error_chain::ensure;
 
@@ -489,32 +490,54 @@ impl Encode for GLZ {
 }
 
 impl GranularEncode for GLZ {
-    fn encode_all_with_prog<U: Sym>(
+    fn encode_all_with_prog<U: Sym, T>(
         &self,
         slices: &[&[U]],
-        mut prog: (impl FnMut(usize), impl FnMut(usize)),
+        mut prog: (impl IntoIterator<Item=T>, impl FnMut(T), impl FnMut(usize)),
     ) -> Result<(BitVec, Vec<(usize, usize)>)> {
         let mut history: HashMap<&[U], usize> = HashMap::new();
         let mut off = 0; // compressed offset
 
-        let bits: Vec<BitVec> = slices
-            .into_iter().rev()
-            .map(|slice| {
-                let bits = self.encode1(
-                    &mut history, &mut off, slice, &mut prog.1);
-                prog.0(1);
-                bits
-            }).collect::<Result<Vec<_>>>()?
-            .into_iter().rev()
+        // sort so that smaller slices have smaller offset values
+        let mut sorted_slices: Vec<_> = slices.iter()
+            .zip(prog.0)
             .collect();
+        sorted_slices.sort_by_key(|(slice, _)| Reverse(slice.len()));
 
-        let mut off = 0; // uncompressed offset
+        let mut offs: HashMap<&[U], usize> = HashMap::new();
+        let mut blobs: Vec<BitVec> = Vec::new();
+        for (slice, tag) in sorted_slices {
+            prog.1(tag);
+            if offs.contains_key(slice) {
+                // found duplicate in blob? deduplicate
+            } else if let Some(off) = history.get(slice).copied() {
+                // found slice inside a pattern
+                offs.insert(slice, off);
+            } else {
+                // compress our slice
+                blobs.push(self.encode1(
+                    &mut history,
+                    &mut off,
+                    slice,
+                    &mut prog.2)?);
+                offs.insert(slice, off);
+            }
+        }
+
+        let total: usize = blobs.iter().map(|b| b.len()).sum();
         Ok((
-            bits.iter().flatten().collect(),
-            bits.iter().zip(slices).map(|(bits, slice)| {
-                off += bits.len();
-                (off-bits.len(), slice.len())
-            }).collect()
+            // build blob
+            blobs.into_iter()
+                .rev()
+                .flatten()
+                .collect(),
+            // collect offsets+size pairs in the original order
+            slices.into_iter()
+                .map(|slice| (
+                    total - offs.get(slice).copied().unwrap(),
+                    slice.len(),
+                ))
+                .collect(),
         ))
     }
 
