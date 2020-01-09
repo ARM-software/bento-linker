@@ -62,7 +62,7 @@ struct CommonOpt {
     #[structopt(short = "L", default_value = "5")]
     l: usize,
 
-    /// Width of reference offset chunks in bits.
+    /// Width of reference offset nibbles in bits.
     #[structopt(short = "M", default_value = "4")]
     m: usize,
 
@@ -413,7 +413,7 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         println!("M = {}", m);
     }
     print!("table = [");
-    if opt.common.print_table {
+    if opt.common.print_table || table.len() < 6 {
         println!();
         for i in (0..table.len()).step_by(8) {
             print!("    ");

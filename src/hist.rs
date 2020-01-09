@@ -213,15 +213,15 @@ impl Hist {
         let width = dim.0 - 6;
         let height = dim.1 - 1;
 
-        let upper = self.max::<u32>().unwrap().1;
-        let lower = self.min::<u32>().unwrap().1;
-        let total = self.sum();
+        let upper = self.max::<u32>().unwrap_or((0, 0)).1;
+        let lower = self.min::<u32>().unwrap_or((0, 0)).1;
+        let total = max(self.sum(), 1);
         let length = self.bound();
 
         let mut output = vec![vec![' '; width]; height];
         for (x, y) in self.iter::<u32>().map(|(x, y)| (x as usize, y)) {
             let x = (width-1) * x / (length-1);
-            let y = (height-1) * (y-lower) / (upper-lower);
+            let y = (height-1) * (y-lower) / max(upper-lower, 1);
             output[height-1-y][x] = '.'
         }
 
