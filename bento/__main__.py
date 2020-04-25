@@ -43,23 +43,25 @@ class BuildCommand:
         sys_ = System(args)
             
         for box in sys_.boxes.values():
-            for outname, output in sorted(box.outputs.items()):
-                print("building %s %s %s..." % (box.name, outname, output.path))
-                if hasattr(box.runtime, 'build_box_%s' % outname):
-                    getattr(box.runtime, 'build_box_%s' % outname)(
-                        sys_, box, output)
-                    with open(output.path, 'w') as outf:
-                        output.build(sys_, box, outf)
+            for name, (path, output) in sorted(box.outputs.items()):
+                print("building %s %s %s..." % (box.name, name, path))
+                if hasattr(box.runtime, 'build_box_%s' % name):
+                    builder = output(sys_, box, path)
+                    getattr(box.runtime, 'build_box_%s' % name)(
+                        sys_, box, builder)
+                    with open(path, 'w') as outf:
+                        builder.build(outf)
                 else:
                     print("%s: error: runtime %s "
                         "doesn't know how to output \"%s\"" % (
                         os.path.basename(sys.argv[0]),
                         box.runtime.__argname__,
-                        outname), file=sys.stderr)
+                        name), file=sys.stderr)
                     raise SystemExit(3)
 
-        for outname, output in sorted(sys_.outputs.items()):
-            print("building %s %s..." % (outname, output.path))
+        for name, (path, output) in sorted(sys_.outputs.items()):
+            print("building %s %s..." % (name, path))
+            builder = output(sys_, box, path)
             touched = False
 
             runtimes = {}
@@ -67,21 +69,27 @@ class BuildCommand:
                 runtimes[box.runtime.__argname__] = box.runtime
 
             for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_prologue' % outname):
-                    getattr(box.runtime, 'build_sys_%s_prologue' % outname)(
-                        sys_, output)
+                if hasattr(box.runtime, 'build_sys_%s_prologue' % name):
+                    builder.pushformat()
+                    getattr(box.runtime, 'build_sys_%s_prologue' % name)(
+                        sys_, builder)
                     touched = True
+                    builder.popformat()
 
             for box in sys_.boxes.values():
-                if hasattr(box.runtime, 'build_sys_%s' % outname):
-                    getattr(box.runtime, 'build_sys_%s' % outname)(
-                        sys_, box, output)
+                if hasattr(box.runtime, 'build_sys_%s' % name):
+                    builder.pushformat(box=box.name, BOX=box.name.upper())
+                    getattr(box.runtime, 'build_sys_%s' % name)(
+                        sys_, box, builder)
+                    builder.popformat()
                     touched = True
 
             for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_epilogue' % outname):
-                    getattr(box.runtime, 'build_sys_%s_epilogue' % outname)(
-                        sys_, output)
+                if hasattr(box.runtime, 'build_sys_%s_epilogue' % name):
+                    builder.pushformat()
+                    getattr(box.runtime, 'build_sys_%s_epilogue' % name)(
+                        sys_, builder)
+                    builder.popformat()
                     touched = True
 
             if not touched:
@@ -90,11 +98,11 @@ class BuildCommand:
                     os.path.basename(sys.argv[0]),
                     ', '.join(box.runtime.__argname__
                         for box in sys_.boxes.values()),
-                    outname), file=sys.stderr)
+                    name), file=sys.stderr)
                 raise SystemExit(3)
 
-            with open(output.path, 'w') as outf:
-                output.build(sys_, None, outf)
+            with open(path, 'w') as outf:
+                builder.build(outf)
                     
         print("done!")
 

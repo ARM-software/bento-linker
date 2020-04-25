@@ -146,6 +146,44 @@ class Section:
             ' %s align' % self.align if self.align is not None else '',
             ' in %s' % self.memory.name if self.memory is not None else ''))
 
+class Type:
+    """
+    Type of function argument or return.
+    """
+    PRIMITIVE_TYPES = [
+        'u8', 'u16', 'u32', 'u64'
+        'i8', 'i16', 'i32', 'i64',
+        'f32', 'f64']
+
+    @staticmethod
+    def parse(s):
+        pass
+
+    def __init__(self, type):
+        type = type.replace(' ', '')
+        assert type.count('*') <= 1, (
+            "Indirect pointers currently not supported")
+
+        # treat void*s as u8*s
+        if type == 'void*':
+            type = 'u8*'
+
+        self._primitive = type.replace('*', '')
+        self._ptr = '*' if '*' in type else ''
+        # TODO care about 64-bit systems?
+        self._width = 32 if self._ptr else int(
+            re.search('\d+', type).group())
+
+    def width():
+        return self._width
+
+    def isptr():
+        return bool(self._ptr)
+
+    def __str__(self, argname=None):
+        return '%s%s' % (self._primitive, self._ptr)
+
+
 class Import:
     """
     Description of an imported function for a box.
@@ -223,7 +261,7 @@ class Export(Import):
 
 class Box:
     """
-    Descriptton of a given box named BOX.
+    Description of a given box named BOX.
     """
     __argname__ = "box"
     __arghelp__ = __doc__
@@ -272,9 +310,9 @@ class Box:
         from .runtimes import RUNTIMES
         from .outputs import OUTPUTS
         self.runtime = RUNTIMES[args.runtime or 'noop']()
-        self.outputs = {k: OUTPUTS['box'][k](self.path + '/' + v)
-            for k, v in args.output.__dict__.items()
-            if v}
+        self.outputs = {name: (self.path + '/' + path, OUTPUTS['box'][name])
+            for name, path in args.output.__dict__.items()
+            if path}
         self.memories = {name: Memory(name, memargs)
             for name, memargs in args.memory.items()}
         self.sections = {name: Section(name, sectionargs)
@@ -370,7 +408,7 @@ class System:
             pass
 
         from .outputs import OUTPUTS
-        self.outputs = {name: OUTPUTS['sys'][name](self.path + '/' + path)
+        self.outputs = {name: (self.path + '/' + path, OUTPUTS['sys'][name])
             for name, path in args.output.__dict__.items()
             if path}
         self.memories = {name: Memory(name, memargs)
