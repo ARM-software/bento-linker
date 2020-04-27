@@ -25,7 +25,7 @@ class ListCommand:
     def __init__(self, args):
         sys = System(args)
         sys.ls()
-        for box in sys.boxes.values():
+        for box in sys.boxes:
             box.ls()
 
 @command
@@ -42,7 +42,7 @@ class BuildCommand:
     def __init__(self, args):
         sys_ = System(args)
             
-        for box in sys_.boxes.values():
+        for box in sys_.boxes:
             for name, (path, output) in sorted(box.outputs.items()):
                 print("building %s %s %s..." % (box.name, name, path))
                 if hasattr(box.runtime, 'build_box_%s' % name):
@@ -65,7 +65,7 @@ class BuildCommand:
             touched = False
 
             runtimes = {}
-            for box in sys_.boxes.values():
+            for box in sys_.boxes:
                 runtimes[box.runtime.__argname__] = box.runtime
 
             for runtime in runtimes:
@@ -76,7 +76,7 @@ class BuildCommand:
                     touched = True
                     builder.popformat()
 
-            for box in sys_.boxes.values():
+            for box in sys_.boxes:
                 if hasattr(box.runtime, 'build_sys_%s' % name):
                     builder.pushformat(box=box.name, BOX=box.name.upper())
                     getattr(box.runtime, 'build_sys_%s' % name)(

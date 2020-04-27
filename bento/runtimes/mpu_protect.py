@@ -241,14 +241,15 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         # TODO error if import not found?
         output.append_decl('// exports from box %s' % box.name)
-        for export in box.exports.values():
-            assert len(export.rets) <= 1
-            output.append_decl('extern %(ret)s %(export)s(%(args)s);',
-                export=export.name,
-                args='void' if not export.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        export.args, util.arbitrary())),
-                ret='void' if not export.rets else export.rets[0])
+        for export in box.exports:
+            output.append_decl('extern %(fn)s;', fn=export.repr_c())
+#            assert len(export.rets) <= 1
+#            output.append_decl('extern %(ret)s %(export)s(%(args)s);',
+#                export=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0].repr_c())
         output.append_decl('')
 
         outf = output.append_decl()
@@ -256,25 +257,27 @@ class MPUProtectRuntime(runtimes.Runtime):
         # special entries for the sp and __box_init
         outf.write('    uint32_t *__box_%(box)s_stack_end;\n')
         outf.write('    void (*__box_%(box)s_init)(void);\n')
-        for export in box.exports.values():
-            outf.write('    %(ret)s (*%(export)s)(%(args)s);\n',
-                export=export.name,
-                args='void' if not export.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        export.args, util.arbitrary())),
-                ret='void' if not export.rets else export.rets[0])
+        for export in box.exports:
+            outf.write('    %(fn)s;\n', fn=export.repr_c_ptr())
+#            outf.write('    %(ret)s (*%(export)s)(%(args)s);\n',
+#                export=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0].repr_c())
         outf.write('};\n')
 
         # TODO error if import not found?
         output.append_decl('// imports from box %s' % box.name)
-        for import_ in box.imports.values():
-            assert len(import_.rets) <= 1
-            output.append_decl('extern %(ret)s %(import_)s(%(args)s);',
-                import_=import_.name,
-                args='void' if not import_.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        import_.args, util.arbitrary())),
-                ret='void' if not import_.rets else import_.rets[0])
+        for import_ in box.imports:
+            output.append_decl('extern %(fn)s;', fn=import_.repr_c())
+#            assert len(import_.rets) <= 1
+#            output.append_decl('extern %(ret)s %(import_)s(%(args)s);',
+#                import_=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0].repr_c())
         output.append_decl('')
 
         outf = output.append_decl()
@@ -283,13 +286,14 @@ class MPUProtectRuntime(runtimes.Runtime):
         outf.write('    void (*__box_%(box)s_fault)(void);\n')
         outf.write('    int (*__box_%(box)s_write)('
             'int a, char* b, int c);\n')
-        for import_ in box.imports.values():
-            outf.write('    %(ret)s (*%(import_)s)(%(args)s);\n',
-                import_=import_.name,
-                args='void' if not import_.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        import_.args, util.arbitrary())),
-                ret='void' if not import_.rets else import_.rets[0])
+        for import_ in box.imports:
+            outf.write('    %(fn)s;\n', fn=import_.repr_c_ptr())
+#            outf.write('    %(ret)s (*%(import_)s)(%(args)s);\n',
+#                import_=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0].repr_c())
         outf.write('};\n')
 
 #    def build_common_header_(self, outf, sys, box):
@@ -391,7 +395,7 @@ class MPUProtectRuntime(runtimes.Runtime):
         # special entries for __box_fault and __box_write
         outf.write('    __box_%(box)s_fault,\n')
         outf.write('    _write,\n')
-        for import_ in box.imports.values():
+        for import_ in box.imports:
             outf.write('    %(import_)s,\n', import_=import_.name)
         outf.write('};\n')
 
@@ -456,7 +460,7 @@ class MPUProtectRuntime(runtimes.Runtime):
         # special entries for the sp and __box_init
         outf.write('    &__stack_end,\n')
         outf.write('    __box_%(box)s_init,\n')
-        for export in box.exports.values():
+        for export in box.exports:
             outf.write('    %(export)s,\n', export=export.name)
         outf.write('};\n')
 
@@ -513,7 +517,8 @@ class MPUProtectRuntime(runtimes.Runtime):
         # create box calls for exports
         output.append_decl('/* box calls */')
         for i, export in enumerate(it.chain(
-                ['__box_%s_boxinit' % box.name], box.exports)):
+                ['__box_%s_boxinit' % box.name],
+                (export.name for export in box.exports))):
             output.append_decl('%(export)-16s = 0x0fffc000 + %(i)d*2;',
                 export=export,
                 i=i)
@@ -521,46 +526,51 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         # TODO deduplicate this and the box's linkerscript...
         # extra decls?
-        for section in box.sections.values():
+        for section in []: #box.sections.values():
             if section.size is not None:
                 output.append_decl('%(section_min)-16s = %(size)#010x;',
                     section_min='__box_%s_%s_min' % (box.name, section.name),
                     size=section.size)
 
         # create memories
-        for memory in box.memories.values():
+        for memory in box.memories:
             output.append_memory('%(name)-16s (%(mode)s) : '
                 'ORIGIN = %(origin)#010x, '
                 'LENGTH = %(length)#010x',
                     name='BOX_%s_%s' % (box.name.upper(), memory.name.upper()),
                     mode=''.join(c.upper() for c in sorted(memory.mode)),
-                    origin=memory.start or 0,
+                    origin=memory.addr,
                     length=memory.size)
 
         # create sections
         for name in ['text', 'data', 'bss'] + sorted(
-                name for name in box.sections
+                name for name in [] # box.sections
                 if name not in {'text', 'bss', 'data', 'heap', 'stack'}):
-            section = box.sections.get(name)
+            section = None #box.sections.get(name)
             align = (section.align if section else 4) or 4
-            bestmemory = None
-            for memory in box.memories.values():
-                if memory.sections is not None and name in memory.sections:
-                    bestmemory = memory
-                    break
-            else:
-                if name in {'text'}:
-                    bestmemory = (sorted(
-                        [m for m in box.memories.values()
-                        if set('rx').issubset(m.mode)],
-                        key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
-                            +[None])[0]
-                elif name in {'data', 'bss'}:
-                    bestmemory = (sorted(
-                        [m for m in box.memories.values()
-                        if set('rw').issubset(m.mode)],
-                        key=lambda m: -m.size)
-                            +[None])[0]
+            # TODO generalize?
+            if name in {'text'}:
+                bestmemory = box.bestmemory('rx')
+            elif name in {'data', 'bss'}:
+                bestmemory = box.bestmemory('rw')
+#            bestmemory = None
+#            for memory in box.memories.values():
+#                if memory.sections is not None and name in memory.sections:
+#                    bestmemory = memory
+#                    break
+#            else:
+#                if name in {'text'}:
+#                    bestmemory = (sorted(
+#                        [m for m in box.memories.values()
+#                        if set('rx').issubset(m.mode)],
+#                        key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
+#                            +[None])[0]
+#                elif name in {'data', 'bss'}:
+#                    bestmemory = (sorted(
+#                        [m for m in box.memories.values()
+#                        if set('rw').issubset(m.mode)],
+#                        key=lambda m: -m.size)
+#                            +[None])[0]
 
             outf = output.append_section()
             outf.write(
@@ -597,22 +607,27 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         # here we handle heap/stack separately, they're a bit special since
         # the heap/stack can "share" memory
-        heapsection = box.sections.get('heap')
-        heapalign = (heapsection.align if heapsection else 8) or 8
-        heapsize = heapsection.size
-        stacksection = box.sections.get('stack')
-        stackalign = (stacksection.align if stacksection else 8) or 8
-        stacksize = stacksection.size
-        bestmemory = None
-        for memory in box.memories.values():
-            if memory.sections is not None and 'heap' in memory.sections:
-                bestmemory = memory
-        else:
-            bestmemory = (sorted(
-                [m for m in box.memories.values()
-                if set('rw').issubset(m.mode)],
-                key=lambda m: -m.size)
-                    +[None])[0]
+#        heapsection = box.sections.get('heap')
+#        heapalign = (heapsection.align if heapsection else 8) or 8
+#        heapsize = heapsection.size
+#        stacksection = box.sections.get('stack')
+#        stackalign = (stacksection.align if stacksection else 8) or 8
+#        stacksize = stacksection.size
+        heapalign = 8 # (heapsection.align if heapsection else 8) or 8
+        heapsize = box.heap.size
+        stackalign = 8 # (stacksection.align if stacksection else 8) or 8
+        stacksize = box.stack.size
+        bestmemory = box.bestmemory('rw', heapsize+stacksize)
+#        bestmemory = None
+#        for memory in box.memories.values():
+#            if memory.sections is not None and 'heap' in memory.sections:
+#                bestmemory = memory
+#        else:
+#            bestmemory = (sorted(
+#                [m for m in box.memories.values()
+#                if set('rw').issubset(m.mode)],
+#                key=lambda m: -m.size)
+#                    +[None])[0]
 
         outf = output.append_section()
         outf.write(
@@ -695,56 +710,68 @@ class MPUProtectRuntime(runtimes.Runtime):
         # create box calls for imports
         output.append_decl('/* box calls */')
         for i, import_ in enumerate(it.chain(
-                ['__box_fault', '__box_write'], box.imports)):
+                ['__box_fault', '__box_write'],
+                (import_.name for import_ in box.exports))):
             output.append_decl('%(import_)-16s = 0x0fffc000 + %(i)d*2;',
                 import_=import_,
                 i=i)
 
     def build_box_linkerscript(self, sys, box, output):
         # extra decls?
-        for section in box.sections.values():
+        for section in []: #box.sections.values():
             if section.size is not None:
                 output.append_decl('%(section_min)-16s = %(size)#010x;',
                     section_min='__%s_min' % section.name,
                     size=section.size)
 
+        output.append_decl('%(region)-16s = %(size)#010x;',
+            region='__stack_min',
+            size=box.stack.size)
+        output.append_decl('%(region)-16s = %(size)#010x;',
+            region='__heap_min',
+            size=box.heap.size)
+
         output.append_decl()
         self.build_box_partiallinkerscript(sys, box, output)
 
         # create memories
-        for memory in box.memories.values():
+        for memory in box.memories:
             output.append_memory('%(name)-16s (%(mode)s) : '
                 'ORIGIN = %(origin)#010x, '
                 'LENGTH = %(length)#010x',
                     name=memory.name.upper(),
                     mode=''.join(c.upper() for c in sorted(memory.mode)),
-                    origin=memory.start or 0,
+                    origin=memory.addr,
                     length=memory.size)
 
         # create sections
         for name in ['text', 'data', 'bss'] + sorted(
-                name for name in box.sections
+                name for name in [] #box.sections
                 if name not in {'text', 'bss', 'data', 'heap', 'stack'}):
-            section = box.sections.get(name)
+            section = None # box.sections.get(name)
             align = (section.align if section else 4) or 4
-            bestmemory = None
-            for memory in box.memories.values():
-                if memory.sections is not None and name in memory.sections:
-                    bestmemory = memory
-                    break
-            else:
-                if name in {'text'}:
-                    bestmemory = (sorted(
-                        [m for m in box.memories.values()
-                        if set('rx').issubset(m.mode)],
-                        key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
-                            +[None])[0]
-                elif name in {'data', 'bss'}:
-                    bestmemory = (sorted(
-                        [m for m in box.memories.values()
-                        if set('rw').issubset(m.mode)],
-                        key=lambda m: -m.size)
-                            +[None])[0]
+            if name in {'text'}:
+                bestmemory = box.bestmemory('rx')
+            elif name in {'data', 'bss'}:
+                bestmemory = box.bestmemory('rw')
+#            bestmemory = None
+#            for memory in box.memories.values():
+#                if memory.sections is not None and name in memory.sections:
+#                    bestmemory = memory
+#                    break
+#            else:
+#                if name in {'text'}:
+#                    bestmemory = (sorted(
+#                        [m for m in box.memories.values()
+#                        if set('rx').issubset(m.mode)],
+#                        key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
+#                            +[None])[0]
+#                elif name in {'data', 'bss'}:
+#                    bestmemory = (sorted(
+#                        [m for m in box.memories.values()
+#                        if set('rw').issubset(m.mode)],
+#                        key=lambda m: -m.size)
+#                            +[None])[0]
 
             outf = output.append_section()
             outf.write(
@@ -774,22 +801,27 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         # here we handle heap/stack separately, they're a bit special since
         # the heap/stack can "share" memory
-        heapsection = box.sections.get('heap')
-        heapalign = (heapsection.align if heapsection else 8) or 8
-        heapsize = heapsection.size
-        stacksection = box.sections.get('stack')
-        stackalign = (stacksection.align if stacksection else 8) or 8
-        stacksize = stacksection.size
-        bestmemory = None
-        for memory in box.memories.values():
-            if memory.sections is not None and 'heap' in memory.sections:
-                bestmemory = memory
-        else:
-            bestmemory = (sorted(
-                [m for m in box.memories.values()
-                if set('rw').issubset(m.mode)],
-                key=lambda m: -m.size)
-                    +[None])[0]
+#        heapsection = box.sections.get('heap')
+#        heapalign = (heapsection.align if heapsection else 8) or 8
+#        heapsize = heapsection.size
+#        stacksection = box.sections.get('stack')
+#        stackalign = (stacksection.align if stacksection else 8) or 8
+#        stacksize = stacksection.size
+        heapalign = 8 # (heapsection.align if heapsection else 8) or 8
+        heapsize = box.heap.size
+        stackalign = 8 # (stacksection.align if stacksection else 8) or 8
+        stacksize = box.stack.size
+        bestmemory = box.bestmemory('rw')
+#        bestmemory = None
+#        for memory in box.memories.values():
+#            if memory.sections is not None and 'heap' in memory.sections:
+#                bestmemory = memory
+#        else:
+#            bestmemory = (sorted(
+#                [m for m in box.memories.values()
+#                if set('rw').issubset(m.mode)],
+#                key=lambda m: -m.size)
+#                    +[None])[0]
 
         outf = output.append_section()
         outf.write(
