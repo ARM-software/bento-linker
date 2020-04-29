@@ -7,7 +7,7 @@ class HeaderOutput(outputs.Output):
     """
     Name of header file to generate containing the imported functions.
     """
-    __argname__ = "header"
+    __argname__ = "header_glue"
     __arghelp__ = __doc__
 
     def __init__(self, sys, box, path):

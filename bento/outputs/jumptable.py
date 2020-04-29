@@ -7,7 +7,7 @@ class JumptableOutput(outputs.Output):
     """
     Name of source file to target for building a jumptable.
     """
-    __argname__ = "jumptable"
+    __argname__ = "c_glue"
     __arghelp__ = __doc__
 
     def __init__(self, sys, box, path):

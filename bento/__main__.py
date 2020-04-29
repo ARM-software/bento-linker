@@ -22,8 +22,8 @@ class ListCommand:
     @classmethod
     def __argparse__(cls, parser):
         System.__argparse__(parser)
-    def __init__(self, args):
-        sys = System(args)
+    def __init__(self, **args):
+        sys = System(**args)
         sys.ls()
         for box in sys.boxes:
             box.ls()
@@ -39,15 +39,17 @@ class BuildCommand:
     @classmethod
     def __argparse__(cls, parser):
         System.__argparse__(parser)
-    def __init__(self, args):
-        sys_ = System(args)
+    def __init__(self, **args):
+        sys_ = System(**args)
             
         for box in sys_.boxes:
             for name, (path, output) in sorted(box.outputs.items()):
                 print("building %s %s %s..." % (box.name, name, path))
-                if hasattr(box.runtime, 'build_box_%s' % name):
+                if hasattr(box.runtime, 'build_box_%s' %
+                        name.replace('-', '_')):
                     builder = output(sys_, box, path)
-                    getattr(box.runtime, 'build_box_%s' % name)(
+                    getattr(box.runtime, 'build_box_%s' %
+                            name.replace('-', '_'))( # TODO rm this replace? handle elsewhere?
                         sys_, box, builder)
                     with open(path, 'w') as outf:
                         builder.build(outf)
@@ -69,25 +71,31 @@ class BuildCommand:
                 runtimes[box.runtime.__argname__] = box.runtime
 
             for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_prologue' % name):
+                if hasattr(box.runtime, 'build_sys_%s_prologue' %
+                        name.replace('-', '_')):
                     builder.pushformat()
-                    getattr(box.runtime, 'build_sys_%s_prologue' % name)(
+                    getattr(box.runtime, 'build_sys_%s_prologue' %
+                            name.replace('-', '_'))(
                         sys_, builder)
                     touched = True
                     builder.popformat()
 
             for box in sys_.boxes:
-                if hasattr(box.runtime, 'build_sys_%s' % name):
+                if hasattr(box.runtime, 'build_sys_%s' %
+                        name.replace('-', '_')):
                     builder.pushformat(box=box.name, BOX=box.name.upper())
-                    getattr(box.runtime, 'build_sys_%s' % name)(
+                    getattr(box.runtime, 'build_sys_%s' %
+                            name.replace('-', '_'))(
                         sys_, box, builder)
                     builder.popformat()
                     touched = True
 
             for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_epilogue' % name):
+                if hasattr(box.runtime, 'build_sys_%s_epilogue' %
+                        name.replace('-', '_')):
                     builder.pushformat()
-                    getattr(box.runtime, 'build_sys_%s_epilogue' % name)(
+                    getattr(box.runtime, 'build_sys_%s_epilogue' %
+                            name.replace('-', '_'))(
                         sys_, builder)
                     builder.popformat()
                     touched = True
@@ -97,7 +105,7 @@ class BuildCommand:
                     "doesn't know how to output \"%s\"" % (
                     os.path.basename(sys.argv[0]),
                     ', '.join(box.runtime.__argname__
-                        for box in sys_.boxes.values()),
+                        for box in sys_.boxes),
                     name), file=sys.stderr)
                 raise SystemExit(3)
 
@@ -120,7 +128,7 @@ def main():
     args = parser.parse_args()
     if not args.command:
         parser.parse_args(['-h'])
-    args.command(args)
+    args.command(**args.__dict__)
     sys.exit(0)
 
 if __name__ == "__main__":

@@ -6,6 +6,16 @@ import os
 import toml
 from argparse import Namespace
 
+def expand(ns):
+    """
+    Give's a dict from either a dict or an argparse's Namespace. Use this
+    to make argparse consumers more python-friendly.
+    """
+    if isinstance(ns, Namespace):
+        return ns.__dict__
+    else:
+        return ns
+
 def merge(a, b):
     """
     Merge two Namespaces or dicts recursively. Note this doesn't work
@@ -26,6 +36,19 @@ def merge(a, b):
         else:
             ndict[k] = None
     return ndict
+
+def pred(type):
+    """
+    Convert a type function into a predicate function. The predicate function
+    runs the type function on the input string, but does not change the input
+    string. This allows tests for parsability in argparse without losing the
+    original string.
+    """
+    def pred(s):
+        # type may raise exception on failure
+        type(s)
+        return s
+    return pred
 
 # This class exists to intercept add_argument calls and remember them.
 class ArgumentParser(argparse.ArgumentParser):

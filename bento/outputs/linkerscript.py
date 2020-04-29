@@ -7,7 +7,7 @@ class LinkerScriptOutput(outputs.Output):
     """
     Name of file to target for the linkerscript.
     """
-    __argname__ = "linkerscript"
+    __argname__ = "ldscript"
     __arghelp__ = __doc__
 
     def __init__(self, sys, box, path):
@@ -70,5 +70,5 @@ class PartialLinkerScriptOutput(LinkerScriptOutput):
     additions needed for a bento box and should be imported into a traditional
     linkerscript to handle the normal program sections.
     """
-    __argname__ = "partiallinkerscript"
+    __argname__ = "partial_ldscript"
     __arghelp__ = __doc__

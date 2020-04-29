@@ -233,10 +233,10 @@ class MPUProtectRuntime(runtimes.Runtime):
     A bento-box runtime that uses a v7 MPU to provide memory isolation
     between boxes.
     """
-    __argname__ = "mpu_protect"
+    __argname__ = "armv7_mpu"
     __arghelp__ = __doc__
 
-    def build_common_header(self, sys, box, output):
+    def build_common_header_glue(self, sys, box, output):
         output.append_include("<sys/types.h>")
 
         # TODO error if import not found?
@@ -348,7 +348,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        outf.write('};\n')
 #        outf.write('\n')
 
-    def build_sys_header(self, sys, box, output):
+    def build_sys_header_glue(self, sys, box, output):
         """Build system header"""
         output.append_include("<sys/types.h>")
 
@@ -356,7 +356,7 @@ class MPUProtectRuntime(runtimes.Runtime):
         outf.write('// jumptable initialization\n')
         outf.write('void __box_%(box)s_init(void);\n')
 
-        self.build_common_header(sys, box, output)
+        self.build_common_header_glue(sys, box, output)
 
 #    def build_sys_header_(self, outf, sys, box):
 #        """Build system header for a given box into the given file."""
@@ -376,13 +376,13 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        outf.write('#endif\n')
 #        outf.write('\n')
 
-    def build_sys_jumptable_prologue(self, sys, output):
+    def build_sys_c_glue_prologue(self, sys, output):
         outf = output.append_decl()
         outf.write('// GCC stdlib hook\n')
         outf.write('extern int _write(int handle, char *buffer, int size);\n')
 
-    def build_sys_jumptable(self, sys, box, output):
-        self.build_common_header(sys, box, output)
+    def build_sys_c_glue(self, sys, box, output):
+        self.build_common_header_glue(sys, box, output)
         output.append_include('"fsl_sysmpu.h"')
 
         # TODO should this be split?
@@ -425,11 +425,11 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        outf.write('};\n')
 #        outf.write('\n')
 
-#    def build_sys_linkerscript_(self, outf, sys, box):
-#        """Build system linkerscript for a given box into the given file."""
+#    def build_sys_ldscript_(self, outf, sys, box):
+#        """Build system ldscript for a given box into the given file."""
 
-    def build_box_header(self, sys, box, output):
-        self.build_common_header(sys, box, output)
+    def build_box_header_glue(self, sys, box, output):
+        self.build_common_header_glue(sys, box, output)
 
 #    def build_box_header_(self, outf, sys, box):
 #        """Build system header for a given box into the given file."""
@@ -445,8 +445,8 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        outf.write('#endif\n')
 #        outf.write('\n')
 
-    def build_box_jumptable(self, sys, box, output):
-        self.build_common_header(sys, box, output)
+    def build_box_c_glue(self, sys, box, output):
+        self.build_common_header_glue(sys, box, output)
 
         output.append_decl(BOX_INIT.lstrip())
         output.append_decl(BOX_WRITE.lstrip())
@@ -493,8 +493,8 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        outf.write('\n')
 #        outf.write('\n')
 
-#    def build_box_linkerscript_(self, outf, sys, box):
-#        """Build system linkerscript for a given box into the given file."""
+#    def build_box_ldscript_(self, outf, sys, box):
+#        """Build system ldscript for a given box into the given file."""
 #        outf.write('\n')
 #
 #        # TODO make heap optional?
@@ -512,7 +512,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                    size=memory.size))
 #        outf.write('}\n')
 
-    def build_sys_partiallinkerscript(self, sys, box, output):
+    def build_sys_partial_ldscript(self, sys, box, output):
         # TODO this should increment...
         # create box calls for exports
         output.append_decl('/* box calls */')
@@ -524,7 +524,7 @@ class MPUProtectRuntime(runtimes.Runtime):
                 i=i)
         output.append_decl()
 
-        # TODO deduplicate this and the box's linkerscript...
+        # TODO deduplicate this and the box's ldscript...
         # extra decls?
         for section in []: #box.sections.values():
             if section.size is not None:
@@ -706,7 +706,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #            outf.write('} > BOX_%(NAME)s_%(MEM)s\n' % config)
             
 
-    def build_box_partiallinkerscript(self, sys, box, output):
+    def build_box_partial_ldscript(self, sys, box, output):
         # create box calls for imports
         output.append_decl('/* box calls */')
         for i, import_ in enumerate(it.chain(
@@ -716,7 +716,7 @@ class MPUProtectRuntime(runtimes.Runtime):
                 import_=import_,
                 i=i)
 
-    def build_box_linkerscript(self, sys, box, output):
+    def build_box_ldscript(self, sys, box, output):
         # extra decls?
         for section in []: #box.sections.values():
             if section.size is not None:
@@ -732,7 +732,7 @@ class MPUProtectRuntime(runtimes.Runtime):
             size=box.heap.size)
 
         output.append_decl()
-        self.build_box_partiallinkerscript(sys, box, output)
+        self.build_box_partial_ldscript(sys, box, output)
 
         # create memories
         for memory in box.memories:
