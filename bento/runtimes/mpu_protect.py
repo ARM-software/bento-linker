@@ -1,5 +1,6 @@
 from .. import runtimes
 from .. import util
+from ..box import Fn
 import itertools as it
 
 # utility functions in C
@@ -235,6 +236,133 @@ class MPUProtectRuntime(runtimes.Runtime):
     """
     __argname__ = "armv7_mpu"
     __arghelp__ = __doc__
+
+    def build_common_header_glue_(self, sys, box, output):
+        output.append_include("<sys/types.h>")
+
+        # TODO error if import not found?
+        output.append_decl('// exports from box %s' % box.name)
+        for export in box.exports:
+            output.append_decl('extern %(fn)s;', fn=export.repr_c())
+#            assert len(export.rets) <= 1
+#            output.append_decl('extern %(ret)s %(export)s(%(args)s);',
+#                export=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0].repr_c())
+        output.append_decl('')
+
+        outf = output.append_decl()
+        outf.write('struct %(box)s_exportjumptable {\n')
+        # special entries for the sp and __box_init
+        outf.write('    uint32_t *__box_%(box)s_stack_end;\n')
+        outf.write('    void (*__box_%(box)s_init)(void);\n')
+        for export in box.exports:
+            outf.write('    %(fn)s;\n', fn=export.repr_c_ptr())
+#            outf.write('    %(ret)s (*%(export)s)(%(args)s);\n',
+#                export=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0].repr_c())
+        outf.write('};\n')
+
+        # TODO error if import not found?
+        output.append_decl('// imports from box %s' % box.name)
+        for import_ in box.imports:
+            output.append_decl('extern %(fn)s;', fn=import_.repr_c())
+#            assert len(import_.rets) <= 1
+#            output.append_decl('extern %(ret)s %(import_)s(%(args)s);',
+#                import_=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0].repr_c())
+        output.append_decl('')
+
+        outf = output.append_decl()
+        outf.write('struct %(box)s_importjumptable {\n')
+        # special entries for __box_write and __box_fault
+        outf.write('    void (*__box_%(box)s_fault)(void);\n')
+        outf.write('    int (*__box_%(box)s_write)('
+            'int a, char* b, int c);\n')
+        for import_ in box.imports:
+            outf.write('    %(fn)s;\n', fn=import_.repr_c_ptr())
+#            outf.write('    %(ret)s (*%(import_)s)(%(args)s);\n',
+#                import_=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    arg.repr_c(name) for arg, name in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0].repr_c())
+        outf.write('};\n')
+
+#    def build_common_header_(self, outf, sys, box):
+#        outf.write('// exports from box %s\n' % box.name)
+#        # TODO error if import not found?
+#        for export in box.exports.values():
+#            assert len(export.rets) <= 1
+#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#                name=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    '%s %s' % arg for arg in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0]))
+#        outf.write('\n')
+#        outf.write('struct %s_exportjumptable {\n' % box.name)
+#        # special entries for the sp and __box_init
+#        outf.write('    uint32_t *__box_%s_stack_end;\n' % box.name)
+#        outf.write('    void (*__box_%s_init)(void);\n' % box.name)
+#        for export in box.exports.values():
+#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#                name=export.name,
+#                args='void' if not export.args else ', '.join(
+#                    '%s %s' % arg for arg in zip(
+#                        export.args, util.arbitrary())),
+#                ret='void' if not export.rets else export.rets[0]))
+#        outf.write('};\n')
+#        outf.write('\n')
+#
+#        outf.write('// imports from box %s\n' % box.name)
+#        # TODO error if import not found?
+#        for import_ in box.imports.values():
+#            assert len(import_.rets) <= 1
+#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#                name=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    '%s %s' % arg for arg in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0]))
+#        outf.write('\n')
+#        outf.write('struct %s_importjumptable {\n' % box.name)
+#        # special entries for __box_write and __box_fault
+#        outf.write('    void (*__box_%s_write)('
+#            'int a, char* b, int c);\n' % box.name)
+#        outf.write('    void (*__box_%s_fault)(void);\n' % box.name)
+#        for import_ in box.imports.values():
+#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#                name=import_.name,
+#                args='void' if not import_.args else ', '.join(
+#                    '%s %s' % arg for arg in zip(
+#                        import_.args, util.arbitrary())),
+#                ret='void' if not import_.rets else import_.rets[0]))
+#        outf.write('};\n')
+#        outf.write('\n')
+
+    def build_sys_header_glue_(self, sys, box, output):
+        """Build system header"""
+        output.includes.append("<sys/types.h>")
+
+#        outf = output.decls.append()
+#        outf.write('// jumptable initialization\n')
+#        outf.write('void __box_%(box)s_init(void);\n')
+#        output.decls.append(fn=Fn(
+#            '__box_%(box)s_init', 'fn() -> void',
+#            doc='jumptable initialization'))
+        output.decls.append('void __box_%(box)s_init(void);',
+            doc='jumptable initialization')
+
+        #self.build_common_header_glue(sys, box, output)
 
     def build_common_header_glue(self, sys, box, output):
         output.append_include("<sys/types.h>")

@@ -63,7 +63,7 @@ class BuildCommand:
 
         for name, (path, output) in sorted(sys_.outputs.items()):
             print("building %s %s..." % (name, path))
-            builder = output(sys_, box, path)
+            builder = output(sys_, box)
             touched = False
 
             runtimes = {}
@@ -73,31 +73,28 @@ class BuildCommand:
             for runtime in runtimes:
                 if hasattr(box.runtime, 'build_sys_%s_prologue' %
                         name.replace('-', '_')):
-                    builder.pushformat()
-                    getattr(box.runtime, 'build_sys_%s_prologue' %
-                            name.replace('-', '_'))(
-                        sys_, builder)
+                    with builder.pushattrs():
+                        getattr(box.runtime, 'build_sys_%s_prologue' %
+                                name.replace('-', '_'))(
+                            sys_, builder)
                     touched = True
-                    builder.popformat()
 
             for box in sys_.boxes:
                 if hasattr(box.runtime, 'build_sys_%s' %
                         name.replace('-', '_')):
-                    builder.pushformat(box=box.name, BOX=box.name.upper())
-                    getattr(box.runtime, 'build_sys_%s' %
-                            name.replace('-', '_'))(
-                        sys_, box, builder)
-                    builder.popformat()
+                    with builder.pushattrs(box=box.name, BOX=box.name.upper()):
+                        getattr(box.runtime, 'build_sys_%s' %
+                                name.replace('-', '_'))(
+                            sys_, box, builder)
                     touched = True
 
             for runtime in runtimes:
                 if hasattr(box.runtime, 'build_sys_%s_epilogue' %
                         name.replace('-', '_')):
-                    builder.pushformat()
-                    getattr(box.runtime, 'build_sys_%s_epilogue' %
-                            name.replace('-', '_'))(
-                        sys_, builder)
-                    builder.popformat()
+                    with builder.pushattrs():
+                        getattr(box.runtime, 'build_sys_%s_epilogue' %
+                                name.replace('-', '_'))(
+                            sys_, builder)
                     touched = True
 
             if not touched:

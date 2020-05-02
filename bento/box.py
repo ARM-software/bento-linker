@@ -571,10 +571,11 @@ class Box:
         Export.__argparse__(
             parser.add_set('--'+Export.__argname__))
 
-    def __init__(self, name, **args):
+    def __init__(self, name, parent=None, **args):
         args = argstuff.Namespace(**args)
         self.name = name
         self.path = args.path or name
+        self.parent = parent
 
         # Load additional config from the filesystem
         try:
@@ -730,7 +731,7 @@ class System:
 #            for name, exportargs in args.export.items()}
 #        self.boxes = {name: Box(name, boxargs)
 #            for name, boxargs in args.box.items()}
-        self.boxes = sorted(Box(name, **boxargs.__dict__)
+        self.boxes = sorted(Box(name, **boxargs.__dict__, parent=self)
             for name, boxargs in args.box.items())
 
 #        # Figure out section placement in memories
