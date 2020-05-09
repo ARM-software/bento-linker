@@ -35,7 +35,7 @@ int _write(int handle, char *buffer, int size) {
 
 BOX_SYS_MECH = """
 // externally declared
-extern const struct %(box)s_exportjumptable __%(box)s_exportjumptable;
+extern const struct %(box)s_exportjumptable __box_%(box)s_jumptable;
 extern const struct %(box)s_importjumptable __%(box)s_importjumptable;
 extern uint32_t __box_%(box)s_text;
 extern uint32_t __box_%(box)s_etext;
@@ -82,7 +82,7 @@ void __box_%(box)s_call(uint32_t addr, uint32_t *sp, uint32_t lr) {
     // TODO assert target in range
 
     register uint32_t target;
-    if (__box_%(box)s_table == &__%(box)s_exportjumptable) {
+    if (__box_%(box)s_table == &__box_%(box)s_jumptable) {
         // into box
         target = ((const uint32_t*)__box_%(box)s_table)[(addr & 0xfff)/2 + 1];
         __box_%(box)s_savedtable = __box_%(box)s_table;
@@ -91,7 +91,7 @@ void __box_%(box)s_call(uint32_t addr, uint32_t *sp, uint32_t lr) {
         // out of box
         target = ((const uint32_t*)__box_%(box)s_table)[(addr & 0xfff)/2];
         __box_%(box)s_savedtable = __box_%(box)s_table;
-        __box_%(box)s_table = &__%(box)s_exportjumptable;
+        __box_%(box)s_table = &__box_%(box)s_jumptable;
     }
    
     newsp -= 8;
@@ -209,9 +209,9 @@ void BusFault_Handler(void) {
 
 void __box_%(box)s_init(void) {
     // set up stack pointer
-    __box_%(box)s_table = &__%(box)s_exportjumptable;
+    __box_%(box)s_table = &__box_%(box)s_jumptable;
     __box_%(box)s_savedtable = &__%(box)s_importjumptable;
-    __box_%(box)s_savedsp = __%(box)s_exportjumptable
+    __box_%(box)s_savedsp = __box_%(box)s_jumptable
             .__box_%(box)s_stack_end;
     __box_%(box)s_savedlr = 0xfffffffd; // TODO need fp bit?
     __box_%(box)s_savedcontrol = __get_CONTROL() | 1; // unprivileged
@@ -236,6 +236,164 @@ class MPUProtectRuntime(runtimes.Runtime):
     """
     __argname__ = "armv7_mpu"
     __arghelp__ = __doc__
+#
+#    # TODO dupe to Runtime
+#    def box(self, box):
+#        self.box = box
+
+#    def build_common_header_glue_(self, output):
+#        output.includes.append("<sys/types.h>")
+#        output.decls.append('void __box_%(box)s_init(void);',
+#            doc='jumptable initialization')
+
+    def build_common_c_glue_(self, box, output):
+        output.decls.append('//// jumptable declarations ////')
+
+        outf = output.decls.append()
+        outf.write('struct %(box)s_exportjumptable {\n')
+        with outf.pushindent():
+            # special entries for the sp and __box_init
+            outf.write('uint32_t *__box_%(box)s_stack_end;\n')
+            outf.write('void (*__box_%(box)s_init)(void);\n')
+            for export in box.exports:
+                outf.write('%(fn)s;\n', fn=export.repr_c_ptr())
+        outf.write('};\n')
+
+        outf = output.decls.append()
+        outf.write('struct %(box)s_importjumptable {\n')
+        with outf.pushindent():
+            # special entries for __box_write and __box_fault
+            outf.write('void (*__box_%(box)s_fault)(void);\n')
+            outf.write('int (*__box_%(box)s_write)('
+                'int a, char* b, int c);\n') # TODO are these the correct types??
+            for import_ in box.imports:
+                outf.write('%(fn)s;\n', fn=import_.repr_c_ptr())
+        outf.write('};\n')
+
+    def build_sys_c_glue_(self, sys, box, output):
+        self.build_common_c_glue_(box, output)
+
+        output.decls.append('//// jumptable implementation ////')
+        output.includes.append('"fsl_sysmpu.h"')
+        output.decls.append(
+            'extern int _write(int handle, char *buffer, int size);',
+            doc='GCC stdlib hook')
+
+        # TODO should this be split?
+        output.decls.append(BOX_SYS_MECH)
+
+        outf = output.decls.append(doc='system-side jumptable')
+        outf.write('const struct %(box)s_importjumptable '
+            '__%(box)s_importjumptable = {\n')
+        with outf.pushindent():
+            # special entries for __box_fault and __box_write
+            outf.write('__box_%(box)s_fault,\n')
+            outf.write('_write,\n')
+            for import_ in box.imports:
+                outf.write('%(import_)s,\n', import_=import_.name)
+        outf.write('};\n')
+
+    def build_box_c_glue_(self, box, output):
+        self.build_common_c_glue_(box, output)
+
+        output.decls.append('//// jumptable implementation ////')
+        output.decls.append(BOX_INIT)
+        output.decls.append(BOX_WRITE)
+
+        output.decls.append('extern uint32_t __stack_end;')
+        outf = output.decls.append(doc='box-side jumptable')
+        outf.write('__attribute__((section(".jumptable")))\n')
+        outf.write('__attribute__((used))\n')
+        outf.write('const struct %(box)s_exportjumptable '
+            '__box_%(box)s_jumptable = {\n')
+        with outf.pushindent():
+            # special entries for the sp and __box_init
+            outf.write('&__stack_end,\n')
+            outf.write('__box_%(box)s_init,\n')
+            for export in box.exports:
+                outf.write('%(export)s,\n', export=export.name)
+        outf.write('};\n')
+
+    def build_sys_ldscript_(self, sys, box, output): # TODO hmm on this partial thing...
+        # create box calls for imports
+        output.decls.append()
+        output.decls.append('/* box calls */')
+        for i, import_ in enumerate(it.chain(
+                # TODO rename this
+                ['__box_%(box)s_boxinit'],
+                (import_.name for import_ in box.exports))):
+            output.decls.append('%(import_)-16s = 0x0fffc000 + %(i)d*2;',
+                import_=import_,
+                i=i)
+
+        # create inherited symbols?
+        with output.pushattrs(
+                section_prefix='.box.%(box)s.',
+                symbol_prefix='__box_%(box)s_',
+                memory_prefix='box_%(box)s_'):
+            self.build_box_ldscript_(box, output)
+
+    def build_box_partial_ldscript_(self, box, output):
+        if output['section_prefix'] == '.':
+            # create box calls for imports
+            output.decls.append()
+            output.decls.append('/* box calls */')
+            for i, import_ in enumerate(it.chain(
+                    ['__box_fault', '__box_write'],
+                    (import_.name for import_ in box.imports))):
+                output.decls.append('%(import_)-16s = 0x0fffc000 + %(i)d*2;',
+                    import_=import_,
+                    i=i)
+
+    def build_box_ldscript_(self, box, output):
+        self.build_box_partial_ldscript_(box, output)
+
+        # TODO preload prefixes?
+        # TODO how do we choose memory, if memory is in box?
+        # TODO use something else to grab memory? maybe box?
+        outf = output.sections.insert(0,
+            section='%(section_prefix)s' + 'jumptable',
+            memory='%(memory_prefix)s' + box.bestmemory('r').name)
+            # TODO move these?
+            # TODO shortcut for capitalized?
+#            prefixed_section='%(section_prefix)s%(section)s',
+#            prefixed_memory='%(memory_prefix)s%(memory)s',
+#            prefixed_symbol='%(symbol_prefix)s%(symbol)s', symbol='')
+        outf.write('%(section)s : {\n')
+        with outf.pushindent():
+            outf.write('. = ALIGN(%(align)d);\n')
+            outf.write('%(symbol_prefix)sjumptable = .;\n')
+            outf.write('KEEP(*(%(section_prefix)sjumptable))\n')
+            outf.write('. = ALIGN(%(align)d);\n')
+            outf.write('%(symbol_prefix)sjumptable_end = .;\n')
+        outf.write('} > %(MEMORY)s')
+
+    def build(self):
+        self.box.parentbuild('c_glue_', self.build_sys_c_glue_)
+        self.box.build('c_glue_', self.build_box_c_glue_)
+        self.box.parentbuild('ldscript_', self.build_sys_ldscript_)
+        self.box.build('ldscript_', self.build_box_ldscript_)
+        self.box.parentbuild('partial_ldscript_', self.build_sys_ldscript_)
+        self.box.build('partial_ldscript_', self.build_box_partial_ldscript_)
+#
+#        if 'c_glue_' in self.box.outputs:
+#            self.build_box_c_glue_(self.box, self.box.outputs['c_glue_'])
+#        if self.box.parent and 'c_glue_' in self.box.parent.outputs:
+#            with self.box.parent.outputs['c_glue_'].pushattrs(
+#                    box=self.box.name) as output:
+#                self.build_sys_c_glue_(self.box.parent, self.box, output)
+#        for ldscript in ['ldscript_', 'partial_ldscript_']:
+#            if ldscript in self.box.outputs:
+#                self.build_box_ldscript_(self.box, self.box.outputs[ldscript],
+#                    partial='partial' in ldscript) # TODO hm
+#            if self.box.parent and ldscript in self.box.parent.outputs:
+#                with self.box.parent.outputs[ldscript].pushattrs(
+#                        box=self.box.name) as output:
+#                    self.build_sys_ldscript_(self.box.parent, self.box, output)
+#
+##        if 'header_glue_' in self.box.outputs:
+##            self.build_common_header_glue_(self.box.outputs['header_glue_'])
+        
 
     def build_common_header_glue_(self, sys, box, output):
         output.append_include("<sys/types.h>")
@@ -584,7 +742,7 @@ class MPUProtectRuntime(runtimes.Runtime):
         outf.write('__attribute__((section(".jumptable")))\n')
         outf.write('__attribute__((used))\n')
         outf.write('const struct %(box)s_exportjumptable '
-            '__%(box)s_exportjumptable = {\n')
+            '__box_%(box)s_jumptable = {\n')
         # special entries for the sp and __box_init
         outf.write('    &__stack_end,\n')
         outf.write('    __box_%(box)s_init,\n')

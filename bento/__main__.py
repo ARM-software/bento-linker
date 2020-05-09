@@ -2,6 +2,7 @@ import toml
 import sys
 import os.path
 import collections as c
+import itertools as it
 from .box import Box
 from .box import System
 from .argstuff import ArgumentParser
@@ -41,73 +42,93 @@ class BuildCommand:
         System.__argparse__(parser)
     def __init__(self, **args):
         sys_ = System(**args)
-            
+
+#        for box in sys_.boxes:
+#            # TODO configure all runtimes?
+#            box.runtime.box(box)
+#
+#        for box in it.chain(sys_.boxes, [sys_]):
+#            # TODO presort outputs dict?
+#            for name, output in sorted(box.outputs.items()):
+#                output.box(box)
+
         for box in sys_.boxes:
-            for name, (path, output) in sorted(box.outputs.items()):
-                print("building %s %s %s..." % (box.name, name, path))
-                if hasattr(box.runtime, 'build_box_%s' %
-                        name.replace('-', '_')):
-                    builder = output(sys_, box, path)
-                    getattr(box.runtime, 'build_box_%s' %
-                            name.replace('-', '_'))( # TODO rm this replace? handle elsewhere?
-                        sys_, box, builder)
-                    with open(path, 'w') as outf:
-                        builder.build(outf)
-                else:
-                    print("%s: error: runtime %s "
-                        "doesn't know how to output \"%s\"" % (
-                        os.path.basename(sys.argv[0]),
-                        box.runtime.__argname__,
-                        name), file=sys.stderr)
-                    raise SystemExit(3)
+            box.runtime.build()
 
-        for name, (path, output) in sorted(sys_.outputs.items()):
-            print("building %s %s..." % (name, path))
-            builder = output(sys_, box)
-            touched = False
-
-            runtimes = {}
-            for box in sys_.boxes:
-                runtimes[box.runtime.__argname__] = box.runtime
-
-            for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_prologue' %
-                        name.replace('-', '_')):
-                    with builder.pushattrs():
-                        getattr(box.runtime, 'build_sys_%s_prologue' %
-                                name.replace('-', '_'))(
-                            sys_, builder)
-                    touched = True
-
-            for box in sys_.boxes:
-                if hasattr(box.runtime, 'build_sys_%s' %
-                        name.replace('-', '_')):
-                    with builder.pushattrs(box=box.name, BOX=box.name.upper()):
-                        getattr(box.runtime, 'build_sys_%s' %
-                                name.replace('-', '_'))(
-                            sys_, box, builder)
-                    touched = True
-
-            for runtime in runtimes:
-                if hasattr(box.runtime, 'build_sys_%s_epilogue' %
-                        name.replace('-', '_')):
-                    with builder.pushattrs():
-                        getattr(box.runtime, 'build_sys_%s_epilogue' %
-                                name.replace('-', '_'))(
-                            sys_, builder)
-                    touched = True
-
-            if not touched:
-                print("%s: error: runtimes {%s} "
-                    "doesn't know how to output \"%s\"" % (
-                    os.path.basename(sys.argv[0]),
-                    ', '.join(box.runtime.__argname__
-                        for box in sys_.boxes),
-                    name), file=sys.stderr)
-                raise SystemExit(3)
-
-            with open(path, 'w') as outf:
-                builder.build(outf)
+        for box in it.chain(sys_.boxes, [sys_]):
+            for name, output in box.outputs.items():
+                print("building %s %s %s..." % (
+                    box.name or 'sys', name, output.path))
+                with open(output.path, 'w') as outf:
+                    output.build(outf)
+#                
+#            
+#        for box in sys_.boxes:
+#            for name, (path, output) in sorted(box.outputs.items()):
+#                print("building %s %s %s..." % (box.name, name, path))
+#                if hasattr(box.runtime, 'build_box_%s' %
+#                        name.replace('-', '_')):
+#                    builder = output(sys_, box, path)
+#                    getattr(box.runtime, 'build_box_%s' %
+#                            name.replace('-', '_'))( # TODO rm this replace? handle elsewhere?
+#                        sys_, box, builder)
+#                    with open(path, 'w') as outf:
+#                        builder.build(outf)
+#                else:
+#                    print("%s: error: runtime %s "
+#                        "doesn't know how to output \"%s\"" % (
+#                        os.path.basename(sys.argv[0]),
+#                        box.runtime.__argname__,
+#                        name), file=sys.stderr)
+#                    raise SystemExit(3)
+#
+#        for name, (path, output) in sorted(sys_.outputs.items()):
+#            print("building %s %s..." % (name, path))
+#            builder = output(sys_, box)
+#            touched = False
+#
+#            runtimes = {}
+#            for box in sys_.boxes:
+#                runtimes[box.runtime.__argname__] = box.runtime
+#
+#            for runtime in runtimes:
+#                if hasattr(box.runtime, 'build_sys_%s_prologue' %
+#                        name.replace('-', '_')):
+#                    with builder.pushattrs():
+#                        getattr(box.runtime, 'build_sys_%s_prologue' %
+#                                name.replace('-', '_'))(
+#                            sys_, builder)
+#                    touched = True
+#
+#            for box in sys_.boxes:
+#                if hasattr(box.runtime, 'build_sys_%s' %
+#                        name.replace('-', '_')):
+#                    with builder.pushattrs(box=box.name, BOX=box.name.upper()):
+#                        getattr(box.runtime, 'build_sys_%s' %
+#                                name.replace('-', '_'))(
+#                            sys_, box, builder)
+#                    touched = True
+#
+#            for runtime in runtimes:
+#                if hasattr(box.runtime, 'build_sys_%s_epilogue' %
+#                        name.replace('-', '_')):
+#                    with builder.pushattrs():
+#                        getattr(box.runtime, 'build_sys_%s_epilogue' %
+#                                name.replace('-', '_'))(
+#                            sys_, builder)
+#                    touched = True
+#
+#            if not touched:
+#                print("%s: error: runtimes {%s} "
+#                    "doesn't know how to output \"%s\"" % (
+#                    os.path.basename(sys.argv[0]),
+#                    ', '.join(box.runtime.__argname__
+#                        for box in sys_.boxes),
+#                    name), file=sys.stderr)
+#                raise SystemExit(3)
+#
+#            with open(path, 'w') as outf:
+#                builder.build(outf)
                     
         print("done!")
 

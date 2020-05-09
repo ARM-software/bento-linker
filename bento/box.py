@@ -4,6 +4,25 @@ import collections as c
 import itertools as it
 from . import argstuff
 from .argstuff import ArgumentParser
+#
+#
+#class Output:
+#    """
+#    Description of an output file of type OUTPUT.
+#    """
+#    def __init__(self, name, path=None, cls=None):
+#
+#
+#
+#        from .outputs import OUTPUTS
+#        outputparser = parser.add_nestedparser("--output")
+#        for output in OUTPUTS['box'].values():
+#            outputparser.add_argument('--'+output.__argname__,
+#                help=output.__arghelp__)
+#        from .outputs import OUTPUTS
+#        self.outputs = {name: (self.path + '/' + path, OUTPUTS['sys'][name])
+#            for name, path in args.output.__dict__.items()
+#            if path}
 
 class Memory:
     """
@@ -89,8 +108,8 @@ class Memory:
 ##                raise ValueError("invalid section %r" % section)
 #        return sections
 
-    def __init__(self, name, memory=None, mode=None,
-            addr=None, size=None, align=None):
+    def __init__(self, name, memory=None, mode=None, align=None,
+            addr=None, size=None):
         if align is not None:
             if addr is not None:
                 assert addr % align == 0, (
@@ -106,9 +125,9 @@ class Memory:
         self.name = name
         memory = Memory.parsememory(memory) if memory else (None, None, None)
         self.mode = Memory.parsemode(mode) if mode else memory[0] or set()
+        self.align = align
         self.addr = addr if addr is not None else memory[1]
         self.size = size if size is not None else memory[2] or 0
-        self.align = align
         #self.sections = args.sections # TODO rm me?
 
     def __str__(self):
@@ -116,14 +135,14 @@ class Memory:
             mode=''.join(c if c in self.mode else '-'
                 for c in Memory.MODEFLAGS),
             range='%#010x-%#010x' % (self.addr, self.addr+self.size-1)
-                if self.addr else
+                if self.addr is not None else
                 '%#010x' % self.size,
             size=self.size,
             align=' %s align' % self.align if self.align is not None else '')
             # TODO need align?
 
     def __lt__(self, other):
-        return self.addr < other.addr
+        return (self.addr, self.name) < (other.addr, other.name)
 
     def iscompatible(self, mode='rwx', size=None):
         return set(mode).issubset(self.mode) and (
@@ -146,6 +165,34 @@ class Memory:
             mode=mode, size=size,
             consumed=consumed, reverse=reverse)
         return compatible[0] if compatible else None
+
+    def __contains__(self, other):
+        if isinstance(other, Memory):
+            return (other.addr < self.addr+self.size and
+                other.addr+other.size > self.addr)
+        else:
+            return (other >= self.addr and
+                other < self.addr + self.size)
+
+    def __sub__(self, other):
+        assert isinstance(other, Memory)
+        if other not in self:
+            return [self]
+
+        slices = [
+            (self.addr, other.addr - self.addr),
+            (other.addr+other.size,
+                self.addr+self.size - (other.addr+other.size))]
+        slices = [(addr, size) for addr, size in slices if size > 0]
+        return [Memory(
+                self.name if len(slices) == 1 else '%s%d' % (self.name, i+1),
+                mode=self.mode, align=self.align,
+                addr=addr, size=size)
+            for i, (addr, size) in enumerate(slices)]
+        
+
+        
+
         
 
 #    def ls(self):
@@ -211,7 +258,7 @@ class Buffer:
         return "%(size)#010x %(size)s bytes" % dict(size=self.size)
 
     def __bool__(self):
-        return bool(self.size)
+        return self.size != 0
 
 class Stack(Buffer):
     """
@@ -574,8 +621,8 @@ class Box:
     def __init__(self, name, parent=None, **args):
         args = argstuff.Namespace(**args)
         self.name = name
-        self.path = args.path or name
         self.parent = parent
+        self.path = args.path or name
 
         # Load additional config from the filesystem
         try:
@@ -586,14 +633,23 @@ class Box:
         except FileNotFoundError:
             pass
 
-        from .runtimes import RUNTIMES
-        from .outputs import OUTPUTS
-        self.runtime = RUNTIMES[args.runtime or 'noop']()
-        self.outputs = {name: (self.path + '/' + path, OUTPUTS['box'][name])
-            for name, path in args.output.__dict__.items()
-            if path}
         self.memories = sorted(Memory(name, **memargs.__dict__)
             for name, memargs in args.memory.items())
+        #self.original_memories = self.memories
+        if self.parent:
+            for memory in reversed(self.memories):
+                if memory.addr is None:
+                    bestmemory = self.parent.bestmemory(
+                        memory.mode, reverse=True)
+                    memory.addr = (bestmemory.addr+bestmemory.size
+                        - memory.size)
+                self.parent.consumememory(memory)
+        # sort again in case new addresses changed order
+        self.memories = sorted(self.memories)
+
+
+
+
 #        self.memories = {name: Memory(name, memargs)
 #            for name, memargs in args.memory.items()}
 #        self.sections = {name: Section(name, sectionargs)
@@ -618,11 +674,24 @@ class Box:
         self.exports = sorted(Import(name, **exportargs.__dict__)
             for name, exportargs in args.export.items())
 
-    def __lt__(self, other):
-        return self.name < other.name
+        # TODO hmm ( ͡° ͜ʖ ͡°)
+        self.boxes = []
+
+        from .runtimes import RUNTIMES
+        self.runtime = RUNTIMES[args.runtime or 'noop'](self)
+#        self.outputs = {name: (self.path + '/' + path, OUTPUTS['box'][name])
+#            for name, path in args.output.__dict__.items()
+#            if path}
+
+        from .outputs import OUTPUTS
+        self.outputs = c.OrderedDict(sorted(
+            (name, OUTPUTS['box'][name](self, path))
+            for name, path in args.output.__dict__.items()
+            if path))
 
     def ls(self):
         """Show configuration on CLI."""
+        # TODO move this to __main__.py actually?
         print("box %s" % self.name)
         print("  %(name)-34s %(runtime)s" % dict(
             name="runtime",
@@ -640,6 +709,12 @@ class Box:
             for export in self.exports:
                 print('    %-32s %s' % (export.name, export))
 
+    def __eq__(self, other):
+        return (self.isbox(), self.name) == (other.isbox(), other.name)
+
+    def __lt__(self, other):
+        return (self.isbox(), self.name) < (other.isbox(), other.name)
+
     def bestmemories(self, mode='rwx', size=None,
             consumed={}, reverse=False):
         # TODO inline?
@@ -652,7 +727,43 @@ class Box:
         return Memory.bestmemory(self.memories,
             mode=mode, size=size, consumed=consumed, reverse=reverse)
 
-class System:
+    def consumememory(self, region):
+        nmemories = []
+        for memory in self.memories:
+            if region in memory:
+                slices = memory - region
+                nmemories.extend(slices)
+            else:
+                nmemories.append(memory)
+        self.memories = sorted(nmemories)
+
+    def issys(self):
+        return False
+
+    def isbox(self):
+        return not self.issys()
+
+    def build(self, output, builder):
+        if output in self.outputs:
+            return builder(self, self.outputs[output])
+
+    def parentbuild(self, output, builder):
+        if self.parent and output in self.parent.outputs:
+            with self.parent.outputs[output].pushattrs(
+                    parent=self.parent.name, box=self.name):
+                return builder(self.parent, self, self.parent.outputs[output])
+
+    def rootbuild(self, output, builder):
+        root = self
+        while root.parent:
+            root = root.parent
+
+        if root != self and output in root:
+            with root.outputs[output].pushattrs(
+                    root=root.name, box=self.name):
+                return builder(root, self, root.outputs[output])
+
+class System(Box):
     """
     Description of the top-level system which contains boxes.
     """
@@ -692,6 +803,8 @@ class System:
 
     def __init__(self, **args):
         args = argstuff.Namespace(**args)
+        self.name = None
+        self.parent = None
         self.path = args.path or '.'
 
         # Load additional config from the filesystem
@@ -703,10 +816,6 @@ class System:
         except FileNotFoundError:
             pass
 
-        from .outputs import OUTPUTS
-        self.outputs = {name: (self.path + '/' + path, OUTPUTS['sys'][name])
-            for name, path in args.output.__dict__.items()
-            if path}
 #        self.memories = {name: Memory(name, memargs)
 #            for name, memargs in args.memory.items()}
         self.memories = sorted(Memory(name, **memargs.__dict__)
@@ -731,8 +840,24 @@ class System:
 #            for name, exportargs in args.export.items()}
 #        self.boxes = {name: Box(name, boxargs)
 #            for name, boxargs in args.box.items()}
+
+        
+
         self.boxes = sorted(Box(name, **boxargs.__dict__, parent=self)
-            for name, boxargs in args.box.items())
+            for name, boxargs in sorted(args.box.items(), reverse=True))
+
+#        # TODO assign box memory in reverse order
+#        for box in reversed(self.boxes):
+#            for memory in reversed(box.memories):
+#                if memory.addr is None:
+#                    # TODO hm, mutable??
+#                    bestmemory = box.bestmemory(memory.mode, reverse=True)
+#                    memory.addr = bestmemory.addr - memory.size
+#
+#                self.consumememory(memory)
+                    
+
+        # TODO omit our overlapping regions
 
 #        # Figure out section placement in memories
 #        # Note, this is naive and could be improved
@@ -761,6 +886,16 @@ class System:
 
 #        for section in self.sections:
 #            if section:
+
+
+        from .outputs import OUTPUTS
+#        self.outputs = {name: (self.path + '/' + path, OUTPUTS['sys'][name])
+#            for name, path in args.output.__dict__.items()
+#            if path}
+        self.outputs = c.OrderedDict(sorted(
+            (name, OUTPUTS['box'][name](self, path))
+            for name, path in args.output.__dict__.items()
+            if path))
                 
 
     def ls(self):
@@ -779,14 +914,17 @@ class System:
             for export in self.exports:
                 print('    %-32s %s' % (export.name, export))
 
-    def bestmemories(self, mode='rwx', size=None,
-            consumed={}, reverse=False):
-        # TODO inline?
-        return Memory.bestmemories(self.memories,
-            mode=mode, size=size, consumed=consumed, reverse=reverse)
+#    def bestmemories(self, mode='rwx', size=None,
+#            consumed={}, reverse=False):
+#        # TODO inline?
+#        return Memory.bestmemories(self.memories,
+#            mode=mode, size=size, consumed=consumed, reverse=reverse)
+#
+#    def bestmemory(self, mode='rwx', size=None,
+#            consumed={}, reverse=False):
+#        # TODO inline?
+#        return Memory.bestmemory(self.memories,
+#            mode=mode, size=size, consumed=consumed, reverse=reverse)
 
-    def bestmemory(self, mode='rwx', size=None,
-            consumed={}, reverse=False):
-        # TODO inline?
-        return Memory.bestmemory(self.memories,
-            mode=mode, size=size, consumed=consumed, reverse=reverse)
+    def issys(self):
+        return True

@@ -5,6 +5,7 @@ import collections as c
 import itertools as it
 import string
 import io
+import re
 
 OUTPUTS = {'box': c.OrderedDict(), 'sys': c.OrderedDict()}
 def output(target):
@@ -14,26 +15,52 @@ def output(target):
         return cls
     return output
 
-class Output_(io.StringIO):
+#def cond(f):
+#    """ Create conditional function for output apply methods """
+#    def cond(self, *args, **kwargs):
+#        if self:
+#            return f(*args, **kwargs)
+#    return cond 
+
+class OutputBlob_(io.StringIO):
     def __init__(self, *args, **kwargs):
-        self._attrs = [kwargs]
         super().__init__(*args)
+        self._attrs = []
+        self._needindent = True
+        self.pushattrs(**kwargs)
 
     def write(self, fmt, **kwargs):
-        fmt = '\n'.join(self.get('indent', 0)*' ' + line
-            for line in fmt.splitlines())
-        super().write(fmt % self.attrs(**kwargs))
+        fmt = fmt % self.attrs(**kwargs)
+        for c in fmt:
+            if c == '\n':
+                self._needindent = True
+            else:
+                if self._needindent:
+                    self._needindent = False
+                    super().write(self.get('indent', 0)*' ')
+            super().write(c)
 
-    def build(self, outf):
-        outf.write(super().getvalue())
-
-    def getvalue(self):
-        # reimplemented to allow subclasses to only override build
-        outf = io.StringIO()
-        self.build(outf)
-        return outf.getvalue()
+#    def _parsekwarg(self, attr):
+#        for rule in [
+#                lambda: attr(self),
+#                lambda: attr(),
+#                lambda: attr % self.attrs()]:
+#            try:
+#                return rule()
+#            except TypeError:
+#                continue
+#        else:
+#            return attr
+#
+#    def _parsekwargs(self, attrs):
+#        return {k: self._parsekwarg(v) for k, v in attrs.items()}
 
     def pushattrs(self, **kwargs):
+#        kwargs = {k: v % self.attrs()
+#            if isinstance(v, str) else v
+#            for k, v in kwargs.items()}
+        #self._attrs.append(self._parsekwargs(kwargs))
+        # TODO add fallback for uppercase?
         self._attrs.append(kwargs)
 
         class context:
@@ -53,12 +80,70 @@ class Output_(io.StringIO):
         assert set(self._attrs[-1].keys()) == {'indent'}
         return self.popattrs()['indent']
 
+    def _expand(self, k, v):
+        with self.pushattrs(**{k: None}):
+            for rule in [lambda: v(self), lambda: v()]:
+                try:
+                    return rule()
+                except TypeError:
+                    continue
+            else:
+#               try:
+                if isinstance(v, str) and re.search(r'%(?!%)', v):
+                    return v % self.attrs()
+                else:
+                    return v
+#                except KeyError:
+#                    # avoid combinatorial explosion
+#                    return v.replace('%', '%%')
+#                except TypeError:
+#                    return v
+#                except:
+#                    raise
+#
+#        for rule in [lambda: v(self), lambda: v()]:
+#            try:
+#                with self.pushattrs(**{k: None}):
+#                    return rule()
+#            except TypeError:
+#                continue
+#        else:
+#            if isinstance(v, str) and '%' in v:
+#                return v % self.attrs(**{**kwargs, k: None})
+#            else:
+#                return v
+#
+    def _expandall(self, attrs):
+        expanded = {}
+        for k, v in attrs.items():
+            if v is None:
+                continue
+            expanded[k] = self._expand(k, v)
+            if k.upper() not in expanded and isinstance(expanded[k], str):
+                expanded[k.upper()] = expanded[k].upper()
+        return expanded
+
     def __getitem__(self, key):
+#        # try fast lookup first
+#        for a in reversed(self._attrs):
+#            if key in a:
+#                return self._expand(key, a[key])
+#
+#        # TODO maybe don't do this?
+#        # TODO wow, this is EXPENSIVE
+#        return self.attrs()[key]
+#        # TODO handle UPPER CASE????
+
         for a in reversed(self._attrs):
             if key in a:
-                return a[key]
-        else:
-            raise KeyError(key)
+                return self._expand(key, a[key])
+
+        for a in reversed(self._attrs):
+            a = {k.upper(): v for k, v in a.items()}
+            if key in a:
+                return self._expand(key, a[key]).upper()
+
+        raise KeyError(key)
 
     def __contains__(self, key):
         try:
@@ -74,37 +159,111 @@ class Output_(io.StringIO):
             return default
 
     def attrs(self, **kwargs):
+#        kwargs = {k: v % self.attrs()
+#            if isinstance(v, str) else v
+#            for k, v in kwargs.items()}
+        #kwargs = self._parsekwargs(kwargs)
         attrs = {}
         for a in self._attrs:
             attrs.update(a)
         attrs.update(kwargs)
-        return attrs
+        return self._expandall(attrs)
+        #attrs.update(self._parsekwargs(kwargs))
+        #return {k: v for k, v in attrs.items() if v is not None}
 
     def __repr__(self):
         return super(object, self).__repr__()
 
 class OutputField_(list):
-    def __init__(self, parent=None, iter=[]):
+    def __init__(self, parent=None, rules={}, **kwargs):
+        super().__init__()
         self._parent = parent
-        super().__init__(iter)
+        self._rules = rules
+        self._attrs = kwargs
 
-    def insert(self, i, fmt=None, **kwargs):
-        attrs = self._parent.getattrs(**kwargs)
-        out = Output_(**attrs)
-        if fmt is not None:
-            out.write(fmt)
-        super().insert(i, out)
-        return out
+    def insert(self, _i, _fmt=None, **kwargs):
+        if isinstance(_fmt, OutputBlob_):
+            outf = _fmt
+        else:
+#            #outf = OutputBlob_(**self._parent.attrs({**self._attrs, **kwargs}))
+#            #outf = OutputBlob_(**self._parent.attrs(**kwargs))
+#            outf = OutputBlob_(**self._parent.attrs())
+#            # TODO is this correct for handling lambdas in kwargs?
+#            # TODO HMMMM
+#            if kwargs:
+#                outf.pushattrs(**kwargs)
+#            if self._attrs:
+#                outf.pushattrs(**self._attrs)
 
-    def append(self, fmt=None, **kwargs):
-        out = Output_(**self._parent.attrs(**kwargs))
-        if fmt is not None:
-            out.write(fmt)
-        super().append(out)
-        return out
+            outf = OutputBlob_(**{
+                **self._parent.attrs(),
+                **self._attrs,
+                **kwargs})
+
+#            ruleattrs = {}
+#            for attr, rule in self._rules.items():
+#                if isinstance(attr, str):
+#                    ruleattrs[attr] = rule(outf)
+#            if ruleattrs:
+#                outf.pushattrs(**ruleattrs)
+
+            for type, rule in self._rules.items():
+                if isinstance(_fmt, type):
+                    rule(outf, _fmt)
+                    break
+            else:
+                if _fmt is not None:
+                    outf.write(_fmt)
+
+        super().insert(_i, outf)
+        return outf
+
+    def append(self, _fmt=None, **kwargs):
+        return self.insert(len(self), _fmt, **kwargs)
+
+    def extend(self, iterable):
+        for x in iterable:
+            self.append(x)
 
     def __repr__(self):
         return super(object, self).__repr__()
+
+class Output_(OutputBlob_):
+    """An optional output that a runtime can generate."""
+    __argname__ = "unnamed_output"
+    __arghelp__ = __doc__
+
+    def __init__(self, box, path=None):
+        self.name = self.__argname__ # TODO need type?
+        self.box = box
+        self.path = os.path.join(box.path, path) if path else None
+        super().__init__(name=self.name, path=self.path,
+            box=box.name if box.isbox() else None)
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+#    def box(self, box):
+#        """
+#        Configure output with specified box. This should add any
+#        box-specific attributes.
+#        """
+#        # TODO always have name?
+#        #if box.name:
+#        if getattr(box, 'name', None):
+#            self.pushattrs(box=box.name, BOX=box.name.upper())
+
+    def build(self, outf):
+        """
+        Build the output into the specified output file.
+        """
+        outf.write(super().getvalue())
+
+    def getvalue(self):
+        # reimplemented to allow subclasses to only override build
+        outf = io.StringIO()
+        self.build(outf)
+        return outf.getvalue()
 
 class Output(abc.ABC):
     """An optional output that a runtime can generate."""
@@ -154,5 +313,5 @@ class OutputField(io.StringIO):
 # Output class imports
 # These must be imported here, since they depend on the above utilities
 from .header import HeaderOutput, HeaderGlueOutput_
-from .jumptable import JumptableOutput
+from .jumptable import JumptableOutput, CGlueOutput_
 from .linkerscript import LinkerScriptOutput
