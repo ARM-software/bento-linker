@@ -9,9 +9,21 @@ def buildmemory(outf, memory):
         mode=''.join(sorted(memory.mode)),
         addr=memory.addr,
         size=memory.size)
-    outf.write('%(MEMORY)-16s (%(MODE)s) : '
+    outf.write('%(MEMORY)-16s (%(MODE)-3s) : '
         'ORIGIN = %(addr)#010x, '
         'LENGTH = %(size)#010x')
+
+def buildsymbol(outf, symbol):
+    outf.pushattrs(
+        symbol='%(symbol_prefix)s' + symbol[0],
+        addr=symbol[1])
+    outf.write('%(symbol)-24s = ')
+    if outf.get('cond', False):
+        outf.write('DEFINED(%(symbol)s) ? %(symbol)s : ')
+    try:
+        outf.write('%(addr)#010x;')
+    except TypeError:
+        outf.write('%(addr)s;')
 
 ## TODO need access to high-level output?
 #def buildstack(stack, outf):
@@ -41,7 +53,8 @@ class ParialLDScriptOutput_(outputs.Output_):
             section_prefix='.',
             memory_prefix=''):
         super().__init__(box, path)
-        self.decls = outputs.OutputField_(self)
+        self.consumed = {m.name: 0 for m in box.memories}
+        self.decls = outputs.OutputField_(self, {tuple: buildsymbol})
         self.memories = outputs.OutputField_(self, {Memory: buildmemory},
             indent=4,
             memory=None,
@@ -68,13 +81,11 @@ class ParialLDScriptOutput_(outputs.Output_):
             self.memories.extend(ldscript.memories)
             self.sections.extend(ldscript.sections)
             for memory in ldscript.memories:
-                self.decls.append('%(symbol)-16s = '
-                    'ORIGIN(%(MEMORY)s);',
-                    symbol='%(symbol_prefix)s%(memory)s',
+                self.decls.append(('%(memory)s',
+                    'ORIGIN(%(MEMORY)s)'),
                     memory=memory['memory'])
-                self.decls.append('%(symbol)-16s = '
-                    'ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);',
-                    symbol='%(symbol_prefix)s%(memory)s_end',
+                self.decls.append(('%(memory)s_end',
+                    'ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s)'),
                     memory=memory['memory'])
 
     def build(self, outf):
@@ -141,11 +152,43 @@ class LDScriptOutput_(ParialLDScriptOutput_):
         for memory in box.memories:
             self.memories.append(memory)
 
-        decl_i = 0
+        if box.issys():
+            self.decls.insert(0, 'ENTRY(Reset_Handler)')
+
         # write out rom sections
+        # need interrupt vector?
+        if box.issys() and box.isr_vector:
+            # TODO need this?
+            # TODO configurable?
+            memory = box.bestmemory('rx', box.isr_vector.size,
+                consumed=self.consumed)
+            self.consumed[memory.name] += box.isr_vector.size
+            self.decls.append(('isr_vector_min', box.isr_vector.size),
+                cond=True)
+#            self.decls.append('%(symbol)-16s = '
+#                'DEFINED(%(symbol)s) ? %(symbol)s : %(size)#010x;',
+#                symbol='%(symbol_prefix)s' + 'isr_vector_min',
+#                size=0x400) # TODO configure this?
+            outf = self.sections.append(
+                section='%(section_prefix)s' + 'isr_vector',
+                memory='%(memory_prefix)s' + memory.name)
+            outf.write('.isr_vector : {\n')
+            with outf.pushindent():
+                outf.write('. = ALIGN(%(align)d);\n')
+                outf.write('%(symbol_prefix)sisr_vector = .;\n')
+                outf.write('KEEP(*(%(section_prefix)sisr_vector))\n')
+                outf.write('. = %(symbol_prefix)sisr_vector +'
+                    '%(symbol_prefix)sisr_vector_min;\n')
+                outf.write('. = ALIGN(%(align)d);\n')
+                outf.write('%(symbol_prefix)sisr_vector_end = .;\n')
+            outf.write('} > %(MEMORY)s')
+
+        memory = box.bestmemory('rx', box.text.size,
+            consumed=self.consumed)
+        self.consumed[memory.name] += box.text.size
         outf = self.sections.append(
             section='%(section_prefix)s' + 'text',
-            memory='%(memory_prefix)s' + box.bestmemory('rx').name)
+            memory='%(memory_prefix)s' + memory.name)
         outf.write('%(section)s : {\n')
         with outf.pushindent():
             outf.write('. = ALIGN(%(align)d);\n')
@@ -164,14 +207,18 @@ class LDScriptOutput_(ParialLDScriptOutput_):
 
         # write out ram sections
         if box.stack:
-            self.decls.insert(decl_i, '%(symbol)-16s = '
-                'DEFINED(%(symbol)s) ? %(symbol)s : %(size)#010x;',
-                symbol='%(symbol_prefix)s' + 'stack_min',
-                size=box.stack.size)
-            decl_i += 1
+            memory = box.bestmemory('rw', box.stack.size,
+                consumed=self.consumed)
+            self.consumed[memory.name] += box.stack.size
+            self.decls.append(('stack_min', box.stack.size),
+                cond=True)
+#            self.decls.append('%(symbol)-16s = '
+#                'DEFINED(%(symbol)s) ? %(symbol)s : %(size)#010x;',
+#                symbol='%(symbol_prefix)s' + 'stack_min',
+#                size=box.stack.size)
             outf = self.sections.append(
                 section='%(section_prefix)s' + 'stack',
-                memory='%(memory_prefix)s' + box.bestmemory('rw').name)
+                memory='%(memory_prefix)s' + memory.name)
             outf.write('%(section)s (NOLOAD) : {\n')
             with outf.pushindent():
                 outf.write('. = ALIGN(%(align)d);\n')
@@ -181,9 +228,12 @@ class LDScriptOutput_(ParialLDScriptOutput_):
                 outf.write('%(symbol_prefix)sstack_end = .;\n')
             outf.write('} > %(MEMORY)s')
 
+        memory = box.bestmemory('rw', box.data.size,
+            consumed=self.consumed)
+        self.consumed[memory.name] += box.data.size
         outf = self.sections.append(
             section='%(section_prefix)s' + 'data',
-            memory='%(memory_prefix)s' + box.bestmemory('rw').name)
+            memory='%(memory_prefix)s' + memory.name)
         outf.write('%(section)s : AT(%(symbol_prefix)sdata_init) {\n')
         with outf.pushindent():
             outf.write('. = ALIGN(%(align)d);\n')
@@ -193,9 +243,12 @@ class LDScriptOutput_(ParialLDScriptOutput_):
             outf.write('%(symbol_prefix)sdata_end = .;\n')
         outf.write('} > %(MEMORY)s')
 
+        memory = box.bestmemory('rw', box.bss.size,
+            consumed=self.consumed)
+        self.consumed[memory.name] += box.bss.size
         outf = self.sections.append(
             section='%(section_prefix)s' + 'bss',
-            memory='%(memory_prefix)s' + box.bestmemory('rw').name)
+            memory='%(memory_prefix)s' + memory.name)
         outf.write('%(section)s (NOLOAD) : {\n')
         with outf.pushindent():
             outf.write('. = ALIGN(%(align)d);\n')
@@ -211,11 +264,11 @@ class LDScriptOutput_(ParialLDScriptOutput_):
         outf.write('} > %(MEMORY)s')
 
         if box.heap:
-            self.decls.insert(decl_i, '%(symbol)-16s = '
-                'DEFINED(%(symbol)s) ? %(symbol)s : %(size)#010x;',
-                symbol='%(symbol_prefix)s' + 'heap_min',
-                size=box.heap.size)
-            decl_i += 1
+            memory = box.bestmemory('rw', box.heap.size,
+                consumed=self.consumed)
+            self.consumed[memory.name] += box.heap.size
+            self.decls.append(('heap_min', box.heap.size),
+                cond=True)
             outf = self.sections.append(
                 section='%(section_prefix)s' + 'heap',
                 memory='%(memory_prefix)s' + box.bestmemory('rw').name)
@@ -238,31 +291,6 @@ class LDScriptOutput_(ParialLDScriptOutput_):
             outf.write('ASSERT(%(symbol_prefix)sheap_end - '
                 '%(symbol_prefix)sheap > %(symbol_prefix)sheap_min,\n')
             outf.write('    "Not enough memory for heap")\n')
-
-        # need interrupt vector?
-        if box.issys():
-            # TODO need this?
-            # TODO configurable?
-            self.decls.insert(0, 'ENTRY(Reset_Handler)')
-            decl_i += 1
-            self.decls.insert(decl_i, '%(symbol)-16s = '
-                'DEFINED(%(symbol)s) ? %(symbol)s : %(size)#010x;',
-                symbol='%(symbol_prefix)s' + 'isr_vector_min',
-                size=0x400) # TODO configure this?
-            decl_i += 1
-            outf = self.sections.insert(0,
-                section='%(section_prefix)s' + 'isr_vector',
-                memory='%(memory_prefix)s' + box.bestmemory('r').name)
-            outf.write('.isr_vector : {\n')
-            with outf.pushindent():
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sisr_vector = .;\n')
-                outf.write('KEEP(*(%(section_prefix)sisr_vector))\n')
-                outf.write('. = %(symbol_prefix)sisr_vector +'
-                    '%(symbol_prefix)sisr_vector_min;\n')
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sisr_vector_end = .;\n')
-            outf.write('} > %(MEMORY)s')
 
 @outputs.output('sys')
 @outputs.output('box')

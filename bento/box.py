@@ -46,8 +46,7 @@ class Memory:
         parser.add_argument("--size", type=lambda x: int(x, 0),
             help="Size of memory region in bytes.")
         parser.add_argument("--align", type=lambda x: int(x, 0),
-            help="Minimum alignment of the memory region. Used for sanity "
-                "check but otherwise unused unless addr is not specified.")
+            help="Minimum alignment of the memory region.")
 #        parser.add_argument("--sections", type=cls.parsesections,
 #            help="List of sections to place in this memory region. If not "
 #                "specified, %%(prog)s will try to place sections in the "
@@ -110,6 +109,7 @@ class Memory:
 
     def __init__(self, name, memory=None, mode=None, align=None,
             addr=None, size=None):
+        # TODO move this after assignments?
         if align is not None:
             if addr is not None:
                 assert addr % align == 0, (
@@ -131,29 +131,30 @@ class Memory:
         #self.sections = args.sections # TODO rm me?
 
     def __str__(self):
-        return "%(mode)s %(range)s %(size)d bytes%(align)s" % dict(
+        return "%(mode)s %(range)s %(size)d bytes" % dict(
             mode=''.join(c if c in self.mode else '-'
                 for c in Memory.MODEFLAGS),
             range='%#010x-%#010x' % (self.addr, self.addr+self.size-1)
                 if self.addr is not None else
                 '%#010x' % self.size,
-            size=self.size,
-            align=' %s align' % self.align if self.align is not None else '')
+            size=self.size)
             # TODO need align?
 
     def __lt__(self, other):
         return (self.addr, self.name) < (other.addr, other.name)
 
-    def iscompatible(self, mode='rwx', size=None):
-        return set(mode).issubset(self.mode) and (
-            size is None or size <= self.size)
+    def iscompatible(self, mode='rwx', size=None, consumed=0):
+        return (set(mode).issubset(self.mode) and (
+            size is None or size+consumed <= self.size) and
+            consumed != self.size)
 
     @staticmethod
     def bestmemories(memories, mode='rwx', size=None,
             consumed={}, reverse=False):
         return sorted((m for m in memories
                 if m.iscompatible(mode=mode,
-                    size=(size or 0)+consumed.get(m.name, 0))),
+                    size=(size or 0),
+                    consumed=consumed.get(m.name, 0))),
             key=lambda m: (
                 len(m.mode - set(mode)),
                 -m.addr if reverse else m.addr))
@@ -207,17 +208,23 @@ class Memory:
 #            self.size,
 #            ' %s align' % self.align if self.align is not None else ''))
 
-class Buffer:
+class Section:
     """
-    Description of a dynamic buffer.
+    Description of the SECTION. Note that the SECTION may not
+    be emitted depending on specified outputs and runtimes.
     """
+    __argname__ = "section"
+    __arghelp__ = __doc__
     @classmethod
-    def __argparse__(cls, parser):
+    def __argparse__(cls, parser, name=None, help=None):
+        name = name or cls.__argname__
+        help = (help or cls.__arghelp__).replace('SECTION', name)
         parser.add_argument("size", type=argstuff.pred(cls.parsebuffer),
-            metavar=cls.__argname__.upper(), help=cls.__arghelp__)
+            metavar=name, help=help)
         parser.add_argument("--size", type=lambda x: int(x, 0),
-            help="Minimum size of the %s. Note, may go unused depending on "
-                "specified outputs. Defaults to 4096." % cls.__argname__)
+            help="Minimum size of the %s. Defaults to 0." % name)
+        parser.add_argument("--align", type=lambda x: int(x, 0),
+            help="Minimum alignment of the %s." % name)
 
     @staticmethod
     def parsebuffer(s):
@@ -239,7 +246,7 @@ class Buffer:
 
         return size
 
-    def __init__(self, size):
+    def __init__(self, size=None, align=None):
         #assert name in Memory.SECTIONS
 # TODO align and pad to alignment? (8 bytes?)
 #        if args.align is not None and args.size is not None:
@@ -247,12 +254,19 @@ class Buffer:
 #                "section size not aligned to section alignment "
 #                "%#x %% %#x != 0" % (
 #                    args.size, args.align))
+        self.size = size or 0
+        self.align = align
 
-        self.size = size if size is not None else 4096 # TODO is 4K too small?
+#        self.size = size if size is not None else 4096 # TODO is 4K too small?
 
 #        self.align = args.align or (8 if name in ['stack', 'heap'] else 4)
 #        self.memory = args.memory
 #
+
+#    def __lt__(self, other):
+#        # turns out this approximates the usual section order
+#        # text, stack, heap, data, bss
+#        return not self.name < other.name
 
     def __str__(self):
         return "%(size)#010x %(size)s bytes" % dict(size=self.size)
@@ -260,19 +274,19 @@ class Buffer:
     def __bool__(self):
         return self.size != 0
 
-class Stack(Buffer):
-    """
-    Description of a box's stack.
-    """
-    __argname__ = "stack"
-    __arghelp__ = __doc__
-
-class Heap(Buffer):
-    """
-    Description of a box's heap.
-    """
-    __argname__ = "heap"
-    __arghelp__ = __doc__
+#class Stack(Buffer):
+#    """
+#    Description of a box's stack.
+#    """
+#    __argname__ = "stack"
+#    __arghelp__ = __doc__
+#
+#class Heap(Buffer):
+#    """
+#    Description of a box's heap.
+#    """
+#    __argname__ = "heap"
+#    __arghelp__ = __doc__
 
 #class Section:
 #    """
@@ -609,10 +623,24 @@ class Box:
             parser.add_set('--'+Memory.__argname__))
 #        Section.__argparse__(
 #            parser.add_set('--'+Section.__argname__))
-        Stack.__argparse__(
-            parser.add_nestedparser('--'+Stack.__argname__))
-        Heap.__argparse__(
-            parser.add_nestedparser('--'+Heap.__argname__))
+#        Stack.__argparse__(
+#            parser.add_nestedparser('--'+Stack.__argname__))
+#        Heap.__argparse__(
+#            parser.add_nestedparser('--'+Heap.__argname__))
+#        Section.__argparse__(
+#            parser.add_set('--'+Section.__argname__))
+        Section.__argparse__(
+            parser.add_nestedparser('--stack'), name='stack')
+        Section.__argparse__(
+            parser.add_nestedparser('--heap'), name='heap')
+        Section.__argparse__(
+            parser.add_nestedparser('--jumptable'), name='jumptable')
+        Section.__argparse__(
+            parser.add_nestedparser('--text'), name='text')
+        Section.__argparse__(
+            parser.add_nestedparser('--data'), name='data')
+        Section.__argparse__(
+            parser.add_nestedparser('--bss'), name='bss')
         Import.__argparse__(
             parser.add_set('--'+Import.__argname__))
         Export.__argparse__(
@@ -647,7 +675,17 @@ class Box:
         # sort again in case new addresses changed order
         self.memories = sorted(self.memories)
 
+        self.stack = Section(**args.stack.__dict__)
+        self.heap = Section(**args.heap.__dict__)
+        self.jumptable = Section(**args.jumptable.__dict__)
+        self.text = Section(**args.text.__dict__)
+        self.data = Section(**args.data.__dict__)
+        self.bss = Section(**args.bss.__dict__)
 
+
+#        self.sections = c.OrderedDict((x.name, x) for x in sorted(
+#            Section(name, **sectionargs.__dict__)
+#            for name, sectionargs in args.section.items()))
 
 
 #        self.memories = {name: Memory(name, memargs)
@@ -659,8 +697,8 @@ class Box:
 #                parser.add_nestedparser('--'+section, help=help))
 #        self.sections = {name: Section(name, sectionargs)
 #            for name, sectionargs in args.section.__dict__.items()}
-        self.stack = Stack(**args.stack.__dict__)
-        self.heap = Heap(**args.heap.__dict__)
+#        self.stack = Stack(**args.stack.__dict__)
+#        self.heap = Heap(**args.heap.__dict__)
 #        self.imports = {name: Import(name, importargs)
 #            for name, importargs in args.__dict__['import'].items()}
 #        self.exports = {name: Import(name, exportargs)
@@ -698,8 +736,8 @@ class Box:
             runtime=self.runtime.__argname__))
         for memory in self.memories:
             print('  %-34s %s' % ('memory.%s' % memory.name, memory))
-        print('  %-34s %s' % ('stack', self.stack))
-        print('  %-34s %s' % ('heap', self.heap))
+        for name, section in self.sections.items():
+            print('  %-34s %s' % ('section.%s' % name, section))
         if self.imports:
             print('  import')
             for import_ in self.imports:
@@ -789,10 +827,24 @@ class System(Box):
 #        for section, help in Memory.SECTIONS.items():
 #            Section.__argparse__(
 #                sectionparser.add_nestedparser('--'+section, help=help))
-        Stack.__argparse__(
-            parser.add_nestedparser('--'+Stack.__argname__))
-        Heap.__argparse__(
-            parser.add_nestedparser('--'+Heap.__argname__))
+#        Stack.__argparse__(
+#            parser.add_nestedparser('--'+Stack.__argname__))
+#        Heap.__argparse__(
+#            parser.add_nestedparser('--'+Heap.__argname__))
+#        Section.__argparse__(
+#            parser.add_set('--'+Section.__argname__))
+        Section.__argparse__(
+            parser.add_nestedparser('--stack'), name='stack')
+        Section.__argparse__(
+            parser.add_nestedparser('--heap'), name='heap')
+        Section.__argparse__(
+            parser.add_nestedparser('--isr_vector'), name='isr_vector')
+        Section.__argparse__(
+            parser.add_nestedparser('--text'), name='text')
+        Section.__argparse__(
+            parser.add_nestedparser('--data'), name='data')
+        Section.__argparse__(
+            parser.add_nestedparser('--bss'), name='bss')
         Import.__argparse__(
             parser.add_set('--'+Import.__argname__))
         Export.__argparse__(
@@ -824,8 +876,19 @@ class System(Box):
 #            for name, sectionargs in args.section.items()}
 #        self.sections = {name: Section(name, sectionargs)
 #            for name, sectionargs in args.section.__dict__.items()}
-        self.stack = Stack(**args.stack.__dict__)
-        self.heap = Heap(**args.heap.__dict__)
+#        self.stack = Stack(**args.stack.__dict__)
+#        self.heap = Heap(**args.heap.__dict__)
+        
+#        self.sections = c.OrderedDict((x.name, x) for x in sorted(
+#            Section(name, **sectionargs.__dict__)
+#            for name, sectionargs in args.section.items()))
+        self.stack = Section(**args.stack.__dict__)
+        self.heap = Section(**args.heap.__dict__)
+        self.isr_vector = Section(**args.isr_vector.__dict__)
+        self.text = Section(**args.text.__dict__)
+        self.data = Section(**args.data.__dict__)
+        self.bss = Section(**args.bss.__dict__)
+
         self.imports = sorted(Import(name, **importargs.__dict__)
             for name, importargs in args.__dict__['import'].items())
         self.exports = sorted(Import(name, **exportargs.__dict__)
@@ -903,8 +966,8 @@ class System(Box):
         print('system')
         for memory in self.memories:
             print('  %-34s %s' % ('memory.%s' % memory.name, memory))
-        print('  %-34s %s' % ('stack', self.stack))
-        print('  %-34s %s' % ('heap', self.heap))
+        for name, section in self.sections.items():
+            print('  %-34s %s' % ('section.%s' % name, section))
         if self.imports:
             print('  import')
             for import_ in self.imports:

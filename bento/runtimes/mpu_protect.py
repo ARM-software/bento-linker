@@ -322,7 +322,7 @@ class MPUProtectRuntime(runtimes.Runtime):
                 # TODO rename this
                 ['__box_%(box)s_boxinit'],
                 (import_.name for import_ in box.exports))):
-            output.decls.append('%(import_)-16s = 0x0fffc000 + %(i)d*2;',
+            output.decls.append('%(import_)-24s = 0x0fffc000 + %(i)d*2;',
                 import_=import_,
                 i=i)
 
@@ -341,19 +341,26 @@ class MPUProtectRuntime(runtimes.Runtime):
             for i, import_ in enumerate(it.chain(
                     ['__box_fault', '__box_write'],
                     (import_.name for import_ in box.imports))):
-                output.decls.append('%(import_)-16s = 0x0fffc000 + %(i)d*2;',
+                output.decls.append('%(import_)-24s = 0x0fffc000 + %(i)d*2;',
                     import_=import_,
                     i=i)
 
     def build_box_ldscript_(self, box, output):
         self.build_box_partial_ldscript_(box, output)
 
-        # TODO preload prefixes?
-        # TODO how do we choose memory, if memory is in box?
-        # TODO use something else to grab memory? maybe box?
+        
+        # TODO handle this in ldscript class? ldscript.consume?
+        # TODO make jumptable come before ldscript declarations.
+        # Need box method?
+        # TODO what... this just doesn't work...
+        memory = box.bestmemory('rx', box.jumptable.size,
+            consumed=output.consumed)
+        #print(output.consumed)
+        # TODO hm
+        #output.consumed[memory.name] += box.jumptable.size
         outf = output.sections.insert(0,
             section='%(section_prefix)s' + 'jumptable',
-            memory='%(memory_prefix)s' + box.bestmemory('r').name)
+            memory='%(memory_prefix)s' + memory.name)
             # TODO move these?
             # TODO shortcut for capitalized?
 #            prefixed_section='%(section_prefix)s%(section)s',
