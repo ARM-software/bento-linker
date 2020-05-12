@@ -73,20 +73,47 @@ class ParialLDScriptOutput_(outputs.Output_):
 
         # create memories + sections for subboxes?
         for subbox in box.boxes:
-            ldscript = LDScriptOutput_(subbox,
-                symbol_prefix='__box_%(box)s_',
-                section_prefix='.box.%(box)s.',
-                memory_prefix='box_%(box)s_')
-            self.decls.extend(ldscript.decls)
-            self.memories.extend(ldscript.memories)
-            self.sections.extend(ldscript.sections)
-            for memory in ldscript.memories:
-                self.decls.append(('%(memory)s',
-                    'ORIGIN(%(MEMORY)s)'),
-                    memory=memory['memory'])
-                self.decls.append(('%(memory)s_end',
-                    'ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s)'),
-                    memory=memory['memory'])
+            with self.pushattrs(
+                    box=subbox.name,
+                    section_prefix='.box.%(box)s.',
+                    memory_prefix='box_%(box)s_'):
+
+                for memory in subbox.memories:
+                    self.memories.append(memory)
+
+                    outf = self.sections.append(
+                        section='%(section_prefix)s' + memory.name,
+                        memory='%(memory_prefix)s' + memory.name)
+                    outf.write('%(section)s : {\n')
+                    with outf.pushindent():
+                        # TODO prefixes considered harmful?
+                        outf.write('__%(memory)s = .;\n')
+                        outf.write('KEEP(*(%(section)s*))\n')
+                        outf.write('. = ORIGIN(%(MEMORY)s) + '
+                            'LENGTH(%(MEMORY)s);\n')
+                        outf.write('__%(memory)s_end = .;\n')
+                    outf.write('} > %(MEMORY)s')
+#
+#            ldscript = LDScriptOutput_(subbox,
+#                symbol_prefix='__box_%(box)s_',
+#                section_prefix='.box.%(box)s.',
+#                memory_prefix='box_%(box)s_')
+#            self.decls.extend(ldscript.decls)
+#            self.memories.extend(ldscript.memories)
+#            self.sections.extend(ldscript.sections)
+#
+#
+#            for memory in box.memories:
+#
+#            self.memories.append(memory)
+#            self.
+#            for memory in ldscript.memories:
+#                self.decls.append(('%(memory)s',
+#                    'ORIGIN(%(MEMORY)s)'),
+#                    memory=memory['memory'])
+#                self.decls.append(('%(memory)s_end',
+#                    'ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s)'),
+#                    memory=memory['memory'])
 
     def build(self, outf):
         # TODO docs?
@@ -101,8 +128,9 @@ class ParialLDScriptOutput_(outputs.Output_):
             outf.write('MEMORY {\n')
             # order memories based on address
             for memory in sorted(self.memories, key=lambda m: m['addr']):
-                outf.write(memory.getvalue())
-                outf.write('\n')
+                if memory['mode']:
+                    outf.write(memory.getvalue())
+                    outf.write('\n')
             outf.write('}\n')
             outf.write('\n')
         if self.sections:
@@ -290,7 +318,7 @@ class LDScriptOutput_(ParialLDScriptOutput_):
             outf.write('} > %(MEMORY)s\n')
             outf.write('ASSERT(%(symbol_prefix)sheap_end - '
                 '%(symbol_prefix)sheap > %(symbol_prefix)sheap_min,\n')
-            outf.write('    "Not enough memory for heap")\n')
+            outf.write('    "Not enough memory for heap")')
 
 @outputs.output('sys')
 @outputs.output('box')

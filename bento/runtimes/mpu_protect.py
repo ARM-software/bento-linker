@@ -326,12 +326,28 @@ class MPUProtectRuntime(runtimes.Runtime):
                 import_=import_,
                 i=i)
 
-        # create inherited symbols?
-        with output.pushattrs(
-                section_prefix='.box.%(box)s.',
-                symbol_prefix='__box_%(box)s_',
-                memory_prefix='box_%(box)s_'):
-            self.build_box_ldscript_(box, output)
+#        # create inherited symbols?
+#        with output.pushattrs(
+#                section_prefix='.box.%(box)s.',
+#                symbol_prefix='__box_%(box)s_',
+#                memory_prefix='box_%(box)s_'):
+#            self.build_box_ldscript_(box, output)
+
+        # TODO there has to be a better way to do this
+        # TODO so many issues, decide best memory elsewhere? (box)
+        # insert valid?
+        # should we do all boxing work here?
+        # allow default in linkerscript?
+        # allow symbol injection?
+        # ugh
+        memory = box.bestmemory('rx', box.jumptable.size,
+            consumed=output.consumed)
+        outf = output.sections.insert(0,
+            box_memory=memory.name,
+            section='.box.%(box)s.%(box_memory)s',
+            memory='box_%(box)s_%(box_memory)s')
+        outf.write('. = ORIGIN(%(MEMORY)s);\n')
+        outf.write('__box_%(box)s_jumptable = .;')
 
     def build_box_partial_ldscript_(self, box, output):
         if output['section_prefix'] == '.':
