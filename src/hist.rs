@@ -88,7 +88,9 @@ impl Hist {
         *hist.get_mut(n).unwrap_or(&mut 0) -= diff;
     }
 
-    pub fn iter<'b, U: Sym>(&'b self) -> Box<Iterator<Item=(U, usize)> + 'b> {
+    pub fn iter<'b, U: Sym>(
+        &'b self
+    ) -> Box<dyn Iterator<Item=(U, usize)> + 'b> {
         Box::new(self.hist.iter()
             .enumerate()
             .filter(|(_, n)| **n > 0)
@@ -101,7 +103,7 @@ impl Hist {
     pub fn iter_bounded<'b, U: Sym>(
         &'b self,
         bound: usize,
-    ) -> Box<Iterator<Item=(U, usize)> + 'b> {
+    ) -> Box<dyn Iterator<Item=(U, usize)> + 'b> {
         Box::new((0..bound)
             .map(|i| U::cast(i as u32).unwrap())
             .map(move |i| (i, self.get_bounded(i, bound)))

@@ -172,9 +172,9 @@ fn with_prog_all<F, R>(
 ) -> Result<R>
 where
     F: for<'a> FnOnce((
-        &'a mut Iterator<Item=(&PathBuf, &usize)>,
-        &'a mut FnMut((&PathBuf, &usize)),
-        &'a mut FnMut(usize),
+        &'a mut dyn Iterator<Item=(&PathBuf, &usize)>,
+        &'a mut dyn FnMut((&PathBuf, &usize)),
+        &'a mut dyn FnMut(usize),
     )) -> Result<R>,
 {
     if quiet {
@@ -250,7 +250,7 @@ fn with_prog<F, R>(
 ) -> Result<R>
 where
     F: for<'a> FnOnce(
-        &'a mut FnMut(usize),
+        &'a mut dyn FnMut(usize),
     ) -> Result<R>,
 {
     with_prog_all(msg, quiet, &[], &[inputs], |(_, _, prog)| f(prog))
@@ -330,6 +330,39 @@ impl<T: Read> FieldRead for T {
     }
 }
 
+enum EstimatorFile {
+    Some(File),
+    None(u64),
+}
+
+impl EstimatorFile {
+    fn len(&self) -> io::Result<u64> {
+        match self {
+            EstimatorFile::Some(f) => Ok(f.metadata()?.len()),
+            EstimatorFile::None(s) => Ok(*s)
+        }
+    }
+}
+
+impl Write for EstimatorFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            EstimatorFile::Some(ref mut f) => f.write(buf),
+            EstimatorFile::None(ref mut s) => {
+                *s += buf.len() as u64;
+                Ok(buf.len())
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            EstimatorFile::Some(ref mut f) => f.flush(),
+            EstimatorFile::None(_) => Ok(())
+        }
+    }
+}
+
 fn encode(opt: &EncodeOpt) -> Result<()> {
     // time ourselves
     let time = Instant::now();
@@ -396,15 +429,6 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
 
     let k = glz.k();
     let table = glz.decode_table::<u32>()?;
-
-    let bound = 2usize.pow(GLZ::WIDTH as u32)
-        + 2usize.pow(l as u32)
-        + 2usize.pow(m as u32);
-    if table.len() != bound {
-        bail!("table is incorrect size, found {}, expected {}",
-            table.len(), bound);
-    }
-
     println!("K = {}", k);
     if l != GLZ::DEFAULT_L {
         println!("L = {}", l);
@@ -449,47 +473,50 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         }
     )?;
 
-    if let Some(ref outfile) = opt.output {
-        let mut f = File::create(outfile)?;
-        if !opt.common.no_headers {
-            f.write_all(&MAGIC)?;
-            f.write_field(Field::NAMES,
-                &paths.iter().zip(ranges).map(|(path, (off, len))| {
-                        let path = path.to_string_lossy();
-                        let path = path.as_bytes();
-                        Ok(
-                            LEB128.encode_u32(path.len() as u32)?.iter()
-                                .chain(8.encode::<u8>(path)?)
-                                .chain(LEB128.encode_u32(off as u32)?)
-                                .chain(LEB128.encode_u32(len as u32)?)
-                                .collect::<BitVec>()
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()?
-                    .iter().flatten().collect::<BitVec>()
-            )?;
-            f.write_field(Field::K,
-                &LEB128.encode_u32(k as u32)?
-            )?;
-            if l != GLZ::DEFAULT_L {
-                f.write_field(Field::L,
-                    &LEB128.encode_u32(l as u32)?
-                )?;
-            }
-            if m != GLZ::DEFAULT_M {
-                f.write_field(Field::M,
-                    &LEB128.encode_u32(m as u32)?
-                )?;
-            }
-            f.write_field(Field::TABLE,
-                &(1+GLZ::WIDTH).encode(&table)?
+    let mut f = if let Some(ref outfile) = opt.output {
+        EstimatorFile::Some(File::create(outfile)?)
+    } else {
+        EstimatorFile::None(0)
+    };
+
+    if !opt.common.no_headers {
+        f.write_all(&MAGIC)?;
+        f.write_field(Field::NAMES,
+            &paths.iter().zip(ranges).map(|(path, (off, len))| {
+                    let path = path.to_string_lossy();
+                    let path = path.as_bytes();
+                    Ok(
+                        LEB128.encode_u32(path.len() as u32)?.iter()
+                            .chain(8.encode::<u8>(path)?)
+                            .chain(LEB128.encode_u32(off as u32)?)
+                            .chain(LEB128.encode_u32(len as u32)?)
+                            .collect::<BitVec>()
+                    )
+                })
+                .collect::<Result<Vec<_>>>()?
+                .iter().flatten().collect::<BitVec>()
+        )?;
+        f.write_field(Field::K,
+            &LEB128.encode_u32(k as u32)?
+        )?;
+        if l != GLZ::DEFAULT_L {
+            f.write_field(Field::L,
+                &LEB128.encode_u32(l as u32)?
             )?;
         }
-        f.write_field(Field::BLOB, &output)?;
+        if m != GLZ::DEFAULT_M {
+            f.write_field(Field::M,
+                &LEB128.encode_u32(m as u32)?
+            )?;
+        }
+        f.write_field(Field::TABLE,
+            &(1+GLZ::WIDTH).encode(&table)?
+        )?;
     }
+    f.write_field(Field::BLOB, &output)?;
 
     let before = inputs.iter().fold(0, |s, a| s+a.len());
-    let after = (output.len()+8-1) / 8;
+    let after = f.len()?;
     println!("compressed {} -> {} ({}%)",
         HumanBytes(before as u64),
         HumanBytes(after as u64),
@@ -546,13 +573,17 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
         bail!("unknown K, provide -K?")
     };
 
-    let table = if let Some(bits) = fields.get(&Field::TABLE) {
-        (1+GLZ::WIDTH).decode(bits)?
+    let mut table = if let Some(bits) = fields.get(&Field::TABLE) {
+        let align_len = bits.len() - bits.len() % (1+GLZ::WIDTH);
+        (1+GLZ::WIDTH).decode(&bits[..align_len])?
     } else if opt.common.table.len() > 0 {
         opt.common.table.clone()
     } else {
         bail!("unknown table, provide --table?")
     };
+    while table.len() < (1 << GLZ::WIDTH) + (1 << l) {
+        table.push(0);
+    }
 
     let (off, len, name) = if let (Some(off), Some(len)) = (opt.off, opt.len) {
         (off, len, format!("{}..{}", off, len))
@@ -598,14 +629,6 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     } else {
         bail!("no blob?")
     };
-
-    let bound = 2usize.pow(GLZ::WIDTH as u32)
-        + 2usize.pow(l as u32)
-        + 2usize.pow(m as u32);
-    if table.len() != bound {
-        bail!("table is incorrect size, found {}, expected {}",
-            table.len(), bound);
-    }
 
     println!("K = {}", k);
     if l != GLZ::DEFAULT_L {
@@ -708,19 +731,104 @@ fn ls(opt: &LsOpt) -> Result<()> {
         bail!("unknown K, provide -K?")
     };
 
-    let table = if let Some(bits) = fields.get(&Field::TABLE) {
-        (1+GLZ::WIDTH).decode(bits)?
+    let mut table = if let Some(bits) = fields.get(&Field::TABLE) {
+        let align_len = bits.len() - bits.len() % (1+GLZ::WIDTH);
+        (1+GLZ::WIDTH).decode(&bits[..align_len])?
     } else if opt.common.table.len() > 0 {
         opt.common.table.clone()
     } else {
         bail!("unknown table, provide --table?")
     };
+    while table.len() < (1 << GLZ::WIDTH) + (1 << l) {
+        table.push(0);
+    }
 
     let input = if let Some(bits) = fields.get(&Field::BLOB) {
         bits
     } else {
         bail!("no blob?")
     };
+
+    let mut files = Vec::<(String, usize, usize)>::new();
+    if let Some(bits) = fields.get(&Field::NAMES) {
+        let mut i = 0;
+        while i < bits.len() {
+            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
+            let namelen = namelen as usize;
+            i += diff;
+
+            let foundname = String::from_utf8(
+                8.decode::<u8>(&bits[i..i+8*namelen])?
+            ).chain_err(|| "utf8 error in name field")?;
+            i += 8*namelen;
+
+            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
+            let off = off as usize;
+            i += diff;
+            let (len, diff) = LEB128.decode_u32_at(bits, i)?;
+            let len = len as usize;
+            i += diff;
+
+            files.push((foundname, off, len));
+        }
+    }
+    files.sort_by(|(name1, off1, _), (name2, off2, _)| {
+        (off1, name1).cmp(&(off2, name2))
+    });
+
+
+
+
+//    let mut files = Vec<()>::create()
+//    let files = fields.get(&Field::Names).map(|Some(bits)| {
+//        
+//
+//    });
+//    // print out our file
+//    println!("files:");
+//    let mut total = 0;
+//    if let Some(bits) = fields.get(&Field::NAMES) {
+//        let mut i = 0;
+//        while i < bits.len() {
+//            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
+//            let namelen = namelen as usize;
+//            i += diff;
+//
+//            let foundname = String::from_utf8(
+//                8.decode::<u8>(&bits[i..i+8*namelen])?
+//            ).chain_err(|| "utf8 error in name field")?;
+//            i += 8*namelen;
+//
+//            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
+//            let off = off as usize;
+//            i += diff;
+//            let (before, diff) = LEB128.decode_u32_at(bits, i)?;
+//            let before = before as usize;
+//            i += diff;
+//
+//            // seek ahead to estimate compressed size
+//            let after = (if i < bits.len() {
+//                let (nnamelen, ndiff) = LEB128.decode_u32_at(bits, i)?;
+//                let ni = i + ndiff + 8*nnamelen as usize;
+//                let (noff, _) = LEB128.decode_u32_at(bits, ni)?;
+//                noff as usize
+//            } else {
+//                input.len()
+//            } - off + 8-1) / 8;
+//
+//            println!("{:>8} {:<42} -> {} @ {} ({}%)",
+//                format!("{}", HumanBytes(before as u64)),
+//                foundname,
+//                format!("{}", HumanBytes(after as u64)),
+//                off,
+//                (100*(before as i32 - after as i32)) / before as i32
+//            );
+//
+//            total += after;
+//        }
+//    } else {
+//        bail!("no file field");
+//    };
 
     println!("K = {}", k);
     if l != GLZ::DEFAULT_L {
@@ -757,41 +865,27 @@ fn ls(opt: &LsOpt) -> Result<()> {
     println!("]");
 
     // print out our file
-    let mut total = 0;
-    if let Some(bits) = fields.get(&Field::NAMES) {
-        let mut i = 0;
-        while i < bits.len() {
-            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
-            let namelen = namelen as usize;
-            i += diff;
+    println!("files:");
+    let namewidth = files.iter().map(|(name, _, _)| name.len()).max()
+        .map(|width| width+1);
+    for (i, (name, off, len)) in files.iter().enumerate() {
+        let before = *len;
+        let after = (files.get(i+1).map_or(input.len(), |(_, off, _)| *off)
+            - off + 8-1) / 8;
 
-            let foundname = String::from_utf8(
-                8.decode::<u8>(&bits[i..i+8*namelen])?
-            ).chain_err(|| "utf8 error in name field")?;
-            i += 8*namelen;
+        println!("{:>8} {:<namewidth$} -> {} @ {} ({}%)",
+            format!("{}", HumanBytes(before as u64)),
+            name,
+            format!("{}", HumanBytes(after as u64)),
+            off,
+            (100*(before as i32 - after as i32)) / before as i32,
+            namewidth=namewidth.unwrap()
+        );
+    }
 
-            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
-            let off = off as usize;
-            i += diff;
-            let (len, diff) = LEB128.decode_u32_at(bits, i)?;
-            let len = len as usize;
-            i += diff;
-
-            println!("{:>8} {:>8} {}",
-                off,
-                format!("{}", HumanBytes(len as u64)),
-                foundname,
-            );
-
-            total += len;
-        }
-    } else {
-        bail!("no file field");
-    };
-
-    let before = total;
-    let after = (input.len()+8-1) / 8;
-    println!("total {} compressed {} ({}%)",
+    let before: usize = files.iter().map(|(_, _, len)| len).sum();
+    let after = EstimatorFile::Some(f).len()?;
+    println!("total compressed {} -> {} ({}%)",
         HumanBytes(before as u64),
         HumanBytes(after as u64),
         (100*(before as i32 - after as i32)) / before as i32,
