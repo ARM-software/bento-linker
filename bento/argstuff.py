@@ -37,7 +37,7 @@ def merge(a, b):
             ndict[k] = None
     return ndict
 
-def pred(type):
+def pred(test):
     """
     Convert a type function into a predicate function. The predicate function
     runs the type function on the input string, but does not change the input
@@ -46,7 +46,7 @@ def pred(type):
     """
     def pred(s):
         # type may raise exception on failure
-        type(s)
+        test(s)
         return s
     return pred
 

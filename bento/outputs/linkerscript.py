@@ -2,6 +2,7 @@ from .. import outputs
 from ..box import Memory
 import io
 import textwrap
+import itertools as it
 
 def buildmemory(outf, memory):
     outf.pushattrs(
@@ -9,7 +10,7 @@ def buildmemory(outf, memory):
         mode=''.join(sorted(memory.mode)),
         addr=memory.addr,
         size=memory.size)
-    outf.write('%(MEMORY)-16s (%(MODE)-3s) : '
+    outf.writef('%(MEMORY)-16s (%(MODE)-3s) : '
         'ORIGIN = %(addr)#010x, '
         'LENGTH = %(size)#010x')
 
@@ -17,13 +18,13 @@ def buildsymbol(outf, symbol):
     outf.pushattrs(
         symbol='%(symbol_prefix)s' + symbol[0],
         addr=symbol[1])
-    outf.write('%(symbol)-24s = ')
+    outf.writef('%(symbol)-24s = ')
     if outf.get('cond', False):
-        outf.write('DEFINED(%(symbol)s) ? %(symbol)s : ')
+        outf.writef('DEFINED(%(symbol)s) ? %(symbol)s : ')
     try:
-        outf.write('%(addr)#010x;')
+        outf.writef('%(addr)#010x;')
     except TypeError:
-        outf.write('%(addr)s;')
+        outf.writef('%(addr)s;')
 
 ## TODO need access to high-level output?
 #def buildstack(stack, outf):
@@ -39,7 +40,7 @@ def buildsymbol(outf, symbol):
 
 @outputs.output('sys')
 @outputs.output('box')
-class ParialLDScriptOutput_(outputs.Output_):
+class PartialLDScriptOutput_(outputs.Output_):
     """
     Name of file to target for a partial linkerscript. This is the minimal
     additions needed for a bento box and should be imported into a traditional
@@ -48,12 +49,11 @@ class ParialLDScriptOutput_(outputs.Output_):
     __argname__ = "partial_ldscript_"
     __arghelp__ = __doc__
 
-    def __init__(self, box, path=None,
+    def __init__(self, path=None,
             symbol_prefix='__',
             section_prefix='.',
             memory_prefix=''):
-        super().__init__(box, path)
-        self.consumed = {m.name: 0 for m in box.memories}
+        super().__init__(path)
         self.decls = outputs.OutputField_(self, {tuple: buildsymbol})
         self.memories = outputs.OutputField_(self, {Memory: buildmemory},
             indent=4,
@@ -71,29 +71,33 @@ class ParialLDScriptOutput_(outputs.Output_):
             section_prefix=section_prefix,
             memory_prefix=memory_prefix)
 
+#    def box(self, box):
+#        super().box(box)
+#        self.consumed = {m.name: 0 for m in box.memories}
+
         # create memories + sections for subboxes?
-        for subbox in box.boxes:
-            with self.pushattrs(
-                    box=subbox.name,
-                    section_prefix='.box.%(box)s.',
-                    memory_prefix='box_%(box)s_'):
-
-                for memory in subbox.memories:
-                    self.memories.append(memory)
-
-                    outf = self.sections.append(
-                        section='%(section_prefix)s' + memory.name,
-                        memory='%(memory_prefix)s' + memory.name)
-                    outf.write('%(section)s : {\n')
-                    with outf.pushindent():
-                        # TODO prefixes considered harmful?
-                        outf.write('__%(memory)s = .;\n')
-                        outf.write('KEEP(*(%(section)s*))\n')
-                        outf.write('. = ORIGIN(%(MEMORY)s) + '
-                            'LENGTH(%(MEMORY)s);\n')
-                        outf.write('__%(memory)s_end = .;\n')
-                    outf.write('} > %(MEMORY)s')
+#        for subbox in box.boxes:
+#            with self.pushattrs(
+#                    box=subbox.name,
+#                    section_prefix='.box.%(box)s.',
+#                    memory_prefix='box_%(box)s_'):
 #
+#                for memory in subbox.memories:
+#                    self.memories.append(memory)
+#
+#                    outf = self.sections.append(
+#                        section='%(section_prefix)s' + memory.name,
+#                        memory='%(memory_prefix)s' + memory.name)
+#                    outf.writef('%(section)s : {\n')
+#                    with outf.pushindent():
+#                        # TODO prefixes considered harmful?
+#                        outf.writef('__%(memory)s = .;\n')
+#                        outf.writef('KEEP(*(%(section)s*))\n')
+#                        outf.writef('. = ORIGIN(%(MEMORY)s) + '
+#                            'LENGTH(%(MEMORY)s);\n')
+#                        outf.writef('__%(memory)s_end = .;\n')
+#                    outf.writef('} > %(MEMORY)s')
+##
 #            ldscript = LDScriptOutput_(subbox,
 #                symbol_prefix='__box_%(box)s_',
 #                section_prefix='.box.%(box)s.',
@@ -115,70 +119,107 @@ class ParialLDScriptOutput_(outputs.Output_):
 #                    'ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s)'),
 #                    memory=memory['memory'])
 
-    def build(self, outf):
+    def default_build_parent(self, parent, box):
+        # create memories + sections for subboxes?
+        with self.pushattrs(
+                section_prefix='.box.%(box)s.',
+                memory_prefix='box_%(box)s_'):
+
+            for memory in box.memories:
+                self.memories.append(memory)
+
+                outf = self.sections.append(
+                    section='%(section_prefix)s' + memory.name,
+                    memory='%(memory_prefix)s' + memory.name)
+                outf.writef('%(section)s : {\n')
+                with outf.pushindent():
+                    # TODO prefixes considered harmful?
+                    outf.writef('__%(memory)s = .;\n')
+                    outf.writef('KEEP(*(%(section)s*))\n')
+                    outf.writef('. = ORIGIN(%(MEMORY)s) + '
+                        'LENGTH(%(MEMORY)s);\n')
+                    outf.writef('__%(memory)s_end = .;\n')
+                outf.writef('} > %(MEMORY)s')
+
+    def build(self, box):
         # TODO docs?
-        outf.write('/***** AUTOGENERATED *****/\n')
-        outf.write('\n')
+        self.write('/***** AUTOGENERATED *****/\n')
+        self.write('\n')
         if self.decls:
             for decl in self.decls:
-                outf.write(decl.getvalue())
-                outf.write('\n')
-            outf.write('\n')
+                self.write(decl.getvalue())
+                self.write('\n')
+            self.write('\n')
         if self.memories:
-            outf.write('MEMORY {\n')
+            self.write('MEMORY {\n')
             # order memories based on address
             for memory in sorted(self.memories, key=lambda m: m['addr']):
                 if memory['mode']:
-                    outf.write(memory.getvalue())
-                    outf.write('\n')
-            outf.write('}\n')
-            outf.write('\n')
+                    self.write(memory.getvalue())
+                    self.write('\n')
+            self.write('}\n')
+            self.write('\n')
         if self.sections:
-            outf.write('SECTIONS {\n')
+            self.write('SECTIONS {\n')
             # order sections based on memories' address
             sections = self.sections
             for memory in sorted(self.memories, key=lambda m: m['addr']):
                 if any(section['memory'] == memory['memory']
                         for section in sections):
-                    outf.write('    /* %s sections */\n'
+                    self.write('    /* %s sections */\n'
                         % memory['memory'].upper())
                 nsections = []
                 for section in sections:
                     if section['memory'] == memory['memory']:
-                        outf.write(section.getvalue())
-                        outf.write('\n\n')
+                        self.write(section.getvalue())
+                        self.write('\n\n')
                     else:
                         nsections.append(section)
                 sections = nsections
             # write any sections without a valid memory?
             if sections:
-                outf.write('    /* misc sections */\n')
+                self.write('    /* misc sections */\n')
                 for section in sections:
-                    outf.write(section.getvalue())
-                    outf.write('\n\n')
-            outf.write('}\n')
-            outf.write('\n')
+                    self.write(section.getvalue())
+                    self.write('\n\n')
+            self.write('}\n')
+            self.write('\n')
 
 @outputs.output('sys')
 @outputs.output('box')
-class LDScriptOutput_(ParialLDScriptOutput_):
+class LDScriptOutput_(PartialLDScriptOutput_):
     """
     Name of file to target for the linkerscript.
     """
     __argname__ = "ldscript_"
     __arghelp__ = __doc__
 
-    def __init__(self, box, path=None,
+    def __init__(self, path=None,
             symbol_prefix='__',
             section_prefix='.',
             memory_prefix=''):
-        super().__init__(box, path,
+        super().__init__(path,
             symbol_prefix=symbol_prefix,
             section_prefix=section_prefix,
             memory_prefix=memory_prefix)
 
+    def default_build(self, box):
         for memory in box.memories:
-            self.memories.append(memory)
+            for slice in memory - it.chain.from_iterable(
+                    subbox.memories for subbox in box.boxes):
+                self.memories.append(slice)
+#
+#        memories = box.memories
+#        for submemory in it.chain.from_iterable(
+#                subbox.memories for subbox in box.boxes):
+#            nmemories = []
+#            for memory in memories:
+#                slices = memory - submemory
+#                nmemories.extend(slices)
+#            memories = nmemories
+#
+#        for memory in memories:
+#            self.memories.append(memory)
 
         if box.issys():
             self.decls.insert(0, 'ENTRY(Reset_Handler)')
@@ -188,9 +229,10 @@ class LDScriptOutput_(ParialLDScriptOutput_):
         if box.issys() and box.isr_vector:
             # TODO need this?
             # TODO configurable?
-            memory = box.bestmemory('rx', box.isr_vector.size,
-                consumed=self.consumed)
-            self.consumed[memory.name] += box.isr_vector.size
+#            memory = box.bestmemory('rx', box.isr_vector.size,
+#                consumed=self.consumed)
+#            self.consumed[memory.name] += box.isr_vector.size
+            memory, _, _ = box.consume('rx', box.isr_vector.size)
             self.decls.append(('isr_vector_min', box.isr_vector.size),
                 cond=True)
 #            self.decls.append('%(symbol)-16s = '
@@ -200,44 +242,46 @@ class LDScriptOutput_(ParialLDScriptOutput_):
             outf = self.sections.append(
                 section='%(section_prefix)s' + 'isr_vector',
                 memory='%(memory_prefix)s' + memory.name)
-            outf.write('.isr_vector : {\n')
+            outf.writef('.isr_vector : {\n')
             with outf.pushindent():
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sisr_vector = .;\n')
-                outf.write('KEEP(*(%(section_prefix)sisr_vector))\n')
-                outf.write('. = %(symbol_prefix)sisr_vector +'
+                outf.writef('. = ALIGN(%(align)d);\n')
+                outf.writef('%(symbol_prefix)sisr_vector = .;\n')
+                outf.writef('KEEP(*(%(section_prefix)sisr_vector))\n')
+                outf.writef('. = %(symbol_prefix)sisr_vector +'
                     '%(symbol_prefix)sisr_vector_min;\n')
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sisr_vector_end = .;\n')
-            outf.write('} > %(MEMORY)s')
+                outf.writef('. = ALIGN(%(align)d);\n')
+                outf.writef('%(symbol_prefix)sisr_vector_end = .;\n')
+            outf.writef('} > %(MEMORY)s')
 
-        memory = box.bestmemory('rx', box.text.size,
-            consumed=self.consumed)
-        self.consumed[memory.name] += box.text.size
+#        memory = box.bestmemory('rx', box.text.size,
+#            consumed=self.consumed)
+#        self.consumed[memory.name] += box.text.size
+        memory, _, _ = box.consume('rx', box.text.size)
         outf = self.sections.append(
             section='%(section_prefix)s' + 'text',
             memory='%(memory_prefix)s' + memory.name)
-        outf.write('%(section)s : {\n')
+        outf.writef('%(section)s : {\n')
         with outf.pushindent():
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)stext = .;\n')
-            outf.write('*(%(section_prefix)stext*)\n')
-            outf.write('*(%(section_prefix)srodata*)\n')
-            outf.write('*(%(section_prefix)sglue_7*)\n')
-            outf.write('*(%(section_prefix)sglue_7t*)\n')
-            outf.write('*(%(section_prefix)seh_frame*)\n')
-            outf.write('KEEP(*(%(section_prefix)sinit*))\n')
-            outf.write('KEEP(*(%(section_prefix)sfini*))\n') # TODO oh boy there's a lot of other things
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)stext_end = .;\n')
-            outf.write('%(symbol_prefix)sdata_init = .;\n')
-        outf.write('} > %(MEMORY)s')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)stext = .;\n')
+            outf.writef('*(%(section_prefix)stext*)\n')
+            outf.writef('*(%(section_prefix)srodata*)\n')
+            outf.writef('*(%(section_prefix)sglue_7*)\n')
+            outf.writef('*(%(section_prefix)sglue_7t*)\n')
+            outf.writef('*(%(section_prefix)seh_frame*)\n')
+            outf.writef('KEEP(*(%(section_prefix)sinit*))\n')
+            outf.writef('KEEP(*(%(section_prefix)sfini*))\n') # TODO oh boy there's a lot of other things
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)stext_end = .;\n')
+            outf.writef('%(symbol_prefix)sdata_init = .;\n')
+        outf.writef('} > %(MEMORY)s')
 
-        # write out ram sections
+        # writef out ram sections
         if box.stack:
-            memory = box.bestmemory('rw', box.stack.size,
-                consumed=self.consumed)
-            self.consumed[memory.name] += box.stack.size
+#            memory = box.bestmemory('rw', box.stack.size,
+#                consumed=self.consumed)
+#            self.consumed[memory.name] += box.stack.size
+            memory, _, _ = box.consume('rw', box.stack.size)
             self.decls.append(('stack_min', box.stack.size),
                 cond=True)
 #            self.decls.append('%(symbol)-16s = '
@@ -247,147 +291,150 @@ class LDScriptOutput_(ParialLDScriptOutput_):
             outf = self.sections.append(
                 section='%(section_prefix)s' + 'stack',
                 memory='%(memory_prefix)s' + memory.name)
-            outf.write('%(section)s (NOLOAD) : {\n')
+            outf.writef('%(section)s (NOLOAD) : {\n')
             with outf.pushindent():
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sstack = .;\n')
-                outf.write('. += %(symbol_prefix)sstack_min;\n')
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sstack_end = .;\n')
-            outf.write('} > %(MEMORY)s')
+                outf.writef('. = ALIGN(%(align)d);\n')
+                outf.writef('%(symbol_prefix)sstack = .;\n')
+                outf.writef('. += %(symbol_prefix)sstack_min;\n')
+                outf.writef('. = ALIGN(%(align)d);\n')
+                outf.writef('%(symbol_prefix)sstack_end = .;\n')
+            outf.writef('} > %(MEMORY)s')
 
-        memory = box.bestmemory('rw', box.data.size,
-            consumed=self.consumed)
-        self.consumed[memory.name] += box.data.size
+#        memory = box.bestmemory('rw', box.data.size,
+#            consumed=self.consumed)
+#        self.consumed[memory.name] += box.data.size
+        memory, _, _ = box.consume('rw', box.data.size)
         outf = self.sections.append(
             section='%(section_prefix)s' + 'data',
             memory='%(memory_prefix)s' + memory.name)
-        outf.write('%(section)s : AT(%(symbol_prefix)sdata_init) {\n')
+        outf.writef('%(section)s : AT(%(symbol_prefix)sdata_init) {\n')
         with outf.pushindent():
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sdata = .;\n')
-            outf.write('*(%(section_prefix)sdata*)\n')
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sdata_end = .;\n')
-        outf.write('} > %(MEMORY)s')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sdata = .;\n')
+            outf.writef('*(%(section_prefix)sdata*)\n')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sdata_end = .;\n')
+        outf.writef('} > %(MEMORY)s')
 
-        memory = box.bestmemory('rw', box.bss.size,
-            consumed=self.consumed)
-        self.consumed[memory.name] += box.bss.size
+#        memory = box.bestmemory('rw', box.bss.size,
+#            consumed=self.consumed)
+#        self.consumed[memory.name] += box.bss.size
+        memory, _, _ = box.consume('rw', box.bss.size)
         outf = self.sections.append(
             section='%(section_prefix)s' + 'bss',
             memory='%(memory_prefix)s' + memory.name)
-        outf.write('%(section)s (NOLOAD) : {\n')
+        outf.writef('%(section)s (NOLOAD) : {\n')
         with outf.pushindent():
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sbss = .;\n')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sbss = .;\n')
             # TODO hm
-            outf.write('%(symbol_prefix)sbss_start__ = .;\n')
-            outf.write('*(%(section_prefix)sbss*)\n')
+            outf.writef('%(symbol_prefix)sbss_start__ = .;\n')
+            outf.writef('*(%(section_prefix)sbss*)\n')
             if outf['section_prefix'] == '.':
-                outf.write('*(COMMON)\n')
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sbss_end = .;\n')
-            outf.write('%(symbol_prefix)sbss_end__ = .;\n')
-        outf.write('} > %(MEMORY)s')
+                outf.writef('*(COMMON)\n')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sbss_end = .;\n')
+            outf.writef('%(symbol_prefix)sbss_end__ = .;\n')
+        outf.writef('} > %(MEMORY)s')
 
         if box.heap:
-            memory = box.bestmemory('rw', box.heap.size,
-                consumed=self.consumed)
-            self.consumed[memory.name] += box.heap.size
+#            memory = box.bestmemory('rw', box.heap.size,
+#                consumed=self.consumed)
+#            self.consumed[memory.name] += box.heap.size
+            memory, _, _ = box.consume('rw', box.heap.size)
             self.decls.append(('heap_min', box.heap.size),
                 cond=True)
             outf = self.sections.append(
                 section='%(section_prefix)s' + 'heap',
-                memory='%(memory_prefix)s' + box.bestmemory('rw').name)
-            outf.write('%(section)s (NOLOAD) : {\n')
+                memory='%(memory_prefix)s' + memory.name)
+            outf.writef('%(section)s (NOLOAD) : {\n')
             with outf.pushindent():
-                outf.write('. = ALIGN(%(align)d);\n')
+                outf.writef('. = ALIGN(%(align)d);\n')
                 if outf['section_prefix'] == '.':
-                    outf.write('__end__ = .;\n')
-                    outf.write('PROVIDE(end = .);\n')
-                outf.write('%(symbol_prefix)sheap = .;\n')
+                    outf.writef('__end__ = .;\n')
+                    outf.writef('PROVIDE(end = .);\n')
+                outf.writef('%(symbol_prefix)sheap = .;\n')
                 # TODO need all these?
-                outf.write('%(symbol_prefix)sHeapBase = .;\n')
-                outf.write('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);\n')
-                outf.write('. = ALIGN(%(align)d);\n')
-                outf.write('%(symbol_prefix)sheap_end = .;\n')
+                outf.writef('%(symbol_prefix)sHeapBase = .;\n')
+                outf.writef('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);\n')
+                outf.writef('. = ALIGN(%(align)d);\n')
+                outf.writef('%(symbol_prefix)sheap_end = .;\n')
                 # TODO need all these?
-                outf.write('%(symbol_prefix)sHeapLimit = .;\n')
-                outf.write('%(symbol_prefix)sheap_limit = .;\n')
-            outf.write('} > %(MEMORY)s\n')
-            outf.write('ASSERT(%(symbol_prefix)sheap_end - '
+                outf.writef('%(symbol_prefix)sHeapLimit = .;\n')
+                outf.writef('%(symbol_prefix)sheap_limit = .;\n')
+            outf.writef('} > %(MEMORY)s\n')
+            outf.writef('ASSERT(%(symbol_prefix)sheap_end - '
                 '%(symbol_prefix)sheap > %(symbol_prefix)sheap_min,\n')
-            outf.write('    "Not enough memory for heap")')
+            outf.writef('    "Not enough memory for heap")')
 
-@outputs.output('sys')
-@outputs.output('box')
-class LinkerScriptOutput(outputs.Output):
-    """
-    Name of file to target for the linkerscript.
-    """
-    __argname__ = "ldscript"
-    __arghelp__ = __doc__
-
-    def __init__(self, sys, box, path):
-        self._decls = []
-        self._memories = []
-        self._sections = []
-        super().__init__(sys, box, path)
-
-    def append_decl(self, fmt=None, **kwargs):
-        outf = self.mkfield(**kwargs)
-        self._decls.append(outf)
-        if fmt is not None:
-            outf.write(fmt)
-        return outf
-
-    def append_memory(self, fmt=None, **kwargs):
-        outf = self.mkfield(**kwargs)
-        self._memories.append(outf)
-        if fmt is not None:
-            outf.write(fmt)
-        return outf
-
-    def append_section(self, fmt=None, **kwargs):
-        outf = self.mkfield(**kwargs)
-        self._sections.append(outf)
-        if fmt is not None:
-            outf.write(fmt)
-        return outf
-
-    def build(self, outf):
-        outf.write('/***** AUTOGENERATED *****/\n')
-        outf.write('\n')
-        if self._decls:
-            for decl in self._decls:
-                outf.write(decl.getvalue())
-                outf.write('\n')
-            outf.write('\n')
-        if self._memories:
-            outf.write('MEMORY {\n')
-            for memory in self._memories:
-                for line in memory.getvalue().strip().split('\n'):
-                    outf.write(4*' ' + line + '\n')
-            outf.write('}\n')
-            outf.write('\n')
-        if self._sections:
-            outf.write('SECTIONS {\n')
-            for i, section in enumerate(self._sections):
-                for line in section.getvalue().strip().split('\n'):
-                    outf.write(4*' ' + line + '\n')
-                if i < len(self._sections)-1:
-                    outf.write('\n')
-            outf.write('}\n')
-            outf.write('\n')
-
-@outputs.output('sys')
-@outputs.output('box')
-class PartialLinkerScriptOutput(LinkerScriptOutput):
-    """
-    Name of file to target for a partial linkerscript. This is the minimal
-    additions needed for a bento box and should be imported into a traditional
-    linkerscript to handle the normal program sections.
-    """
-    __argname__ = "partial_ldscript"
-    __arghelp__ = __doc__
+#@outputs.output('sys')
+#@outputs.output('box')
+#class LinkerScriptOutput(outputs.Output):
+#    """
+#    Name of file to target for the linkerscript.
+#    """
+#    __argname__ = "ldscript"
+#    __arghelp__ = __doc__
+#
+#    def __init__(self, sys, box, path):
+#        self._decls = []
+#        self._memories = []
+#        self._sections = []
+#        super().__init__(sys, box, path)
+#
+#    def append_decl(self, fmt=None, **kwargs):
+#        outf = self.mkfield(**kwargs)
+#        self._decls.append(outf)
+#        if fmt is not None:
+#            outf.writef(fmt)
+#        return outf
+#
+#    def append_memory(self, fmt=None, **kwargs):
+#        outf = self.mkfield(**kwargs)
+#        self._memories.append(outf)
+#        if fmt is not None:
+#            outf.writef(fmt)
+#        return outf
+#
+#    def append_section(self, fmt=None, **kwargs):
+#        outf = self.mkfield(**kwargs)
+#        self._sections.append(outf)
+#        if fmt is not None:
+#            outf.write(fmt)
+#        return outf
+#
+#    def build(self, outf):
+#        outf.write('/***** AUTOGENERATED *****/\n')
+#        outf.write('\n')
+#        if self._decls:
+#            for decl in self._decls:
+#                outf.write(decl.getvalue())
+#                outf.write('\n')
+#            outf.write('\n')
+#        if self._memories:
+#            outf.write('MEMORY {\n')
+#            for memory in self._memories:
+#                for line in memory.getvalue().strip().split('\n'):
+#                    outf.write(4*' ' + line + '\n')
+#            outf.write('}\n')
+#            outf.write('\n')
+#        if self._sections:
+#            outf.write('SECTIONS {\n')
+#            for i, section in enumerate(self._sections):
+#                for line in section.getvalue().strip().split('\n'):
+#                    outf.write(4*' ' + line + '\n')
+#                if i < len(self._sections)-1:
+#                    outf.write('\n')
+#            outf.write('}\n')
+#            outf.write('\n')
+#
+#@outputs.output('sys')
+#@outputs.output('box')
+#class PartialLinkerScriptOutput(LinkerScriptOutput):
+#    """
+#    Name of file to target for a partial linkerscript. This is the minimal
+#    additions needed for a bento box and should be imported into a traditional
+#    linkerscript to handle the normal program sections.
+#    """
+#    __argname__ = "partial_ldscript"
+#    __arghelp__ = __doc__

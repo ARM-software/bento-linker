@@ -72,12 +72,16 @@ class Memory:
         if not m:
             raise ValueError("Invalid memory description %r" % s)
 
-        mode = Memory.parsemode(m.group(1)) if m.group(1) else None
-        addr = int(m.group(2), 0) if m.group(2) else None
-        size = int(m.group(3), 0) - (addr or 0) + 1 if m.group(3) else None
+        mode = m.group(1) and Memory.parsemode(m.group(1))
+        addr = m.group(2) and int(m.group(2), 0)
+        size = m.group(3) and int(m.group(3), 0) - (
+            addr - 1 if addr is not None else 0)
         if m.group(4) and int(m.group(4), 0) != size:
             raise ValueError("Range %#x-%#x does not match size %#x" % (
                 addr or 0, addr+size-1, int(m.group(4), 0)))
+
+#        if size < 0:
+#            raise ValueError("Invalid range %#x?" % size)
 
         return mode, addr, size
 
@@ -107,8 +111,8 @@ class Memory:
 ##                raise ValueError("invalid section %r" % section)
 #        return sections
 
-    def __init__(self, name, memory=None, mode=None, align=None,
-            addr=None, size=None):
+    def __init__(self, name, mode=None, addr=None, size=None,
+            align=None, memory=None):
         # TODO move this after assignments?
         if align is not None:
             if addr is not None:
@@ -130,6 +134,12 @@ class Memory:
         self.size = size if size is not None else memory[2] or 0
         #self.sections = args.sections # TODO rm me?
 
+        assert self.size >= 0, "Invalid size %#x?" % self.size
+
+        # modified size after memory is consumed
+        self._addr = self.addr
+        self._size = self.size
+
     def __str__(self):
         return "%(mode)s %(range)s %(size)d bytes" % dict(
             mode=''.join(c if c in self.mode else '-'
@@ -143,53 +153,140 @@ class Memory:
     def __lt__(self, other):
         return (self.addr, self.name) < (other.addr, other.name)
 
-    def iscompatible(self, mode='rwx', size=None, consumed=0):
-        return (set(mode).issubset(self.mode) and (
-            size is None or size+consumed <= self.size) and
-            consumed != self.size)
+    def consume(self, addr=None, size=None, align=None, reverse=False):
+        if size is None:
+            addr, size = None, addr or 0
+
+        assert addr is None, "TODO" # TODO
+        assert align is None, "TODO" # TODO
+        assert size <= self._size
+
+        # TODO huh
+        self._addr = self._addr if self._addr is not None else self.addr
+        
+        if not reverse:
+            self._addr += size
+            self._size -= size
+            return self._addr, size
+        else:
+            self._size -= size
+            return self._addr + self._size, size
+
+    def consumed(self):
+        return self.size - self._size
+
+    def remaining(self):
+        return self._size
+
+    def compatible(self, mode='rwx', addr=None, size=None,
+            align=None, name=None):
+        if size is None:
+            addr, size = None, addr
+        assert addr is None, "TODO" # TODO
+        assert align is None, "TODO" # TODO
+        return (
+            self._size != 0 and
+            set(mode).issubset(self.mode) and
+            (size is None or size <= self._size) and
+            (name is None or name == self.name))
 
     @staticmethod
-    def bestmemories(memories, mode='rwx', size=None,
-            consumed={}, reverse=False):
-        return sorted((m for m in memories
-                if m.iscompatible(mode=mode,
-                    size=(size or 0),
-                    consumed=consumed.get(m.name, 0))),
-            key=lambda m: (
-                len(m.mode - set(mode)),
-                -m.addr if reverse else m.addr))
+    def compatiblekey(mode='rwx', addr=None, size=None,
+            align=None, reverse=False):
+        if size is None:
+            addr, size = None, addr
+        assert addr is None, "TODO" # TODO
+        assert align is None, "TODO" # TODO
+        def key(self):
+            return (
+                len(self.mode - set(mode)),
+                -self.addr if reverse else self.addr)
+        return key
+#
+#    def iscompatible(self, mode='rwx', size=None, consumed=0):
+#        return (set(mode).issubset(self.mode) and (
+#            size is None or size+consumed <= self.size) and
+#            consumed != self.size)
+#
+#    @staticmethod
+#    def bestmemories(memories, mode='rwx', size=None,
+#            consumed={}, reverse=False):
+#        return sorted((m for m in memories
+#                if m.iscompatible(mode=mode,
+#                    size=(size or 0),
+#                    consumed=consumed.get(m.name, 0))),
+#            key=lambda m: (
+#                len(m.mode - set(mode)),
+#                -m.addr if reverse else m.addr))
+#
+#    @staticmethod
+#    def bestmemory(memories, mode='rwx', size=None,
+#            consumed={}, reverse=False):
+#        compatible = Memory.bestmemories(memories,
+#            mode=mode, size=size,
+#            consumed=consumed, reverse=reverse)
+#        return compatible[0] if compatible else None
 
-    @staticmethod
-    def bestmemory(memories, mode='rwx', size=None,
-            consumed={}, reverse=False):
-        compatible = Memory.bestmemories(memories,
-            mode=mode, size=size,
-            consumed=consumed, reverse=reverse)
-        return compatible[0] if compatible else None
-
+    # TODO this one is a tight fit
     def __contains__(self, other):
         if isinstance(other, Memory):
-            return (other.addr < self.addr+self.size and
-                other.addr+other.size > self.addr)
+            return (other.addr >= self.addr and
+                other.addr+other.size <= self.addr+self.size)
         else:
             return (other >= self.addr and
                 other < self.addr + self.size)
 
-    def __sub__(self, other):
-        assert isinstance(other, Memory)
-        if other not in self:
-            return [self]
+#    def __contains__(self, other):
+#        if isinstance(other, Memory):
+#            return (other.addr < self.addr+self.size and
+#                other.addr+other.size > self.addr)
+#        else:
+#            return (other >= self.addr and
+#                other < self.addr + self.size)
 
-        slices = [
-            (self.addr, other.addr - self.addr),
-            (other.addr+other.size,
-                self.addr+self.size - (other.addr+other.size))]
-        slices = [(addr, size) for addr, size in slices if size > 0]
+    def __sub__(self, regions):
+#        assert isinstance(other, Memory)
+#        if other not in self:
+#            return [self]
+
+        if isinstance(regions, Memory):
+            regions = [regions]
+
+        if self.size == 0:
+            return []
+
+        slices = [(self.addr, self.size)]
+        for region in regions:
+            nslices = []
+            for addr, size in slices:
+                if region.addr >= addr+size or region.addr+region.size <= addr:
+                    nslices.append((addr, size))
+                else:
+                    if region.addr > addr:
+                        nslices.append((addr, region.addr - addr))
+                    if addr+size > region.addr+region.size:
+                        nslices.append((region.addr+region.size,
+                            addr+size - region.addr+region.size))
+            slices = nslices
+
         return [Memory(
                 self.name if len(slices) == 1 else '%s%d' % (self.name, i+1),
-                mode=self.mode, align=self.align,
-                addr=addr, size=size)
+                mode=self.mode, addr=addr, size=size, align=None)
             for i, (addr, size) in enumerate(slices)]
+#
+#        
+#
+#
+#        slices = [
+#            (self.addr, other.addr - self.addr),
+#            (other.addr+other.size,
+#                self.addr+self.size - (other.addr+other.size))]
+#        slices = [(addr, size) for addr, size in slices if size > 0]
+#        return [Memory(
+#                self.name if len(slices) == 1 else '%s%d' % (self.name, i+1),
+#                mode=self.mode, align=self.align,
+#                addr=addr, size=size)
+#            for i, (addr, size) in enumerate(slices)]
         
 
         
@@ -219,7 +316,7 @@ class Section:
     def __argparse__(cls, parser, name=None, help=None):
         name = name or cls.__argname__
         help = (help or cls.__arghelp__).replace('SECTION', name)
-        parser.add_argument("size", type=argstuff.pred(cls.parsebuffer),
+        parser.add_argument("size", type=argstuff.pred(cls.parsesection),
             metavar=name, help=help)
         parser.add_argument("--size", type=lambda x: int(x, 0),
             help="Minimum size of the %s. Defaults to 0." % name)
@@ -227,7 +324,7 @@ class Section:
             help="Minimum alignment of the %s." % name)
 
     @staticmethod
-    def parsebuffer(s):
+    def parsesection(s):
         addrpattern = r'(?:0[a-z])?[0-9a-fA-F]+'
         bufferpattern = (r'\s*'
             '(%(addr)s)?\s*'
@@ -254,8 +351,20 @@ class Section:
 #                "section size not aligned to section alignment "
 #                "%#x %% %#x != 0" % (
 #                    args.size, args.align))
-        self.size = size or 0
+
+        self.size = (Section.parsesection(size)
+            if isinstance(size, str) else
+            size or 0)
         self.align = align
+#        if not size:
+#        if 
+#            self.size = None
+#        try:
+#            self.size = Section.parsesection(size)
+#        except ValueError:
+#            self.size = int(size
+#        self.size = size or 0
+#        self.align = align
 
 #        self.size = size if size is not None else 4096 # TODO is 4K too small?
 
@@ -611,9 +720,9 @@ class Box:
 
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--output")
-        for output in OUTPUTS['box'].values():
-            outputparser.add_argument('--'+output.__argname__,
-                help=output.__arghelp__)
+        for Output in OUTPUTS['box'].values():
+            outputparser.add_argument('--'+Output.__argname__,
+                help=Output.__arghelp__)
 
 #        sectionparser = parser.add_nestedparser("--section")
 #        for section, help in Memory.SECTIONS.items():
@@ -664,16 +773,18 @@ class Box:
         self.memories = sorted(Memory(name, **memargs.__dict__)
             for name, memargs in args.memory.items())
         #self.original_memories = self.memories
-        if self.parent:
-            for memory in reversed(self.memories):
-                if memory.addr is None:
-                    bestmemory = self.parent.bestmemory(
-                        memory.mode, reverse=True)
-                    memory.addr = (bestmemory.addr+bestmemory.size
-                        - memory.size)
-                self.parent.consumememory(memory)
+#        if self.parent:
+#            for memory in reversed(self.memories):
+#                if memory.addr is None:
+#                    bestmemory = self.parent.bestmemory(
+#                        memory.mode, reverse=True)
+#                    memory.addr = (bestmemory.addr+bestmemory.size
+#                        - memory.size)
+#                self.parent.consumememory(memory)
         # sort again in case new addresses changed order
-        self.memories = sorted(self.memories)
+        #self.memories = sorted(self.memories)
+
+        self._consumed = {memory.name: 0 for memory in self.memories}
 
         self.stack = Section(**args.stack.__dict__)
         self.heap = Section(**args.heap.__dict__)
@@ -716,14 +827,14 @@ class Box:
         self.boxes = []
 
         from .runtimes import RUNTIMES
-        self.runtime = RUNTIMES[args.runtime or 'noop'](self)
+        self.runtime = RUNTIMES[args.runtime or 'noop']()
 #        self.outputs = {name: (self.path + '/' + path, OUTPUTS['box'][name])
 #            for name, path in args.output.__dict__.items()
 #            if path}
 
         from .outputs import OUTPUTS
         self.outputs = c.OrderedDict(sorted(
-            (name, OUTPUTS['box'][name](self, path))
+            (name, OUTPUTS['box'][name](self.path + '/' + path))
             for name, path in args.output.__dict__.items()
             if path))
 
@@ -736,8 +847,8 @@ class Box:
             runtime=self.runtime.__argname__))
         for memory in self.memories:
             print('  %-34s %s' % ('memory.%s' % memory.name, memory))
-        for name, section in self.sections.items():
-            print('  %-34s %s' % ('section.%s' % name, section))
+#        for name, section in self.sections.items():
+#            print('  %-34s %s' % ('section.%s' % name, section))
         if self.imports:
             print('  import')
             for import_ in self.imports:
@@ -752,6 +863,35 @@ class Box:
 
     def __lt__(self, other):
         return (self.isbox(), self.name) < (other.isbox(), other.name)
+
+    def bestmemories_(self, mode='rwx', addr=None, size=None,
+            align=None, name=None, reverse=False):
+        if size is None:
+            addr, size = None, addr
+        return sorted((
+                m for m in self.memories
+                if m.compatible(mode=mode, addr=addr, size=size,
+                    align=align, name=name)),
+            key=Memory.compatiblekey(mode=mode, addr=addr, size=size,
+                align=align, reverse=reverse))
+
+    def bestmemory_(self, mode='rwx', addr=None, size=None,
+            align=None, name=None, reverse=False):
+        if size is None:
+            addr, size = None, addr
+        compatible = self.bestmemories_(mode=mode, addr=addr, size=size,
+            align=align, name=name, reverse=reverse)
+        return compatible[0] if compatible else None
+
+    def consume(self, mode='rwx', size=None, addr=None,
+            align=None, name=None, reverse=False):
+        if size is None:
+            addr, size = None, addr
+        best = self.bestmemory_(mode=mode, addr=addr, size=size,
+            align=align, name=name, reverse=reverse)
+        addr, size = best.consume(addr=addr, size=size,
+            align=align, reverse=reverse)
+        return best, addr, size
 
     def bestmemories(self, mode='rwx', size=None,
             consumed={}, reverse=False):
@@ -781,25 +921,90 @@ class Box:
     def isbox(self):
         return not self.issys()
 
-    def build(self, output, builder):
-        if output in self.outputs:
-            return builder(self, self.outputs[output])
-
-    def parentbuild(self, output, builder):
-        if self.parent and output in self.parent.outputs:
-            with self.parent.outputs[output].pushattrs(
-                    parent=self.parent.name, box=self.name):
-                return builder(self.parent, self, self.parent.outputs[output])
-
-    def rootbuild(self, output, builder):
+    def getroot(self):
         root = self
         while root.parent:
             root = root.parent
+        return root if root != self else None
 
-        if root != self and output in root:
-            with root.outputs[output].pushattrs(
-                    root=root.name, box=self.name):
-                return builder(root, self, root.outputs[output])
+    def getparent(self, n=1):
+        parent = self
+        for _ in range(n):
+            if not self.parent:
+                return None
+            parent = self.parent
+        return parent if parent != self else None
+
+#    def build(self, output, builder):
+#        if output in self.outputs:
+#            return builder(self, self.outputs[output])
+#
+#    def parentbuild(self, output, builder):
+#        if self.parent and output in self.parent.outputs:
+#            with self.parent.outputs[output].pushattrs(
+#                    parent=self.parent.name, box=self.name):
+#                return builder(self.parent, self, self.parent.outputs[output])
+#
+#    def rootbuild(self, output, builder):
+#        root = self
+#        while root.parent:
+#            root = root.parent
+#
+#        if root != self and output in root:
+#            with root.outputs[output].pushattrs(
+#                    root=root.name, box=self.name):
+#                return builder(root, self, root.outputs[output])   
+
+    def box(self, boxesonly=False, runtimesonly=False, outputsonly=False):
+        if not runtimesonly and not outputsonly:
+            if self.parent:
+                for memory in self.memories:
+                    _, addr, _ = self.parent.consume(
+                        mode=memory.mode,
+                        addr=memory.addr,
+                        size=memory.size,
+                        align=memory.align,
+                        reverse=True)
+                    if memory.addr is None:
+                        memory.addr = addr
+
+                # sort again in case new addresses changed order
+                self.memories = sorted(self.memories)
+
+            for box in self.boxes:
+                box.box(boxesonly=True)
+
+        if not boxesonly and not outputsonly:
+            if self.isbox():
+                self.runtime.box(self)
+            else:
+                from .runtimes import Runtime
+                Runtime().box(self)
+            for box in self.boxes:
+                box.box(runtimesonly=True)
+
+        if not boxesonly and not runtimesonly:
+            for output in self.outputs.values():
+                output.box(self)
+            for box in self.boxes:
+                box.box(outputsonly=True)
+
+    def build(self, runtimesonly=False, outputsonly=False):
+        if not outputsonly:
+            for box in self.boxes:
+                box.build(runtimesonly=True)
+            if self.isbox():
+                self.runtime.build(self)
+            else:
+                # TODO uh, is this the best way to do this?
+                from .runtimes import Runtime
+                Runtime().build(self)
+
+        if not runtimesonly:
+            for box in self.boxes:
+                box.build(outputsonly=True)
+            for output in self.outputs.values():
+                output.build(self)
 
 class System(Box):
     """
@@ -815,9 +1020,9 @@ class System(Box):
 
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--output")
-        for output in OUTPUTS['sys'].values():
-            outputparser.add_argument('--'+output.__argname__,
-                help=output.__arghelp__)
+        for Output in OUTPUTS['sys'].values():
+            outputparser.add_argument('--'+Output.__argname__,
+                help=Output.__arghelp__)
 
         Memory.__argparse__(
             parser.add_set('--'+Memory.__argname__))
@@ -872,6 +1077,7 @@ class System(Box):
 #            for name, memargs in args.memory.items()}
         self.memories = sorted(Memory(name, **memargs.__dict__)
             for name, memargs in args.memory.items())
+        self._consumed = {memory.name: 0 for memory in self.memories}
 #        self.sections = {name: Section(name, sectionargs)
 #            for name, sectionargs in args.section.items()}
 #        self.sections = {name: Section(name, sectionargs)
@@ -884,7 +1090,10 @@ class System(Box):
 #            for name, sectionargs in args.section.items()))
         self.stack = Section(**args.stack.__dict__)
         self.heap = Section(**args.heap.__dict__)
-        self.isr_vector = Section(**args.isr_vector.__dict__)
+        self.isr_vector = Section(**{**args.isr_vector.__dict__,
+            'size': args.isr_vector.size
+                if args.isr_vector.size is not None else
+                0x400})
         self.text = Section(**args.text.__dict__)
         self.data = Section(**args.data.__dict__)
         self.bss = Section(**args.bss.__dict__)
@@ -956,7 +1165,7 @@ class System(Box):
 #            for name, path in args.output.__dict__.items()
 #            if path}
         self.outputs = c.OrderedDict(sorted(
-            (name, OUTPUTS['box'][name](self, path))
+            (name, OUTPUTS['box'][name](path))
             for name, path in args.output.__dict__.items()
             if path))
                 
@@ -966,8 +1175,8 @@ class System(Box):
         print('system')
         for memory in self.memories:
             print('  %-34s %s' % ('memory.%s' % memory.name, memory))
-        for name, section in self.sections.items():
-            print('  %-34s %s' % ('section.%s' % name, section))
+#        for name, section in self.sections.items():
+#            print('  %-34s %s' % ('section.%s' % name, section))
         if self.imports:
             print('  import')
             for import_ in self.imports:

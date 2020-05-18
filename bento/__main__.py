@@ -25,6 +25,7 @@ class ListCommand:
         System.__argparse__(parser)
     def __init__(self, **args):
         sys = System(**args)
+        sys.box()
         sys.ls()
         for box in sys.boxes:
             box.ls()
@@ -41,6 +42,7 @@ class BuildCommand:
     def __argparse__(cls, parser):
         System.__argparse__(parser)
     def __init__(self, **args):
+        print("parsing...")
         sys_ = System(**args)
 
 #        for box in sys_.boxes:
@@ -52,15 +54,21 @@ class BuildCommand:
 #            for name, output in sorted(box.outputs.items()):
 #                output.box(box)
 
-        for box in sys_.boxes:
-            box.runtime.build()
+
+        print("building...")
+        sys_.box()
+        sys_.build()
+#        for box in sys_.boxes:
+#            box.runtime.build()
 
         for box in it.chain(sys_.boxes, [sys_]):
             for name, output in box.outputs.items():
-                print("building %s %s %s..." % (
+                print("writing %s %s %s..." % (
                     box.name or 'sys', name, output.path))
                 with open(output.path, 'w') as outf:
-                    output.build(outf)
+                    # TODO open in Output.__init__?
+                    outf.write(output.getvalue())
+
 #                
 #            
 #        for box in sys_.boxes:

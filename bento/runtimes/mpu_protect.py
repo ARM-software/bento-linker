@@ -246,32 +246,32 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        output.decls.append('void __box_%(box)s_init(void);',
 #            doc='jumptable initialization')
 
-    def build_common_c_glue_(self, box, output):
+    def build_common_c_glue_(self, output, box):
         output.decls.append('//// jumptable declarations ////')
 
         outf = output.decls.append()
-        outf.write('struct %(box)s_exportjumptable {\n')
+        outf.writef('struct %(box)s_exportjumptable {\n')
         with outf.pushindent():
             # special entries for the sp and __box_init
-            outf.write('uint32_t *__box_%(box)s_stack_end;\n')
-            outf.write('void (*__box_%(box)s_init)(void);\n')
+            outf.writef('uint32_t *__box_%(box)s_stack_end;\n')
+            outf.writef('void (*__box_%(box)s_init)(void);\n')
             for export in box.exports:
-                outf.write('%(fn)s;\n', fn=export.repr_c_ptr())
-        outf.write('};\n')
+                outf.writef('%(fn)s;\n', fn=export.repr_c_ptr())
+        outf.writef('};\n')
 
         outf = output.decls.append()
-        outf.write('struct %(box)s_importjumptable {\n')
+        outf.writef('struct %(box)s_importjumptable {\n')
         with outf.pushindent():
             # special entries for __box_write and __box_fault
-            outf.write('void (*__box_%(box)s_fault)(void);\n')
-            outf.write('int (*__box_%(box)s_write)('
+            outf.writef('void (*__box_%(box)s_fault)(void);\n')
+            outf.writef('int (*__box_%(box)s_write)('
                 'int a, char* b, int c);\n') # TODO are these the correct types??
             for import_ in box.imports:
-                outf.write('%(fn)s;\n', fn=import_.repr_c_ptr())
-        outf.write('};\n')
+                outf.writef('%(fn)s;\n', fn=import_.repr_c_ptr())
+        outf.writef('};\n')
 
-    def build_sys_c_glue_(self, sys, box, output):
-        self.build_common_c_glue_(box, output)
+    def build_parent_c_glue_(self, output, sys, box):
+        self.build_common_c_glue_(output, box)
 
         output.decls.append('//// jumptable implementation ////')
         output.includes.append('"fsl_sysmpu.h"')
@@ -283,18 +283,18 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.decls.append(BOX_SYS_MECH)
 
         outf = output.decls.append(doc='system-side jumptable')
-        outf.write('const struct %(box)s_importjumptable '
+        outf.writef('const struct %(box)s_importjumptable '
             '__%(box)s_importjumptable = {\n')
         with outf.pushindent():
             # special entries for __box_fault and __box_write
-            outf.write('__box_%(box)s_fault,\n')
-            outf.write('_write,\n')
+            outf.writef('__box_%(box)s_fault,\n')
+            outf.writef('_write,\n')
             for import_ in box.imports:
-                outf.write('%(import_)s,\n', import_=import_.name)
-        outf.write('};\n')
+                outf.writef('%(import_)s,\n', import_=import_.name)
+        outf.writef('};\n')
 
-    def build_box_c_glue_(self, box, output):
-        self.build_common_c_glue_(box, output)
+    def build_c_glue_(self, output, box):
+        self.build_common_c_glue_(output, box)
 
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(BOX_INIT)
@@ -302,19 +302,19 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         output.decls.append('extern uint32_t __stack_end;')
         outf = output.decls.append(doc='box-side jumptable')
-        outf.write('__attribute__((section(".jumptable")))\n')
-        outf.write('__attribute__((used))\n')
-        outf.write('const struct %(box)s_exportjumptable '
+        outf.writef('__attribute__((section(".jumptable")))\n')
+        outf.writef('__attribute__((used))\n')
+        outf.writef('const struct %(box)s_exportjumptable '
             '__box_%(box)s_jumptable = {\n')
         with outf.pushindent():
             # special entries for the sp and __box_init
-            outf.write('&__stack_end,\n')
-            outf.write('__box_%(box)s_init,\n')
+            outf.writef('&__stack_end,\n')
+            outf.writef('__box_%(box)s_init,\n')
             for export in box.exports:
-                outf.write('%(export)s,\n', export=export.name)
-        outf.write('};\n')
+                outf.writef('%(export)s,\n', export=export.name)
+        outf.writef('};\n')
 
-    def build_sys_ldscript_(self, sys, box, output): # TODO hmm on this partial thing...
+    def build_parent_partial_ldscript_(self, output, sys, box):
         # create box calls for imports
         output.decls.append()
         output.decls.append('/* box calls */')
@@ -340,16 +340,21 @@ class MPUProtectRuntime(runtimes.Runtime):
         # allow default in linkerscript?
         # allow symbol injection?
         # ugh
-        memory = box.bestmemory('rx', box.jumptable.size,
-            consumed=output.consumed)
+#        memory = box.bestmemory('rx', box.jumptable.size,
+#            consumed=output.consumed)
+        memory, _, _ = box.consume('rx', box.jumptable.size)
         outf = output.sections.insert(0,
             box_memory=memory.name,
             section='.box.%(box)s.%(box_memory)s',
             memory='box_%(box)s_%(box_memory)s')
-        outf.write('. = ORIGIN(%(MEMORY)s);\n')
-        outf.write('__box_%(box)s_jumptable = .;')
+        outf.writef('. = ORIGIN(%(MEMORY)s);\n')
+        outf.writef('__box_%(box)s_jumptable = .;')
+        super().build_parent_partial_ldscript_(output, sys, box)
 
-    def build_box_partial_ldscript_(self, box, output):
+    def build_parent_ldscript_(self, output, sys, box):
+        return self.build_parent_partial_ldscript_(output, sys, box)
+
+    def build_partial_ldscript_(self, output, box):
         if output['section_prefix'] == '.':
             # create box calls for imports
             output.decls.append()
@@ -361,16 +366,16 @@ class MPUProtectRuntime(runtimes.Runtime):
                     import_=import_,
                     i=i)
 
-    def build_box_ldscript_(self, box, output):
-        self.build_box_partial_ldscript_(box, output)
-
+    def build_ldscript_(self, output, box):
+        self.build_partial_ldscript_(output, box)
         
         # TODO handle this in ldscript class? ldscript.consume?
         # TODO make jumptable come before ldscript declarations.
         # Need box method?
         # TODO what... this just doesn't work...
-        memory = box.bestmemory('rx', box.jumptable.size,
-            consumed=output.consumed)
+#        memory = box.bestmemory('rx', box.jumptable.size,
+#            consumed=output.consumed)
+        memory, _, _ = box.consume('rx', box.jumptable.size)
         #print(output.consumed)
         # TODO hm
         #output.consumed[memory.name] += box.jumptable.size
@@ -382,22 +387,24 @@ class MPUProtectRuntime(runtimes.Runtime):
 #            prefixed_section='%(section_prefix)s%(section)s',
 #            prefixed_memory='%(memory_prefix)s%(memory)s',
 #            prefixed_symbol='%(symbol_prefix)s%(symbol)s', symbol='')
-        outf.write('%(section)s : {\n')
+        outf.writef('%(section)s : {\n')
         with outf.pushindent():
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sjumptable = .;\n')
-            outf.write('KEEP(*(%(section_prefix)sjumptable))\n')
-            outf.write('. = ALIGN(%(align)d);\n')
-            outf.write('%(symbol_prefix)sjumptable_end = .;\n')
-        outf.write('} > %(MEMORY)s')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sjumptable = .;\n')
+            outf.writef('KEEP(*(%(section_prefix)sjumptable))\n')
+            outf.writef('. = ALIGN(%(align)d);\n')
+            outf.writef('%(symbol_prefix)sjumptable_end = .;\n')
+        outf.writef('} > %(MEMORY)s')
 
-    def build(self):
-        self.box.parentbuild('c_glue_', self.build_sys_c_glue_)
-        self.box.build('c_glue_', self.build_box_c_glue_)
-        self.box.parentbuild('ldscript_', self.build_sys_ldscript_)
-        self.box.build('ldscript_', self.build_box_ldscript_)
-        self.box.parentbuild('partial_ldscript_', self.build_sys_ldscript_)
-        self.box.build('partial_ldscript_', self.build_box_partial_ldscript_)
+        super().build_ldscript_(output, box)
+
+#    def build(self):
+#        self.box.parentbuild('c_glue_', self.build_sys_c_glue_)
+#        self.box.build('c_glue_', self.build_box_c_glue_)
+#        self.box.parentbuild('ldscript_', self.build_sys_ldscript_)
+#        self.box.build('ldscript_', self.build_box_ldscript_)
+#        self.box.parentbuild('partial_ldscript_', self.build_sys_ldscript_)
+#        self.box.build('partial_ldscript_', self.build_box_partial_ldscript_)
 #
 #        if 'c_glue_' in self.box.outputs:
 #            self.build_box_c_glue_(self.box, self.box.outputs['c_glue_'])
@@ -418,7 +425,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 ##            self.build_common_header_glue_(self.box.outputs['header_glue_'])
         
 
-    def build_common_header_glue_(self, sys, box, output):
+    def build_common_header_glue_(self, output, sys, box):
         output.append_include("<sys/types.h>")
 
         # TODO error if import not found?
@@ -435,19 +442,19 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.append_decl('')
 
         outf = output.append_decl()
-        outf.write('struct %(box)s_exportjumptable {\n')
+        outf.writef('struct %(box)s_exportjumptable {\n')
         # special entries for the sp and __box_init
-        outf.write('    uint32_t *__box_%(box)s_stack_end;\n')
-        outf.write('    void (*__box_%(box)s_init)(void);\n')
+        outf.writef('    uint32_t *__box_%(box)s_stack_end;\n')
+        outf.writef('    void (*__box_%(box)s_init)(void);\n')
         for export in box.exports:
-            outf.write('    %(fn)s;\n', fn=export.repr_c_ptr())
-#            outf.write('    %(ret)s (*%(export)s)(%(args)s);\n',
+            outf.writef('    %(fn)s;\n', fn=export.repr_c_ptr())
+#            outf.writef('    %(ret)s (*%(export)s)(%(args)s);\n',
 #                export=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    arg.repr_c(name) for arg, name in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0].repr_c())
-        outf.write('};\n')
+        outf.writef('};\n')
 
         # TODO error if import not found?
         output.append_decl('// imports from box %s' % box.name)
@@ -463,80 +470,80 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.append_decl('')
 
         outf = output.append_decl()
-        outf.write('struct %(box)s_importjumptable {\n')
+        outf.writef('struct %(box)s_importjumptable {\n')
         # special entries for __box_write and __box_fault
-        outf.write('    void (*__box_%(box)s_fault)(void);\n')
-        outf.write('    int (*__box_%(box)s_write)('
+        outf.writef('    void (*__box_%(box)s_fault)(void);\n')
+        outf.writef('    int (*__box_%(box)s_write)('
             'int a, char* b, int c);\n')
         for import_ in box.imports:
-            outf.write('    %(fn)s;\n', fn=import_.repr_c_ptr())
-#            outf.write('    %(ret)s (*%(import_)s)(%(args)s);\n',
+            outf.writef('    %(fn)s;\n', fn=import_.repr_c_ptr())
+#            outf.writef('    %(ret)s (*%(import_)s)(%(args)s);\n',
 #                import_=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    arg.repr_c(name) for arg, name in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0].repr_c())
-        outf.write('};\n')
+        outf.writef('};\n')
 
 #    def build_common_header_(self, outf, sys, box):
-#        outf.write('// exports from box %s\n' % box.name)
+#        outf.writef('// exports from box %s\n' % box.name)
 #        # TODO error if import not found?
 #        for export in box.exports.values():
 #            assert len(export.rets) <= 1
-#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#            outf.writef('extern %(ret)s %(name)s(%(args)s);\n' % dict(
 #                name=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0]))
-#        outf.write('\n')
-#        outf.write('struct %s_exportjumptable {\n' % box.name)
+#        outf.writef('\n')
+#        outf.writef('struct %s_exportjumptable {\n' % box.name)
 #        # special entries for the sp and __box_init
-#        outf.write('    uint32_t *__box_%s_stack_end;\n' % box.name)
-#        outf.write('    void (*__box_%s_init)(void);\n' % box.name)
+#        outf.writef('    uint32_t *__box_%s_stack_end;\n' % box.name)
+#        outf.writef('    void (*__box_%s_init)(void);\n' % box.name)
 #        for export in box.exports.values():
-#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#            outf.writef('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
 #                name=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0]))
-#        outf.write('};\n')
-#        outf.write('\n')
+#        outf.writef('};\n')
+#        outf.writef('\n')
 #
-#        outf.write('// imports from box %s\n' % box.name)
+#        outf.writef('// imports from box %s\n' % box.name)
 #        # TODO error if import not found?
 #        for import_ in box.imports.values():
 #            assert len(import_.rets) <= 1
-#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#            outf.writef('extern %(ret)s %(name)s(%(args)s);\n' % dict(
 #                name=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0]))
-#        outf.write('\n')
-#        outf.write('struct %s_importjumptable {\n' % box.name)
+#        outf.writef('\n')
+#        outf.writef('struct %s_importjumptable {\n' % box.name)
 #        # special entries for __box_write and __box_fault
-#        outf.write('    void (*__box_%s_write)('
+#        outf.writef('    void (*__box_%s_write)('
 #            'int a, char* b, int c);\n' % box.name)
-#        outf.write('    void (*__box_%s_fault)(void);\n' % box.name)
+#        outf.writef('    void (*__box_%s_fault)(void);\n' % box.name)
 #        for import_ in box.imports.values():
-#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#            outf.writef('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
 #                name=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0]))
-#        outf.write('};\n')
-#        outf.write('\n')
+#        outf.writef('};\n')
+#        outf.writef('\n')
 
     def build_sys_header_glue_(self, sys, box, output):
         """Build system header"""
         output.includes.append("<sys/types.h>")
 
 #        outf = output.decls.append()
-#        outf.write('// jumptable initialization\n')
-#        outf.write('void __box_%(box)s_init(void);\n')
+#        outf.writef('// jumptable initialization\n')
+#        outf.writef('void __box_%(box)s_init(void);\n')
 #        output.decls.append(fn=Fn(
 #            '__box_%(box)s_init', 'fn() -> void',
 #            doc='jumptable initialization'))
@@ -562,19 +569,19 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.append_decl('')
 
         outf = output.append_decl()
-        outf.write('struct %(box)s_exportjumptable {\n')
+        outf.writef('struct %(box)s_exportjumptable {\n')
         # special entries for the sp and __box_init
-        outf.write('    uint32_t *__box_%(box)s_stack_end;\n')
-        outf.write('    void (*__box_%(box)s_init)(void);\n')
+        outf.writef('    uint32_t *__box_%(box)s_stack_end;\n')
+        outf.writef('    void (*__box_%(box)s_init)(void);\n')
         for export in box.exports:
-            outf.write('    %(fn)s;\n', fn=export.repr_c_ptr())
-#            outf.write('    %(ret)s (*%(export)s)(%(args)s);\n',
+            outf.writef('    %(fn)s;\n', fn=export.repr_c_ptr())
+#            outf.writef('    %(ret)s (*%(export)s)(%(args)s);\n',
 #                export=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    arg.repr_c(name) for arg, name in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0].repr_c())
-        outf.write('};\n')
+        outf.writef('};\n')
 
         # TODO error if import not found?
         output.append_decl('// imports from box %s' % box.name)
@@ -590,105 +597,105 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.append_decl('')
 
         outf = output.append_decl()
-        outf.write('struct %(box)s_importjumptable {\n')
+        outf.writef('struct %(box)s_importjumptable {\n')
         # special entries for __box_write and __box_fault
-        outf.write('    void (*__box_%(box)s_fault)(void);\n')
-        outf.write('    int (*__box_%(box)s_write)('
+        outf.writef('    void (*__box_%(box)s_fault)(void);\n')
+        outf.writef('    int (*__box_%(box)s_write)('
             'int a, char* b, int c);\n')
         for import_ in box.imports:
-            outf.write('    %(fn)s;\n', fn=import_.repr_c_ptr())
-#            outf.write('    %(ret)s (*%(import_)s)(%(args)s);\n',
+            outf.writef('    %(fn)s;\n', fn=import_.repr_c_ptr())
+#            outf.writef('    %(ret)s (*%(import_)s)(%(args)s);\n',
 #                import_=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    arg.repr_c(name) for arg, name in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0].repr_c())
-        outf.write('};\n')
+        outf.writef('};\n')
 
 #    def build_common_header_(self, outf, sys, box):
-#        outf.write('// exports from box %s\n' % box.name)
+#        outf.writef('// exports from box %s\n' % box.name)
 #        # TODO error if import not found?
 #        for export in box.exports.values():
 #            assert len(export.rets) <= 1
-#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#            outf.writef('extern %(ret)s %(name)s(%(args)s);\n' % dict(
 #                name=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0]))
-#        outf.write('\n')
-#        outf.write('struct %s_exportjumptable {\n' % box.name)
+#        outf.writef('\n')
+#        outf.writef('struct %s_exportjumptable {\n' % box.name)
 #        # special entries for the sp and __box_init
-#        outf.write('    uint32_t *__box_%s_stack_end;\n' % box.name)
-#        outf.write('    void (*__box_%s_init)(void);\n' % box.name)
+#        outf.writef('    uint32_t *__box_%s_stack_end;\n' % box.name)
+#        outf.writef('    void (*__box_%s_init)(void);\n' % box.name)
 #        for export in box.exports.values():
-#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#            outf.writef('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
 #                name=export.name,
 #                args='void' if not export.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        export.args, util.arbitrary())),
 #                ret='void' if not export.rets else export.rets[0]))
-#        outf.write('};\n')
-#        outf.write('\n')
+#        outf.writef('};\n')
+#        outf.writef('\n')
 #
-#        outf.write('// imports from box %s\n' % box.name)
+#        outf.writef('// imports from box %s\n' % box.name)
 #        # TODO error if import not found?
 #        for import_ in box.imports.values():
 #            assert len(import_.rets) <= 1
-#            outf.write('extern %(ret)s %(name)s(%(args)s);\n' % dict(
+#            outf.writef('extern %(ret)s %(name)s(%(args)s);\n' % dict(
 #                name=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0]))
-#        outf.write('\n')
-#        outf.write('struct %s_importjumptable {\n' % box.name)
+#        outf.writef('\n')
+#        outf.writef('struct %s_importjumptable {\n' % box.name)
 #        # special entries for __box_write and __box_fault
-#        outf.write('    void (*__box_%s_write)('
+#        outf.writef('    void (*__box_%s_write)('
 #            'int a, char* b, int c);\n' % box.name)
-#        outf.write('    void (*__box_%s_fault)(void);\n' % box.name)
+#        outf.writef('    void (*__box_%s_fault)(void);\n' % box.name)
 #        for import_ in box.imports.values():
-#            outf.write('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
+#            outf.writef('    %(ret)s (*%(name)s)(%(args)s);\n' % dict(
 #                name=import_.name,
 #                args='void' if not import_.args else ', '.join(
 #                    '%s %s' % arg for arg in zip(
 #                        import_.args, util.arbitrary())),
 #                ret='void' if not import_.rets else import_.rets[0]))
-#        outf.write('};\n')
-#        outf.write('\n')
+#        outf.writef('};\n')
+#        outf.writef('\n')
 
     def build_sys_header_glue(self, sys, box, output):
         """Build system header"""
         output.append_include("<sys/types.h>")
 
         outf = output.append_decl()
-        outf.write('// jumptable initialization\n')
-        outf.write('void __box_%(box)s_init(void);\n')
+        outf.writef('// jumptable initialization\n')
+        outf.writef('void __box_%(box)s_init(void);\n')
 
         self.build_common_header_glue(sys, box, output)
 
 #    def build_sys_header_(self, outf, sys, box):
 #        """Build system header for a given box into the given file."""
-#        outf.write('////// AUTOGENERATED //////\n')
-#        outf.write('#ifndef %s_JUMPTABLE_H\n' % box.name.upper())
-#        outf.write('#define %s_JUMPTABLE_H\n' % box.name.upper())
-#        outf.write('\n')
-#        outf.write('#include <sys/types.h>\n') # this should be consolidated
-#        outf.write('\n')
+#        outf.writef('////// AUTOGENERATED //////\n')
+#        outf.writef('#ifndef %s_JUMPTABLE_H\n' % box.name.upper())
+#        outf.writef('#define %s_JUMPTABLE_H\n' % box.name.upper())
+#        outf.writef('\n')
+#        outf.writef('#include <sys/types.h>\n') # this should be consolidated
+#        outf.writef('\n')
 #
-#        outf.write('// jumptable initialization\n')
-#        outf.write('void __box_%s_init(void);\n' % box.name)
-#        outf.write('\n')
+#        outf.writef('// jumptable initialization\n')
+#        outf.writef('void __box_%s_init(void);\n' % box.name)
+#        outf.writef('\n')
 #
 #        self.build_common_header_(outf, sys, box)
 #
-#        outf.write('#endif\n')
-#        outf.write('\n')
+#        outf.writef('#endif\n')
+#        outf.writef('\n')
 
     def build_sys_c_glue_prologue(self, sys, output):
         outf = output.append_decl()
-        outf.write('// GCC stdlib hook\n')
-        outf.write('extern int _write(int handle, char *buffer, int size);\n')
+        outf.writef('// GCC stdlib hook\n')
+        outf.writef('extern int _write(int handle, char *buffer, int size);\n')
 
     def build_sys_c_glue(self, sys, box, output):
         self.build_common_header_glue(sys, box, output)
@@ -698,15 +705,15 @@ class MPUProtectRuntime(runtimes.Runtime):
         output.append_decl(BOX_SYS_MECH.lstrip())
 
         outf = output.append_decl()
-        outf.write('// system-side jumptable\n')
-        outf.write('const struct %(box)s_importjumptable '
+        outf.writef('// system-side jumptable\n')
+        outf.writef('const struct %(box)s_importjumptable '
             '__%(box)s_importjumptable = {\n')
         # special entries for __box_fault and __box_write
-        outf.write('    __box_%(box)s_fault,\n')
-        outf.write('    _write,\n')
+        outf.writef('    __box_%(box)s_fault,\n')
+        outf.writef('    _write,\n')
         for import_ in box.imports:
-            outf.write('    %(import_)s,\n', import_=import_.name)
-        outf.write('};\n')
+            outf.writef('    %(import_)s,\n', import_=import_.name)
+        outf.writef('};\n')
 
 #    def build_sys_jumptable_(self, outf, sys, box):
 #        """Build system jumptable for a given box into the given file."""
@@ -715,24 +722,24 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        # TODO need this?
 #        self.build_sys_header_(outf, sys, box)
 #
-#        outf.write('// GCC stdlib hook\n')
-#        outf.write('extern int _write(int handle, char *buffer, int size);\n')
-#        outf.write('\n')
+#        outf.writef('// GCC stdlib hook\n')
+#        outf.writef('extern int _write(int handle, char *buffer, int size);\n')
+#        outf.writef('\n')
 #
-#        outf.write(BOX_SYS_MECH.strip() % dict(name=box.name))
-#        outf.write('\n')
-#        outf.write('\n')
+#        outf.writef(BOX_SYS_MECH.strip() % dict(name=box.name))
+#        outf.writef('\n')
+#        outf.writef('\n')
 #
-#        outf.write('// system-side jumptable\n')
-#        outf.write('const struct %(name)s_importjumptable '
+#        outf.writef('// system-side jumptable\n')
+#        outf.writef('const struct %(name)s_importjumptable '
 #            '__%(name)s_importjumptable = {' % dict(name=box.name))
 #        # special entries for __box_fault and __box_write
-#        outf.write('    __box_fault,\n')
-#        outf.write('    _write,\n')
+#        outf.writef('    __box_fault,\n')
+#        outf.writef('    _write,\n')
 #        for import_ in box.imports.values():
-#            outf.write('    %s,\n' % import_.name)
-#        outf.write('};\n')
-#        outf.write('\n')
+#            outf.writef('    %s,\n' % import_.name)
+#        outf.writef('};\n')
+#        outf.writef('\n')
 
 #    def build_sys_ldscript_(self, outf, sys, box):
 #        """Build system ldscript for a given box into the given file."""
@@ -742,17 +749,17 @@ class MPUProtectRuntime(runtimes.Runtime):
 
 #    def build_box_header_(self, outf, sys, box):
 #        """Build system header for a given box into the given file."""
-#        outf.write('////// AUTOGENERATED //////\n')
-#        outf.write('#ifndef %s_JUMPTABLE_H\n' % box.name.upper())
-#        outf.write('#define %s_JUMPTABLE_H\n' % box.name.upper())
-#        outf.write('\n')
-#        outf.write('#include <sys/types.h>\n') # this should be consolidated
-#        outf.write('\n')
+#        outf.writef('////// AUTOGENERATED //////\n')
+#        outf.writef('#ifndef %s_JUMPTABLE_H\n' % box.name.upper())
+#        outf.writef('#define %s_JUMPTABLE_H\n' % box.name.upper())
+#        outf.writef('\n')
+#        outf.writef('#include <sys/types.h>\n') # this should be consolidated
+#        outf.writef('\n')
 #
 #        self.build_common_header_(outf, sys, box)
 #
-#        outf.write('#endif\n')
-#        outf.write('\n')
+#        outf.writef('#endif\n')
+#        outf.writef('\n')
 
     def build_box_c_glue(self, sys, box, output):
         self.build_common_header_glue(sys, box, output)
@@ -762,16 +769,16 @@ class MPUProtectRuntime(runtimes.Runtime):
 
         output.append_decl('extern uint32_t __stack_end;')
         outf = output.append_decl()
-        outf.write('__attribute__((section(".jumptable")))\n')
-        outf.write('__attribute__((used))\n')
-        outf.write('const struct %(box)s_exportjumptable '
+        outf.writef('__attribute__((section(".jumptable")))\n')
+        outf.writef('__attribute__((used))\n')
+        outf.writef('const struct %(box)s_exportjumptable '
             '__box_%(box)s_jumptable = {\n')
         # special entries for the sp and __box_init
-        outf.write('    &__stack_end,\n')
-        outf.write('    __box_%(box)s_init,\n')
+        outf.writef('    &__stack_end,\n')
+        outf.writef('    __box_%(box)s_init,\n')
         for export in box.exports:
-            outf.write('    %(export)s,\n', export=export.name)
-        outf.write('};\n')
+            outf.writef('    %(export)s,\n', export=export.name)
+        outf.writef('};\n')
 
 #    def build_box_jumptable_(self, outf, sys, box):
 #        """Build system jumptable for a given box into the given file."""
@@ -780,46 +787,46 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        # TODO need this?
 #        self.build_box_header_(outf, sys, box)
 #
-#        outf.write(BOX_INIT.strip() % dict(name=box.name))
-#        outf.write('\n')
-#        outf.write('\n')
+#        outf.writef(BOX_INIT.strip() % dict(name=box.name))
+#        outf.writef('\n')
+#        outf.writef('\n')
 #
-#        outf.write('extern uint32_t __box_%s_sp;\n' % box.name)
-#        outf.write('__attribute__((section(".jumptable")))\n')
-#        outf.write('__attribute__((used))\n')
-#        outf.write('const struct %(name)s_exportjumptable '
+#        outf.writef('extern uint32_t __box_%s_sp;\n' % box.name)
+#        outf.writef('__attribute__((section(".jumptable")))\n')
+#        outf.writef('__attribute__((used))\n')
+#        outf.writef('const struct %(name)s_exportjumptable '
 #            '__%(name)s_exportjumptable = {' % dict(name=box.name))
 #        # special entries for the sp and __box_init
-#        outf.write('    &__stack_end,\n')
-#        outf.write('    __box_%s_init,\n' % box.name)
+#        outf.writef('    &__stack_end,\n')
+#        outf.writef('    __box_%s_init,\n' % box.name)
 #        for export in box.exports.values():
-#            outf.write('    %s,\n' % export.name)
-#        outf.write('};\n')
-#        outf.write('\n')
+#            outf.writef('    %s,\n' % export.name)
+#        outf.writef('};\n')
+#        outf.writef('\n')
 #
-#        # write handler
-#        outf.write(BOX_WRITE.strip() % dict(name=box.name))
-#        outf.write('\n')
-#        outf.write('\n')
+#        # writef handler
+#        outf.writef(BOX_WRITE.strip() % dict(name=box.name))
+#        outf.writef('\n')
+#        outf.writef('\n')
 
 #    def build_box_ldscript_(self, outf, sys, box):
 #        """Build system ldscript for a given box into the given file."""
-#        outf.write('\n')
+#        outf.writef('\n')
 #
 #        # TODO make heap optional?
-#        outf.write('HEAP_MIN = '
+#        outf.writef('HEAP_MIN = '
 #            'DEFINED(__heap_min__) ? __heap_min__ : 0x1000;\n')
-#        outf.write('\n')
+#        outf.writef('\n')
 #
-#        outf.write('MEMORY {\n')
+#        outf.writef('MEMORY {\n')
 #        for memory in box.memories.values():
-#            outf.write('    mem_%(name)-16s (%(mode)s) : '
+#            outf.writef('    mem_%(name)-16s (%(mode)s) : '
 #                'ORIGIN = %(start)#010x, LENGTH = %(size)#010x\n' % dict(
 #                    name=memory.name,
 #                    mode=''.join(c.upper() for c in memory.mode),
 #                    start=memory.start,
 #                    size=memory.size))
-#        outf.write('}\n')
+#        outf.writef('}\n')
 
     def build_sys_partial_ldscript(self, sys, box, output):
         # TODO this should increment...
@@ -882,7 +889,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                            +[None])[0]
 
             outf = output.append_section()
-            outf.write(
+            outf.writef(
                 '.box.%(box)s.%(name)s%(type)s :%(at)s {\n'
                 +4*' '+'. = ALIGN(%(align)d);\n'
                 +4*' '+'__box_%(box)s_%(name)s = .;\n',
@@ -892,25 +899,25 @@ class MPUProtectRuntime(runtimes.Runtime):
                     if name == 'data' else '',
                 align=align)
             if name == 'text':
-                outf.write(4*' '+'__box_%(box)s_jumptable = .;\n')
-                outf.write(4*' '+'__%(box)s_exportjumptable = .;\n') # TODO rename me
-                #outf.write(4*' '+'KEEP(*(.box.%s.jumptable))\n' % box.name)
-            outf.write(''
+                outf.writef(4*' '+'__box_%(box)s_jumptable = .;\n')
+                outf.writef(4*' '+'__%(box)s_exportjumptable = .;\n') # TODO rename me
+                #outf.writef(4*' '+'KEEP(*(.box.%s.jumptable))\n' % box.name)
+            outf.writef(''
                 +4*' '+'KEEP(*(.box.%(box)s.%(name)s*))\n'
                 +4*' '+'. = ALIGN(%(align)d);\n'
                 +4*' '+'__box_%(box)s_%(name)s_end = .;\n',
                 name=name,
                 align=align)
 #            if name == 'text':
-#                outf.write(4*' '+'KEEP(*(.box.%s.rodata*))\n' % box.name)
-#                outf.write(4*' '+'KEEP(*(.box.%s.init))\n' % box.name) # TODO can these be wildcarded?
-#                outf.write(4*' '+'KEEP(*(.box.%s.fini))\n' % box.name)
+#                outf.writef(4*' '+'KEEP(*(.box.%s.rodata*))\n' % box.name)
+#                outf.writef(4*' '+'KEEP(*(.box.%s.init))\n' % box.name) # TODO can these be wildcarded?
+#                outf.writef(4*' '+'KEEP(*(.box.%s.fini))\n' % box.name)
 #            elif name == 'bss':
 #                pass
-#                #outf.write(4*' '+'*(COMMON)\n') # TODO need this?
+#                #outf.writef(4*' '+'*(COMMON)\n') # TODO need this?
             if name == 'text':
-                outf.write(4*' '+'__box_%(box)s_data_init = .;\n')
-            outf.write(
+                outf.writef(4*' '+'__box_%(box)s_data_init = .;\n')
+            outf.writef(
                 '} > BOX_%(BOX)s_%(MEM)s\n',
                 MEM=bestmemory.name.upper() if bestmemory else '?')
 
@@ -939,7 +946,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                    +[None])[0]
 
         outf = output.append_section()
-        outf.write(
+        outf.writef(
             '.box.%(box)s.heap (NOLOAD) : {\n'
             +4*' '+'. = ALIGN(%(align)d);\n'
             +4*' '+'__box_%(box)s_heap = .;\n'
@@ -956,12 +963,12 @@ class MPUProtectRuntime(runtimes.Runtime):
             MEM=bestmemory.name.upper() if bestmemory else '?')
 # TODO reenable this assert
 #        if heapsize or stacksize:
-#            outf.write('\n\n')
-#            outf.write('ASSERT(__box_%s_heap_end - __box_%s_heap > %s,\n' %
+#            outf.writef('\n\n')
+#            outf.writef('ASSERT(__box_%s_heap_end - __box_%s_heap > %s,\n' %
 #                '__heap_min + __stack_min' if heapsize and stacksize else
 #                '__heap_min' if heapsize else
 #                '__stack_min')
-#            outf.write(4*' '+'"Not enough memory remains for heap and stack")')
+#            outf.writef(4*' '+'"Not enough memory remains for heap and stack")')
 
 
 #        output.append_decl('/* box memory regions */')
@@ -1003,16 +1010,16 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                name=box.name, NAME=box.name.upper(),
 #                mem=memory.name, MEM=memory.name.upper())
 #            outf = output.append_section()
-#            outf.write('.box.%(name)s.%(mem)s (NOLOAD) : {\n' % config)
-##            outf.write(4*' '+'. = ORIGIN(mem_box_%(name)s_%(mem)s);\n'
+#            outf.writef('.box.%(name)s.%(mem)s (NOLOAD) : {\n' % config)
+##            outf.writef(4*' '+'. = ORIGIN(mem_box_%(name)s_%(mem)s);\n'
 ##                % config)
-#            outf.write(4*' '+'__box_%(name)s_%(mem)s = .;\n' % config)
+#            outf.writef(4*' '+'__box_%(name)s_%(mem)s = .;\n' % config)
 #            if memory.mode == set('rx'): # TODO ???
-#                outf.write(4*' '+'__%(name)s_exportjumptable = .;\n' % config)
-#            outf.write(4*' '+'. = ORIGIN(BOX_%(NAME)s_%(MEM)s) '
+#                outf.writef(4*' '+'__%(name)s_exportjumptable = .;\n' % config)
+#            outf.writef(4*' '+'. = ORIGIN(BOX_%(NAME)s_%(MEM)s) '
 #                '+ LENGTH(BOX_%(NAME)s_%(MEM)s);\n' % config)
-#            outf.write(4*' '+'__box_%(name)s_%(mem)s_end = .;\n' % config)
-#            outf.write('} > BOX_%(NAME)s_%(MEM)s\n' % config)
+#            outf.writef(4*' '+'__box_%(name)s_%(mem)s_end = .;\n' % config)
+#            outf.writef('} > BOX_%(NAME)s_%(MEM)s\n' % config)
             
 
     def build_box_partial_ldscript(self, sys, box, output):
@@ -1083,7 +1090,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                            +[None])[0]
 
             outf = output.append_section()
-            outf.write(
+            outf.writef(
                 '.%(name)s%(type)s :%(at)s {\n'
                 +4*' '+'. = ALIGN(%(align)d);\n'
                 +4*' '+'__%(name)s = .;\n',
@@ -1092,20 +1099,20 @@ class MPUProtectRuntime(runtimes.Runtime):
                 at=' AT(__data_init)' if name == 'data' else '',
                 align=align)
             if name == 'text':
-                outf.write(4*' '+'__jumptable = .;\n')
-                outf.write(4*' '+'KEEP(*(.jumptable))\n')
-            outf.write(4*' '+'*(.%(name)s*)\n', name=name)
+                outf.writef(4*' '+'__jumptable = .;\n')
+                outf.writef(4*' '+'KEEP(*(.jumptable))\n')
+            outf.writef(4*' '+'*(.%(name)s*)\n', name=name)
             if name == 'text':
-                outf.write(4*' '+'*(.rodata*)\n')
-                outf.write(4*' '+'KEEP(*(.init))\n') # TODO can these be wildcarded?
-                outf.write(4*' '+'KEEP(*(.fini))\n')
+                outf.writef(4*' '+'*(.rodata*)\n')
+                outf.writef(4*' '+'KEEP(*(.init))\n') # TODO can these be wildcarded?
+                outf.writef(4*' '+'KEEP(*(.fini))\n')
             elif name == 'bss':
-                outf.write(4*' '+'*(COMMON)\n') # TODO need this?
-            outf.write(4*' '+'. = ALIGN(%(align)d);\n', align=align)
-            outf.write(4*' '+'__%(name)s_end = .;\n', name=name)
+                outf.writef(4*' '+'*(COMMON)\n') # TODO need this?
+            outf.writef(4*' '+'. = ALIGN(%(align)d);\n', align=align)
+            outf.writef(4*' '+'__%(name)s_end = .;\n', name=name)
             if name == 'text':
-                outf.write(4*' '+'__data_init = .;\n')
-            outf.write('} > %(MEM)s\n',
+                outf.writef(4*' '+'__data_init = .;\n')
+            outf.writef('} > %(MEM)s\n',
                 MEM=bestmemory.name.upper() if bestmemory else '?')
 
         # here we handle heap/stack separately, they're a bit special since
@@ -1133,7 +1140,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #                    +[None])[0]
 
         outf = output.append_section()
-        outf.write(
+        outf.writef(
             '.heap (NOLOAD) : {\n'
             +4*' '+'. = ALIGN(%(align)d);\n'
             +4*' '+'__heap = .;\n'
@@ -1150,9 +1157,9 @@ class MPUProtectRuntime(runtimes.Runtime):
             align=heapalign,
             MEM=bestmemory.name.upper() if bestmemory else '?')
         if heapsize or stacksize:
-            outf.write('\n\n')
-            outf.write('ASSERT(__HeapLimit - __HeapBase > %s,\n' %
+            outf.writef('\n\n')
+            outf.writef('ASSERT(__HeapLimit - __HeapBase > %s,\n' %
                 '__heap_min + __stack_min' if heapsize and stacksize else
                 '__heap_min' if heapsize else
                 '__stack_min')
-            outf.write(4*' '+'"Not enough memory remains for heap and stack")')
+            outf.writef(4*' '+'"Not enough memory remains for heap and stack")')

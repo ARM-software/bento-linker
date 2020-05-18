@@ -22,6 +22,7 @@ def output(target):
 #            return f(*args, **kwargs)
 #    return cond 
 
+# TODO enable exclusive inheritance between StringIO and file?
 class OutputBlob_(io.StringIO):
     def __init__(self, *args, **kwargs):
         super().__init__(*args)
@@ -29,7 +30,7 @@ class OutputBlob_(io.StringIO):
         self._needindent = True
         self.pushattrs(**kwargs)
 
-    def write(self, fmt, **kwargs):
+    def writef(self, fmt, **kwargs):
         fmt = fmt % self.attrs(**kwargs)
         for c in fmt:
             if c == '\n':
@@ -38,7 +39,7 @@ class OutputBlob_(io.StringIO):
                 if self._needindent:
                     self._needindent = False
                     super().write(self.get('indent', 0)*' ')
-            super().write(c)
+            self.write(c)
 
 #    def _parsekwarg(self, attr):
 #        for rule in [
@@ -174,6 +175,7 @@ class OutputBlob_(io.StringIO):
     def __repr__(self):
         return super(object, self).__repr__()
 
+
 class OutputField_(list):
     def __init__(self, parent=None, rules={}, **kwargs):
         super().__init__()
@@ -213,7 +215,7 @@ class OutputField_(list):
                     break
             else:
                 if _fmt is not None:
-                    outf.write(_fmt)
+                    outf.writef(_fmt)
 
         super().insert(_i, outf)
         return outf
@@ -233,15 +235,22 @@ class Output_(OutputBlob_):
     __argname__ = "unnamed_output"
     __arghelp__ = __doc__
 
-    def __init__(self, box, path=None):
+    def __init__(self, path=None):
+        super().__init__()
         self.name = self.__argname__ # TODO need type?
-        self.box = box
-        self.path = os.path.join(box.path, path) if path else None
-        super().__init__(name=self.name, path=self.path,
-            box=box.name if box.isbox() else None)
+        self.path = path
 
     def __lt__(self, other):
         return self.name < other.name
+
+    def box(self, box):
+        self.pushattrs(
+            name=self.name,
+            path=self.path,
+            box=box.name if box.isbox() else None)
+
+    def build(self, box):
+        pass
 
 #    def box(self, box):
 #        """
@@ -253,65 +262,73 @@ class Output_(OutputBlob_):
 #        if getattr(box, 'name', None):
 #            self.pushattrs(box=box.name, BOX=box.name.upper())
 
-    def build(self, outf):
-        """
-        Build the output into the specified output file.
-        """
-        outf.write(super().getvalue())
 
-    def getvalue(self):
-        # reimplemented to allow subclasses to only override build
-        outf = io.StringIO()
-        self.build(outf)
-        return outf.getvalue()
 
-class Output(abc.ABC):
-    """An optional output that a runtime can generate."""
-    __argname__ = "output"
-    __arghelp__ = __doc__
+#    def build(self, outf):
+#        """
+#        Build the output into the specified output file.
+#        """
+#        outf.write(super().getvalue())
+#
+#    def getvalue(self):
+#        # reimplemented to allow subclasses to only override build
+#        super().seek(0)
+#        super().truncate(0)
+#        self.build(super(OutputBlob_, self))
+#        return super().getvalue()
+#
+#
+#        outf = io.StringIO()
+#        self.build(outf)
+#        return outf.getvalue()
 
-    def __init__(self, sys, box, path):
-        self.path = path
-        # some common spec entries
-        f = {'path': path}
-        if box is not None:
-            f.update({'box': box.name, 'BOX': box.name.upper()})
-        self._format = [f]
-        super().__init__()
-
-    def format(self, **kwargs):
-        self._format[-1].update(kwargs)
-
-    def mkformat(self, **kwargs):
-        format = {}
-        for f in self._format:
-            format.update(f)
-        format.update(kwargs)
-        return format
-
-    def mkfield(self, **kwargs):
-        return OutputField(**self.mkformat(**kwargs))
-
-    def pushformat(self, **kwargs):
-        self._format.append(kwargs)
-
-    def popformat(self):
-        return self._format.pop()
-
-    @abc.abstractmethod
-    def build(self, outf):
-        """Build the output after being passed to the needed runtimes."""
-
-class OutputField(io.StringIO):
-    def __init__(self, *args, **kwargs):
-        self._format = kwargs
-        super().__init__(*args)
-
-    def write(self, fmt, **kwargs):
-        super().write(fmt % {**kwargs, **self._format})
+#class Output(abc.ABC):
+#    """An optional output that a runtime can generate."""
+#    __argname__ = "output"
+#    __arghelp__ = __doc__
+#
+#    def __init__(self, sys, box, path):
+#        self.path = path
+#        # some common spec entries
+#        f = {'path': path}
+#        if box is not None:
+#            f.update({'box': box.name, 'BOX': box.name.upper()})
+#        self._format = [f]
+#        super().__init__()
+#
+#    def format(self, **kwargs):
+#        self._format[-1].update(kwargs)
+#
+#    def mkformat(self, **kwargs):
+#        format = {}
+#        for f in self._format:
+#            format.update(f)
+#        format.update(kwargs)
+#        return format
+#
+#    def mkfield(self, **kwargs):
+#        return OutputField(**self.mkformat(**kwargs))
+#
+#    def pushformat(self, **kwargs):
+#        self._format.append(kwargs)
+#
+#    def popformat(self):
+#        return self._format.pop()
+#
+#    @abc.abstractmethod
+#    def build(self, outf):
+#        """Build the output after being passed to the needed runtimes."""
+#
+#class OutputField(io.StringIO):
+#    def __init__(self, *args, **kwargs):
+#        self._format = kwargs
+#        super().__init__(*args)
+#
+#    def write(self, fmt, **kwargs):
+#        super().write(fmt % {**kwargs, **self._format})
 
 # Output class imports
 # These must be imported here, since they depend on the above utilities
-from .header import HeaderOutput, HeaderGlueOutput_
-from .jumptable import JumptableOutput, CGlueOutput_
-from .linkerscript import LinkerScriptOutput
+from .header import HeaderGlueOutput_
+from .jumptable import CGlueOutput_
+from .linkerscript import LDScriptOutput_, PartialLDScriptOutput_
