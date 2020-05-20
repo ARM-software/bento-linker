@@ -1,6 +1,6 @@
 from .. import outputs
 from ..box import Fn
-from .header import buildinclude, buildfn, HeaderGlueOutput_
+from .h import buildinclude, buildfn, HOutput
 import io
 import textwrap
 
@@ -41,24 +41,23 @@ import textwrap
 #            outf.write(decl.getvalue())
 #            outf.write('\n')
 
-@outputs.output('sys')
-@outputs.output('box')
-class CGlueOutput_(outputs.Output_):
+@outputs.output
+class COutput(outputs.Output):
     """
     Name of source file to target for building a jumptable.
     """
-    __argname__ = "c_glue_"
+    __argname__ = "c"
     __arghelp__ = __doc__
 
     def __init__(self, path=None):
         super().__init__(path)
-        self.includes = outputs.OutputField_(self, rules={str: buildinclude})
-        self.decls = outputs.OutputField_(self, rules={Fn: buildfn})
+        self.includes = outputs.OutputField(self, rules={str: buildinclude})
+        self.decls = outputs.OutputField(self, rules={Fn: buildfn})
 
     def box(self, box):
         super().box(box)
         # create temporary header type to get implicit definitions
-        header = HeaderGlueOutput_()
+        header = HOutput()
         header.box(box)
         self.includes.extend(header.includes)
         self.decls.extend(header.decls)

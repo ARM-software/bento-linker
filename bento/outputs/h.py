@@ -60,19 +60,18 @@ def buildfn(outf, fn):
         outf.writef('%(attrs)s ')
     outf.writef('%(fn)s;', fn=fn.repr_c())
 
-@outputs.output('sys')
-@outputs.output('box')
-class HeaderGlueOutput_(outputs.Output_):
+@outputs.output
+class HOutput(outputs.Output):
     """
     Name of header file to generate containing the imported functions.
     """
-    __argname__ = "header_glue_"
+    __argname__ = "h"
     __arghelp__ = __doc__
 
     def __init__(self, path=None):
         super().__init__(path)
-        self.includes = outputs.OutputField_(self, {str: buildinclude})
-        self.decls = outputs.OutputField_(self, {Fn: buildfn})
+        self.includes = outputs.OutputField(self, {str: buildinclude})
+        self.decls = outputs.OutputField(self, {Fn: buildfn})
 
     def box(self, box):
         super().box(box)

@@ -1,5 +1,4 @@
 from .. import runtimes
-from .. import util
 import itertools as it
 
 WASI_API = '''

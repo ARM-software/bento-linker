@@ -1,10 +1,10 @@
 import os
 import builtins
-import collections as c
+import collections as co
 import itertools as it
 import string
 
-RUNTIMES = c.OrderedDict()
+RUNTIMES = co.OrderedDict()
 def runtime(cls):
     assert cls.__argname__ not in RUNTIMES
     RUNTIMES[cls.__argname__] = cls
@@ -133,7 +133,7 @@ class Runtime:
 
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS
-for Output in OUTPUTS['box'].values():
+for Output in OUTPUTS.values():
     for level, order in it.product(
             ['_root', '_parent', ''],
             ['_prologue', '', '_epilogue']):
@@ -146,36 +146,9 @@ for Output in OUTPUTS['box'].values():
         else:
             setattr(Runtime, method,
                 lambda self, output, *args, **kwargs: None)
-#
-#
-#    if hasattr(Output, 'default_build_root'):
-#        setattr(Runtime, 'build_root_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs:
-#                output.default_build_root(*args, **kwargs))
-#    else:
-#        setattr(Runtime, 'build_root_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs: None)
-#
-#    if hasattr(Output, 'default_build_parent'):
-#        setattr(Runtime, 'build_parent_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs:
-#                output.default_build_parent(*args, **kwargs))
-#    else:
-#        setattr(Runtime, 'build_parent_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs: None)
-#
-#    if hasattr(Output, 'default_build'):
-#        setattr(Runtime, 'build_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs:
-#                output.default_build(*args, **kwargs))
-#    else:
-#        setattr(Runtime, 'build_' + Output.__argname__,
-#            lambda self, output, *args, **kwargs: None)
-
 
 # Runtime class imports
 # These must be imported here, since they depend on the above utilities
-from .mpu_protect import MPUProtectRuntime
 from .noop import NoOpRuntime
 from .wasm3 import Wasm3Runtime
 from .armv7_mpu import ARMv7MPURuntime
