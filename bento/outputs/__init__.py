@@ -239,6 +239,8 @@ class Output_(OutputBlob_):
         super().__init__()
         self.name = self.__argname__ # TODO need type?
         self.path = path
+        self.prologues = c.OrderedDict()
+        self.epilogues = c.OrderedDict()
 
     def __lt__(self, other):
         return self.name < other.name
@@ -250,7 +252,8 @@ class Output_(OutputBlob_):
             box=box.name if box.isbox() else None)
 
     def build(self, box):
-        pass
+        for build, *args in self.epilogues.values():
+            build(self, *args)
 
 #    def box(self, box):
 #        """

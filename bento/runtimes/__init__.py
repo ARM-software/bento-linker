@@ -93,44 +93,84 @@ class Runtime:
         root = box.getroot()
         if root:
             for name, output in root.outputs.items():
+                if 'root' not in output.prologues:
+                    output.prologues['root'] = (
+                        getattr(self, 'build_root_prologue_' + name), root)
+                    build, *args = output.prologues['root']
+                    build(output, *args)
                 with output.pushattrs(root=root.name, box=box.name):
                     getattr(self, 'build_root_' + name)(output, root, box)
+                if 'epilogue' not in output.epilogues:
+                    output.epilogues['root'] = (
+                        getattr(self, 'build_root_epilogue_' + name), root)
 
         parent = box.getparent()
         if parent:
             for name, output in parent.outputs.items():
+                if 'parent' not in output.prologues:
+                    output.prologues['parent'] = (
+                        getattr(self, 'build_parent_prologue_' + name),
+                        parent)
+                    build, *args = output.prologues['parent']
+                    build(output, *args)
                 with output.pushattrs(parent=parent.name, box=box.name):
                     getattr(self, 'build_parent_' + name)(output, parent, box)
+                if 'epilogue' not in output.epilogues:
+                    output.epilogues['parent'] = (
+                        getattr(self, 'build_parent_epilogue_' + name),
+                        parent)
 
         for name, output in box.outputs.items():
+                if ('box', box.name) not in output.prologues:
+                    output.prologues[('box', box.name)] = (
+                        getattr(self, 'build_prologue_' + name), box)
+                    build, *args = output.prologues[('box', box.name)]
+                    build(output, *args)
                 getattr(self, 'build_' + name)(output, box)
+                if ('box', box.name) not in output.epilogues:
+                    output.epilogues[('box', box.name)] = (
+                        getattr(self, 'build_epilogue_' + name), box)
 
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS
 for Output in OUTPUTS['box'].values():
-    if hasattr(Output, 'default_build_root'):
-        setattr(Runtime, 'build_root_' + Output.__argname__,
-            lambda self, output, *args, **kwargs:
-                output.default_build_root(*args, **kwargs))
-    else:
-        setattr(Runtime, 'build_root_' + Output.__argname__,
-            lambda self, output, *args, **kwargs: None)
-
-    if hasattr(Output, 'default_build_parent'):
-        setattr(Runtime, 'build_parent_' + Output.__argname__,
-            lambda self, output, *args, **kwargs:
-                output.default_build_parent(*args, **kwargs))
-    else:
-        setattr(Runtime, 'build_parent_' + Output.__argname__,
-            lambda self, output, *args, **kwargs: None)
-
-    if hasattr(Output, 'default_build'):
-        setattr(Runtime, 'build_' + Output.__argname__,
-            lambda self, output, *args, **kwargs:
-                output.default_build(*args, **kwargs))
-    else:
-        setattr(Runtime, 'build_' + Output.__argname__,
-            lambda self, output, *args, **kwargs: None)
+    for level, order in it.product(
+            ['_root', '_parent', ''],
+            ['_prologue', '', '_epilogue']):
+        method = 'build%s%s_%s' % (level, order, Output.__argname__)
+        if hasattr(Output, 'default_build%s%s' % (level, order)):
+            setattr(Runtime, method, (lambda path:
+                lambda self, output, *args, **kwargs:
+                    getattr(output, path)(*args, **kwargs))(
+                'default_build%s%s' % (level, order)))
+        else:
+            setattr(Runtime, method,
+                lambda self, output, *args, **kwargs: None)
+#
+#
+#    if hasattr(Output, 'default_build_root'):
+#        setattr(Runtime, 'build_root_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs:
+#                output.default_build_root(*args, **kwargs))
+#    else:
+#        setattr(Runtime, 'build_root_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs: None)
+#
+#    if hasattr(Output, 'default_build_parent'):
+#        setattr(Runtime, 'build_parent_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs:
+#                output.default_build_parent(*args, **kwargs))
+#    else:
+#        setattr(Runtime, 'build_parent_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs: None)
+#
+#    if hasattr(Output, 'default_build'):
+#        setattr(Runtime, 'build_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs:
+#                output.default_build(*args, **kwargs))
+#    else:
+#        setattr(Runtime, 'build_' + Output.__argname__,
+#            lambda self, output, *args, **kwargs: None)
 
 
 # Runtime class imports
@@ -138,3 +178,4 @@ for Output in OUTPUTS['box'].values():
 from .mpu_protect import MPUProtectRuntime
 from .noop import NoOpRuntime
 from .wasm3 import Wasm3Runtime
+from .armv7_mpu import ARMv7MPURuntime

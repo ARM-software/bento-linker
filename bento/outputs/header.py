@@ -87,7 +87,7 @@ class HeaderGlueOutput_(outputs.Output_):
             for subbox in box.boxes:
                 with self.pushattrs(box=subbox.name):
                     self.decls.append(
-                        'void __box_%(box)s_init(void);',
+                        'int32_t __box_%(box)s_init(void);',
                         doc='box %(box)s initialization')
                     # TODO handle this differently?
                     # TODO use setter?

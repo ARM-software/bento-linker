@@ -1,3 +1,4 @@
+
 from .. import runtimes
 from .. import util
 from ..box import Fn
@@ -33,221 +34,217 @@ int _write(int handle, char *buffer, int size) {
 }
 """
 
-BOX_SYS_MECH = """
-// externally declared
-extern const struct %(box)s_exportjumptable __box_%(box)s_jumptable;
-extern const struct %(box)s_importjumptable __%(box)s_importjumptable;
-extern uint32_t __box_%(box)s_text;
-extern uint32_t __box_%(box)s_etext;
+MPU_REGISTERS = """
+#define SHCSR    ((volatile uint32_t*)0xe000ed24)
+#define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
+#define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
+#define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
+#define MPU_RASR ((volatile uint32_t*)0xe000eda0)
+"""
 
-// box state
-const void *__box_%(box)s_table;
-const void *__box_%(box)s_savedtable;
-uint32_t *__box_%(box)s_savedsp;
-uint32_t __box_%(box)s_savedlr;
-uint32_t __box_%(box)s_savedcontrol;
+BOX_SYS_DISPATCH = """
+uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    const uint32_t *jumptable = __box_jumptables[__box_active];
+    uint32_t *state = (uint32_t*)jumptable[0];
+    sp[0] = (uint32_t)fp;
+    sp[1] = state[-2];
+    sp[2] = state[-1];
+    state[-2] = (uint32_t)lr;
+    state[-1] = (uint32_t)sp;
 
-// TODO replace these
-static __attribute__((always_inline)) inline void __set_CONTROL(uint32_t control)
-{
-    __asm__ volatile ("MSR control, %%0" : : "r" (control) : "memory");
+    // TODO table walk
+    uint32_t path = (op & 0xffff)/2;
+    uint32_t retbox = __box_active;
+    __box_active = path %% BOX_COUNT;
+    const uint32_t *targetjumptable = __box_jumptables[__box_active];
+    uint32_t *targetstate = (uint32_t*)targetjumptable[0];
+    uint32_t targetlr = targetstate[-2];
+    uint32_t *targetsp = (uint32_t*)targetstate[-1];
+    // don't allow returns while executing
+    targetstate[-2] = 0; 
+    // need sp to fixup instruction aborts
+    targetstate[-1] = (uint32_t)targetsp;
+    uint32_t targetpc = targetjumptable[path / BOX_COUNT + 1];
+
+    // setup new call frame
+    targetsp -= 8;
+    targetsp[0] = fp[0];        // r0 = arg0
+    targetsp[1] = fp[1];        // r1 = arg1
+    targetsp[2] = fp[2];        // r2 = arg2
+    targetsp[3] = fp[3];        // r3 = arg3
+    targetsp[4] = fp[4];        // r12 = r12
+    targetsp[5] = 0x1ffd0001 + (retbox<<1); // lr = __box_ret
+    targetsp[6] = targetpc;     // pc = targetpc
+    targetsp[7] = fp[7];        // psr = psr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-static __attribute__((always_inline)) inline uint32_t __get_CONTROL(void)
-{
-  uint32_t result;
-  __asm__ volatile ("MRS %%0, control" : "=r" (result) );
-  return(result);
-}
-
-// hooks for box IPC
 __attribute__((naked, noreturn))
-void __box_%(box)s_call(uint32_t addr, uint32_t *sp, uint32_t lr) {
-    register uint32_t *args;
+void __box_call(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
-        // save ref to args
-        "mov %%1, %%0 \\n"
+        // keep track of args
+        "mov r3, r1 \\n\\t"
         // save core registers
-        "stmdb %%0!, {r4-r11} \\n"
+        "stmdb r1!, {r4-r11} \\n\\t"
         // save fp registers?
-        "tst %%2, #0x10 \\n"
-        "it eq \\n"
-        "vstmdbeq %%0!, {s16-s31} \\n"
-        // need to update our own sp?
-        "tst %%2, #0x4 \\n"
-        "it eq \\n"
-        "moveq sp, %%0 \\n"
-        //"msreq msp, %%0 \\n"
-        : "+l" (sp), "=l" (args)
-        : "l" (lr)
+        "tst r0, #0x10 \\n\\t"
+        "it eq \\n\\t"
+        "vstmdbeq r1!, {s16-s31} \\n\\t"
+        // make space to save state
+        "sub r1, r1, #3*4 \\n\\t"
+        // sp == msp?
+        "tst r0, #0x4 \\n\\t"
+        "it eq \\n\\t"
+        "moveq sp, r1 \\n\\t"
+        // call into c now that we have stack control
+        "bl __box_callsetup \\n\\t"
+        // update new sp
+        "tst r0, #0x4 \\n\\t"
+        "ite eq \\n\\t"
+        "msreq msp, r1 \\n\\t"
+        "msrne psp, r1 \\n\\t"
+        // return to call
+        "bx r0 \\n\\t"
     );
-
-    register uint32_t *newsp = __box_%(box)s_savedsp;
-    __box_%(box)s_savedsp = sp;
-    register uint32_t newlr = __box_%(box)s_savedlr;
-    __box_%(box)s_savedlr = lr;
-    register uint32_t newcontrol = __box_%(box)s_savedcontrol;
-    __box_%(box)s_savedcontrol = __get_CONTROL();
-    __set_CONTROL(newcontrol);
-    __ISB();
-
-    // TODO assert newsp in range
-    // TODO assert target in range
-
-    register uint32_t target;
-    if (__box_%(box)s_table == &__box_%(box)s_jumptable) {
-        // into box
-        target = ((const uint32_t*)__box_%(box)s_table)[(addr & 0xfff)/2 + 1];
-        __box_%(box)s_savedtable = __box_%(box)s_table;
-        __box_%(box)s_table = &__%(box)s_importjumptable;
-    } else  {
-        // out of box
-        target = ((const uint32_t*)__box_%(box)s_table)[(addr & 0xfff)/2];
-        __box_%(box)s_savedtable = __box_%(box)s_table;
-        __box_%(box)s_table = &__box_%(box)s_jumptable;
-    }
-   
-    newsp -= 8;
-    newsp[0] = args[0];     // r0 = arg0
-    newsp[1] = args[1];     // r1 = arg1
-    newsp[2] = args[2];     // r2 = arg2
-    newsp[3] = args[3];     // r3 = arg3
-    newsp[4] = args[4];     // r12 = r12
-    newsp[5] = 0x0fffd000;  // lr = __box_%(box)s_ret
-    newsp[6] = target;      // pc = target
-    newsp[7] = args[7];     // psr = psr 
-
-    __asm__ volatile (
-        // update sp
-        "tst %%1, #0x4 \\n"
-        "ite eq \\n"
-        "msreq msp, %%0 \\n"
-        "msrne psp, %%0 \\n"
-        // branch to call
-        "bx %%1 \\n"
-        :
-        : "l" (newsp), "r" (newlr)
-    );
-
-    __builtin_unreachable();
 }
 
-__attribute__((noreturn))
-void __box_%(box)s_ret(uint32_t *sp, uint32_t lr) {
-    // grab args and remove saved stack frame
-    uint32_t *args = sp;
-    sp += 8;
+uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    const uint32_t *jumptable = __box_jumptables[__box_active];
+    uint32_t *state = (uint32_t*)jumptable[0];
+    // drop exception frame and fixup instruction aborts
+    sp = (uint32_t*)state[-1];
+    state[-2] = (uint32_t)lr;
+    state[-1] = (uint32_t)sp;
 
-    const void *newtable = __box_%(box)s_savedtable;
-    __box_%(box)s_savedtable = __box_%(box)s_table;
-    __box_%(box)s_table = newtable;
-    register uint32_t *newsp __asm__("r0") = __box_%(box)s_savedsp;
-    __box_%(box)s_savedsp = sp;
-    register uint32_t newlr __asm__("r1") = __box_%(box)s_savedlr;
-    __box_%(box)s_savedlr = lr;
-    uint32_t newcontrol = __box_%(box)s_savedcontrol;
-    __box_%(box)s_savedcontrol = __get_CONTROL();
-    __set_CONTROL(newcontrol);
-    __ISB();
+    // TODO table walk
+    uint32_t path = (op & 0xffff)/2;
+    __box_active = path %% BOX_COUNT;
+    const uint32_t *targetjumptable = __box_jumptables[__box_active];
+    uint32_t *targetstate = (uint32_t*)targetjumptable[0];
+    uint32_t targetlr = targetstate[-2];
+    uint32_t *targetsp = (uint32_t*)targetstate[-1];
+    uint32_t *targetfp = (uint32_t*)targetsp[0];
+    targetstate[-2] = targetsp[1];
+    targetstate[-1] = targetsp[2];
 
+    // copy return frame
+    targetfp[0] = fp[0];       // r0 = arg0
+    targetfp[1] = fp[1];       // r1 = arg1
+    targetfp[2] = fp[2];       // r2 = arg2
+    targetfp[3] = fp[3];       // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((naked, noreturn))
+void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
+        // keep track of rets
+        "mov r3, r1 \\n\\t"
+        // drop exception frame
+        //"add r1, r1, #8*4 \\n\\t"
+        //"add r1, r1, #9*4 \\n\\t"
+        // call into c new that we have stack control
+        "bl __box_retsetup \\n\\t"
+        // drop saved state
+        "add r1, r1, #3*4 \\n\\t"
         // restore fp registers?
-        // we do this here to make accessing the return frame easier
-        "tst %%1, #0x10 \\n"
-        "it eq \\n"
-        "vldmiaeq %%0!, {s16-s31} \\n"
-        : "+l" (newsp)
-        : "l" (newlr)
-    );
-
-    // update registers with return value(s)
-    newsp[8+0] = args[0];
-    newsp[8+1] = args[1];
-    newsp[8+2] = args[2];
-    newsp[8+3] = args[3];
-
-    // set new pc to our real return location
-    newsp[8+6] = newsp[8+5];
-
-    // return the other register and return
-    __asm__ volatile (
+        "tst r0, #0x10 \\n\\t"
+        "it eq \\n\\t"
+        "vldmiaeq r1!, {s16-s31} \\n\\t"
         // restore core registers
-        "ldmia %%0!, {r4-r11} \\n"
+        "ldmia r1!, {r4-r11} \\n\\t"
         // update sp
-        "tst %%1, #0x4 \\n"
-        "ite eq \\n"
-        "msreq msp, %%0 \\n"
-        "msrne psp, %%0 \\n"
+        "tst r0, #0x4 \\n\\t"
+        "ite eq \\n\\t"
+        "msreq msp, r1 \\n\\t"
+        "msrne psp, r1 \\n\\t"
         // return
-        "bx %%1 \\n"
-        :
-        : "l" (newsp), "l" (newlr)
+        "bx r0 \\n\\t"
     );
-
-    __builtin_unreachable();
 }
 
-//__attribute__((alias("BusFault_Handler")))
-//void MemManage_Handler(void);
-__attribute__((naked))
-void BusFault_Handler(void) {
-    register uint32_t *sp __asm__("r0");
-    register uint32_t lr __asm__("r1");
-    __asm__ volatile (
-        // get lr, sp, and args
-        "mov %%1, lr \\n"
-        "tst %%1, #0x4 \\n"
-        "ite eq \\n"
-        "mrseq %%0, msp \\n"
-        "mrsne %%0, psp \\n"
-        : "=l" (sp), "=l" (lr)
-    );
-
-    uint32_t op = sp[6];
-    switch (op & ~0xfff) {
-        case 0x0fffc000:
-            __box_%(box)s_call(op, sp, lr);
-            break;
-        case 0x0fffd000:
-            __box_%(box)s_ret(sp, lr);
-            break;
-    }
-
-    // normal access violation, report
-    __box_%(box)s_call(0, sp, lr);
-
-    // shouldn't get here, but just in case
+void __box_halt(uint32_t lr, uint32_t *sp, uint32_t op) {
+    printf("Intercepted fault\\n");
+    printf("CFSR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed28);
+    printf("isr lr 0x%%08x\\n", lr);
+    uint32_t pc = sp[6];
+    printf("pc 0x%%08x\\n", pc);
+    printf("sp 0x%%08x\\n", sp);
+    printf("op 0x%%08x\\n", op);
     while (1) {}
 }
 
-void __box_%(box)s_init(void) {
-    // set up stack pointer
-    __box_%(box)s_table = &__box_%(box)s_jumptable;
-    __box_%(box)s_savedtable = &__%(box)s_importjumptable;
-    __box_%(box)s_savedsp = __box_%(box)s_jumptable
-            .__box_%(box)s_stack_end;
-    __box_%(box)s_savedlr = 0xfffffffd; // TODO need fp bit?
-    __box_%(box)s_savedcontrol = __get_CONTROL() | 1; // unprivileged
-
-    extern void __box_%(box)s_boxinit(const void *);
-    __box_%(box)s_boxinit(&__%(box)s_importjumptable);
+__attribute__((naked))
+void MemManage_Handler(void) {
+    __asm__ volatile (
+        // get lr
+        "mov r0, lr \\n\\t"
+        "tst r0, #0x4 \\n\\t"
+        // get sp
+        "ite eq \\n\\t"
+        "mrseq r1, msp \\n\\t"
+        "mrsne r1, psp \\n\\t"
+        // get pc
+        "ldr r2, [r1, #6*4] \\n\\t"
+        // call?
+        "ldr r3, =#0x1ffc0000 \\n\\t"
+        "sub r3, r2, r3 \\n\\t"
+        "lsrs r3, r3, #16 \\n\\t"
+        "beq __box_call \\n\\t"
+        // ret?
+        "ldr r3, =#0x1ffd0000 \\n\\t"
+        "sub r3, r2, r3 \\n\\t"
+        "lsrs r3, r3, #16 \\n\\t"
+        "beq __box_ret \\n\\t" // TODO box ret
+        // fallback to fault handler (call 1)
+        // TODO this
+        "b __box_halt \\n\\t"
+    );
 }
+"""
 
-void __box_%(box)s_fault(void) {
-    // report access violation along with address
-    uint32_t addr = *(uint32_t*)0xE000ED38;
-    extern void __box_%(box)s_fault_handler(uint32_t addr);
-    __box_%(box)s_fault_handler(addr);
+BOX_SYS_INIT = """
+extern int32_t __box_%(box)s_rawinit(void);
+int32_t __box_%(box)s_init(void) {
+    // make sure MPU is initialized
+    if (!(*MPU_CTRL & 0x1)) {
+        // do we have an MPU?
+        assert(*MPU_TYPE);
+        // enable MemManage exception
+        *SHCSR = *SHCSR | 0x00010000;
+        // setup call region
+        *MPU_RBAR = 0x1ffc0000 | 0x10;
+        // disallow execution
+        *MPU_RASR = 0x10230021;
+        // enable the MPU
+        *MPU_CTRL = *MPU_CTRL | 0x5;
+
+    }
+
+    // prepare box's stack
+    uint32_t *state = (uint32_t*)__box_%(box)s_jumptable[0];
+    state[-2] = 0xfffffff9; // TODO determine fp?
+    state[-1] = (uint32_t)(state - 2);
+
+    // call box's init
+    return __box_%(box)s_rawinit();
 }
 """
 
 @runtimes.runtime
-class MPUProtectRuntime(runtimes.Runtime):
+class ARMv7MPURuntime(runtimes.Runtime):
     """
     A bento-box runtime that uses a v7 MPU to provide memory isolation
     between boxes.
     """
-    __argname__ = "armv7_mpu"
+    __argname__ = "armv7_mpu_"
     __arghelp__ = __doc__
 #
 #    # TODO dupe to Runtime
@@ -258,6 +255,31 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        output.includes.append("<sys/types.h>")
 #        output.decls.append('void __box_%(box)s_init(void);',
 #            doc='jumptable initialization')
+
+    def __init__(self):
+        super().__init__()
+        self.ids = {}
+
+    def box(self, box):
+        super().box(box)
+        # TODO provide this automatically?
+        # we're running this multiple times, which technically works...
+        parent = box.getparent()
+
+        self.ids = {}
+
+        for j, export in enumerate(it.chain(
+                ['__box_write'],
+                (export.name for export in parent.exports))):
+            self.ids[export] = j*(len(parent.boxes)+1)
+
+        for i, box in enumerate(parent.boxes):
+            # TODO make unique name?
+            self.ids['box ' + box.name] = i+1
+            for j, export in enumerate(it.chain(
+                    ['__box_%s_rawinit' % box.name],
+                    (export.name for export in box.exports))):
+                self.ids[export] = j*(len(parent.boxes)+1) + i+1
 
     def build_common_c_glue_(self, output, box):
         output.decls.append('//// jumptable declarations ////')
@@ -284,29 +306,65 @@ class MPUProtectRuntime(runtimes.Runtime):
         outf.writef('};\n')
 
     def build_parent_prologue_c_glue_(self, output, sys):
-        print('hi!')
         output.decls.append('//// jumptable implementation ////')
         #output.includes.append('"fsl_sysmpu.h"')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
             doc='GCC stdlib hook')
 
-        # TODO should this be split?
-        output.decls.append(BOX_SYS_MECH)
+        output.decls.append(MPU_REGISTERS)
+
+        outf = output.decls.append(doc='System state')
+        outf.writef('uint32_t __box_active = 0;\n')
+        outf.writef('uint32_t __box_sys_state[2];\n')
+
+        outf = output.decls.append()
+        outf.writef('const uint32_t __box_sys_jumptable[] = {\n')
+        with outf.pushindent():
+            outf.writef('(uint32_t)(&__box_sys_state + 1),\n')
+            outf.writef('(uint32_t)&_write,\n')
+            for export in sys.exports:
+                outf.writef('(uint32_t)%(export)s,\n', export=export.name)
+        outf.write('};')
+
+        outf = output.decls.append()
+        for box in sys.boxes:
+            if box.runtime.name == self.__argname__:
+                outf.writef(
+                    'extern const uint32_t __box_%(box)s_jumptable[];\n',
+                    box=box.name)
+
+        outf = output.decls.append()
+        outf.writef('#define BOX_COUNT (sizeof(__box_jumptables)/'
+            'sizeof(__box_jumptables[0]))\n')
+        outf.write('const uint32_t *__box_jumptables[] = {\n');
+        with outf.pushindent():
+            outf.writef('__box_sys_jumptable,\n')
+            for box in sys.boxes:
+                if box.runtime.name == self.__argname__:
+                    outf.writef('__box_%(box)s_jumptable,\n',
+                        box=box.name)
+        outf.write('};');
+        
+        output.includes.append('<assert.h>') # TODO need this?
+        output.decls.append(BOX_SYS_DISPATCH)
 
     def build_parent_c_glue_(self, output, sys, box):
-        self.build_common_c_glue_(output, box)
-
-        outf = output.decls.append(doc='system-side jumptable')
-        outf.writef('const struct %(box)s_importjumptable '
-            '__%(box)s_importjumptable = {\n')
-        with outf.pushindent():
-            # special entries for __box_fault and __box_write
-            outf.writef('__box_%(box)s_fault,\n')
-            outf.writef('_write,\n')
-            for import_ in box.imports:
-                outf.writef('%(import_)s,\n', import_=import_.name)
-        outf.writef('};\n')
+        output.decls.append(BOX_SYS_INIT)
+#
+#    def build_parent_c_glue_(self, output, sys, box):
+#        self.build_common_c_glue_(output, box)
+#
+#        outf = output.decls.append(doc='system-side jumptable')
+#        outf.writef('const struct %(box)s_importjumptable '
+#            '__%(box)s_importjumptable = {\n')
+#        with outf.pushindent():
+#            # special entries for __box_fault and __box_write
+#            outf.writef('__box_%(box)s_fault,\n')
+#            outf.writef('_write,\n')
+#            for import_ in box.imports:
+#                outf.writef('%(import_)s,\n', import_=import_.name)
+#        outf.writef('};\n')
 
     def build_c_glue_(self, output, box):
         self.build_common_c_glue_(output, box)
@@ -331,15 +389,15 @@ class MPUProtectRuntime(runtimes.Runtime):
 
     def build_parent_partial_ldscript_(self, output, sys, box):
         # create box calls for imports
-        output.decls.append()
         output.decls.append('/* box calls */')
-        for i, import_ in enumerate(it.chain(
+        for import_ in it.chain(
                 # TODO rename this
-                ['__box_%(box)s_boxinit'],
-                (import_.name for import_ in box.exports))):
-            output.decls.append('%(import_)-24s = 0x0fffc000 + %(i)d*2;',
+                ['__box_%(box)s_rawinit'],
+                (import_.name for import_ in box.exports)):
+            output.decls.append('%(import_)-24s = 0x1ffc0001 + %(id)d*2;',
                 import_=import_,
-                i=i)
+                id=self.ids[import_ % dict(box=box.name)])
+        output.decls.append()
 
 #        # create inherited symbols?
 #        with output.pushattrs(
@@ -372,14 +430,14 @@ class MPUProtectRuntime(runtimes.Runtime):
     def build_partial_ldscript_(self, output, box):
         if output['section_prefix'] == '.':
             # create box calls for imports
-            output.decls.append()
             output.decls.append('/* box calls */')
             for i, import_ in enumerate(it.chain(
-                    ['__box_fault', '__box_write'],
+                    ['__box_write'],
                     (import_.name for import_ in box.imports))):
-                output.decls.append('%(import_)-24s = 0x0fffc000 + %(i)d*2;',
+                output.decls.append('%(import_)-24s = 0x1ffc0001 + %(id)d*2;',
                     import_=import_,
-                    i=i)
+                    id=self.ids[import_])
+            output.decls.append()
 
     def build_ldscript_(self, output, box):
         self.build_partial_ldscript_(output, box)
@@ -562,7 +620,7 @@ class MPUProtectRuntime(runtimes.Runtime):
 #        output.decls.append(fn=Fn(
 #            '__box_%(box)s_init', 'fn() -> void',
 #            doc='jumptable initialization'))
-        output.decls.append('void __box_%(box)s_init(void);',
+        output.decls.append('int32_t __box_%(box)s_init(void);',
             doc='jumptable initialization')
 
         #self.build_common_header_glue(sys, box, output)
