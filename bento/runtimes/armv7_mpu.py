@@ -2,6 +2,7 @@
 from .. import runtimes
 from ..box import Fn
 import itertools as it
+import math
 
 # utility functions in C
 BOX_INIT = """
@@ -41,6 +42,13 @@ MPU_REGISTERS = """
 #define MPU_RASR ((volatile uint32_t*)0xe000eda0)
 """
 
+BOX_MPU_REGIONS = """
+struct __box_mpuregions {
+    uint32_t count;
+    uint32_t regions[][2];
+};
+"""
+
 BOX_SYS_DISPATCH = """
 uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
@@ -54,9 +62,9 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     state[-1] = (uint32_t)sp;
 
     // TODO table walk
-    uint32_t path = (op & 0xffff)/2;
+    uint32_t path = (op & %(callmask)#x)/2;
     uint32_t retbox = __box_active;
-    __box_active = path %% BOX_COUNT;
+    __box_active = path %% __BOX_COUNT;
     const uint32_t *targetjumptable = __box_jumptables[__box_active];
     uint32_t *targetstate = (uint32_t*)targetjumptable[0];
     uint32_t targetlr = targetstate[-2];
@@ -65,7 +73,29 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetstate[-2] = 0; 
     // need sp to fixup instruction aborts
     targetstate[-1] = (uint32_t)targetsp;
-    uint32_t targetpc = targetjumptable[path / BOX_COUNT + 1];
+    uint32_t targetpc = targetjumptable[path / __BOX_COUNT + 1];
+
+    // select MPU regions
+    *MPU_CTRL = 0;
+    const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
+    uint32_t count = regions->count;
+    // TODO check restrictions
+    for (int i = 0; i < %(mpuregions)d; i++) {
+        if (i < count) {
+            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RASR = regions->regions[i][1];
+        } else {
+            *MPU_RBAR = 0x10 | (i+1);
+            *MPU_RASR = 0;
+        }
+    }
+    *MPU_CTRL = 5;
+
+    // enable control?
+    uint32_t control;
+    __asm__ volatile ("mrs %%0, control" : "=r"(control));
+    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
+    __asm__ volatile ("msr control, %%0 \\n\\t isb" :: "r"(control) : "memory");
 
     // setup new call frame
     targetsp -= 8;
@@ -74,7 +104,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetsp[2] = fp[2];        // r2 = arg2
     targetsp[3] = fp[3];        // r3 = arg3
     targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = 0x1ffd0001 + (retbox<<1); // lr = __box_ret
+    targetsp[5] = %(retprefix)#010x + retbox*2 + 1; // lr = __box_ret
     targetsp[6] = targetpc;     // pc = targetpc
     targetsp[7] = fp[7];        // psr = psr
 
@@ -98,13 +128,18 @@ void __box_call(uint32_t lr, uint32_t *sp, uint32_t op) {
         "tst r0, #0x4 \\n\\t"
         "it eq \\n\\t"
         "moveq sp, r1 \\n\\t"
+        // ah! reserve a frame in case we're calling this
+        // interrupts stack from another stack
+        "sub sp, sp, #8*4 \\n\\t"
         // call into c now that we have stack control
         "bl __box_callsetup \\n\\t"
         // update new sp
         "tst r0, #0x4 \\n\\t"
-        "ite eq \\n\\t"
+        "itee eq \\n\\t"
         "msreq msp, r1 \\n\\t"
         "msrne psp, r1 \\n\\t"
+        // drop reserved frame?
+        "subne sp, sp, #8*4 \\n\\t"
         // return to call
         "bx r0 \\n\\t"
     );
@@ -121,8 +156,8 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     state[-1] = (uint32_t)sp;
 
     // TODO table walk
-    uint32_t path = (op & 0xffff)/2;
-    __box_active = path %% BOX_COUNT;
+    uint32_t path = (op & %(retmask)#x)/2;
+    __box_active = path %% __BOX_COUNT;
     const uint32_t *targetjumptable = __box_jumptables[__box_active];
     uint32_t *targetstate = (uint32_t*)targetjumptable[0];
     uint32_t targetlr = targetstate[-2];
@@ -130,6 +165,28 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     uint32_t *targetfp = (uint32_t*)targetsp[0];
     targetstate[-2] = targetsp[1];
     targetstate[-1] = targetsp[2];
+
+    // select MPU regions
+    *MPU_CTRL = 0;
+    const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
+    uint32_t count = regions->count;
+    // TODO check restrictions
+    for (int i = 0; i < %(mpuregions)d; i++) {
+        if (i < count) {
+            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RASR = regions->regions[i][1];
+        } else {
+            *MPU_RBAR = 0x10 | (i+1);
+            *MPU_RASR = 0;
+        }
+    }
+    *MPU_CTRL = 5;
+
+    // enable control?
+    uint32_t control;
+    __asm__ volatile ("mrs %%0, control" : "=r"(control));
+    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
+    __asm__ volatile ("msr control, %%0 \\n\\t isb" :: "r"(control) : "memory");
 
     // copy return frame
     targetfp[0] = fp[0];       // r0 = arg0
@@ -146,9 +203,6 @@ void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of rets
         "mov r3, r1 \\n\\t"
-        // drop exception frame
-        //"add r1, r1, #8*4 \\n\\t"
-        //"add r1, r1, #9*4 \\n\\t"
         // call into c new that we have stack control
         "bl __box_retsetup \\n\\t"
         // drop saved state
@@ -172,11 +226,18 @@ void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
 void __box_halt(uint32_t lr, uint32_t *sp, uint32_t op) {
     printf("Intercepted fault\\n");
     printf("CFSR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed28);
+    printf("MMFAR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed34);
     printf("isr lr 0x%%08x\\n", lr);
     uint32_t pc = sp[6];
     printf("pc 0x%%08x\\n", pc);
     printf("sp 0x%%08x\\n", sp);
     printf("op 0x%%08x\\n", op);
+    printf("MPU regions:\\n");
+    for (int i = 0; i < %(mpuregions)d+1; i++) {
+        *((volatile uint32_t*)0xe000ed98) = i;
+        printf("MPU_RBAR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed9c);
+        printf("MPU_RASR 0x%%08x\\n", *(volatile uint32_t*)0xe000eda0);
+    }
     while (1) {}
 }
 
@@ -193,12 +254,12 @@ void MemManage_Handler(void) {
         // get pc
         "ldr r2, [r1, #6*4] \\n\\t"
         // call?
-        "ldr r3, =#0x1ffc0000 \\n\\t"
+        "ldr r3, =#%(callprefix)#010x \\n\\t"
         "sub r3, r2, r3 \\n\\t"
         "lsrs r3, r3, #16 \\n\\t"
         "beq __box_call \\n\\t"
         // ret?
-        "ldr r3, =#0x1ffd0000 \\n\\t"
+        "ldr r3, =#%(retprefix)#010x \\n\\t"
         "sub r3, r2, r3 \\n\\t"
         "lsrs r3, r3, #16 \\n\\t"
         "beq __box_ret \\n\\t" // TODO box ret
@@ -219,17 +280,18 @@ int32_t __box_%(box)s_init(void) {
         // enable MemManage exception
         *SHCSR = *SHCSR | 0x00010000;
         // setup call region
-        *MPU_RBAR = 0x1ffc0000 | 0x10;
+        *MPU_RBAR = %(callprefix)#010x | 0x10;
         // disallow execution
-        *MPU_RASR = 0x10230021;
+        //*MPU_RASR = 0x10230021;
+        *MPU_RASR = 0x10000001 | ((%(callregionlog2)d-1) << 1);
         // enable the MPU
-        *MPU_CTRL = *MPU_CTRL | 0x5;
-
+        *MPU_CTRL = 5;
     }
 
     // prepare box's stack
     uint32_t *state = (uint32_t*)__box_%(box)s_jumptable[0];
-    state[-2] = 0xfffffff9; // TODO determine fp?
+    // must use PSP, otherwise boxes could overflow ISR stack
+    state[-2] = 0xfffffffd; // TODO determine fp?
     state[-1] = (uint32_t)(state - 2);
 
     // call box's init
@@ -256,6 +318,37 @@ class ARMv7MPURuntime(runtimes.Runtime):
         # we're running this multiple times, which technically works...
         parent = box.getparent()
 
+        self.call_region = parent.mpu_call_region or Region(
+            '0x1e000000-0x1fffffff')
+        assert math.log2(self.call_region.size) % 1 == 0, (
+            "MPU call region is not aligned to a power-of-two %s"
+                % self.call_region)
+        assert self.call_region.addr % self.call_region.size == 0, (
+            "MPU call region is not aligned to size %s"
+                % self.call_region)
+        # TODO inject these into output config?
+        self.callprefix = self.call_region.addr
+        self.callmask = (self.call_region.size//2)-1
+        self.retprefix = self.call_region.addr + self.call_region.size//2
+        self.retmask = (self.call_region.size//2)-1
+        self.callregionaddr = self.call_region.addr
+        self.callregionsize = self.call_region.size
+        self.callregionlog2 = int(math.log2(self.call_region.size))
+        self.mpuregions = 4
+
+        for box in parent.boxes:
+            if box.runtime.name == self.__argname__:
+                for memory in box.memories:
+                    assert math.log2(memory.size) % 1 == 0, (
+                        "Memory region %s not aligned to a power-of-two"
+                            % memory.name)
+                    assert memory.addr % memory.size == 0, (
+                        "Memory region %s not aligned to its size"
+                            % memory.name)
+                    assert memory.size >= 32, (
+                        "Memory region %s too small (< 32 bytes)"
+                            % memory.name)
+
         self.ids = {}
 
         for j, export in enumerate(it.chain(
@@ -272,6 +365,15 @@ class ARMv7MPURuntime(runtimes.Runtime):
                 self.ids[export] = j*(len(parent.boxes)+1) + i+1
 
     def build_common_c(self, output, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         output.decls.append('//// jumptable declarations ////')
 
         outf = output.decls.append()
@@ -297,6 +399,15 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf.writef('};\n')
 
     def build_parent_prologue_c(self, output, sys):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
@@ -308,6 +419,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf.writef('uint32_t __box_active = 0;\n')
         outf.writef('uint32_t __box_sys_state[2];\n')
 
+        # jumptables
         outf = output.decls.append()
         outf.writef('const uint32_t __box_sys_jumptable[] = {\n')
         with outf.pushindent():
@@ -325,24 +437,92 @@ class ARMv7MPURuntime(runtimes.Runtime):
                     box=box.name)
 
         outf = output.decls.append()
-        outf.writef('#define BOX_COUNT (sizeof(__box_jumptables)/'
-            'sizeof(__box_jumptables[0]))\n')
-        outf.write('const uint32_t *__box_jumptables[] = {\n');
+        outf.writef('#define __BOX_COUNT %(boxcount)d\n',
+            boxcount=sum(1 for box in sys.boxes
+                if box.runtime.name == self.__argname__) + 1)
+        outf.writef('const uint32_t *const '
+            '__box_jumptables[__BOX_COUNT] = {\n');
         with outf.pushindent():
             outf.writef('__box_sys_jumptable,\n')
             for box in sys.boxes:
                 if box.runtime.name == self.__argname__:
                     outf.writef('__box_%(box)s_jumptable,\n',
                         box=box.name)
-        outf.write('};');
-        
+        outf.writef('};');
+
+        # mpu regions
+        output.decls.append(BOX_MPU_REGIONS)
+
+        outf = output.decls.append()
+        outf.writef('const struct __box_mpuregions __box_sys_mpuregions = {\n')
+        with outf.pushindent():
+            outf.writef('.count = 0,\n')
+            outf.writef('.regions = {},\n')
+        outf.writef('};\n')
+
+        for box in sys.boxes:
+            if box.runtime.name == self.__argname__:
+                outf = output.decls.append(box=box.name)
+                outf.writef('const struct __box_mpuregions '
+                    '__box_%(box)s_mpuregions = {\n')
+                with outf.pushindent():
+                    outf.writef('.count = %(count)d,\n',
+                        count=len(box.memories))
+                    outf.writef('.regions = {\n')
+                    with outf.pushindent():
+                        for memory in box.memories:
+                            outf.writef('{%(rbar)#010x, %(rasr)#010x},\n',
+                                rbar=memory.addr,
+                                rasr= (0x10000000
+                                        if 'x' not in memory.mode else
+                                        0x00000000)
+                                    | (0x03000000
+                                        if set('rw').issubset(memory.mode) else
+                                        0x02000000
+                                        if 'r' in memory.mode else
+                                        0x00000000)
+                                    | 0 #(0x00080000)
+                                    | ((int(math.log2(memory.size))-1) << 1)
+                                    | 1)
+                    outf.writef('},\n')
+                outf.writef('};')
+
+        outf = output.decls.append()
+        outf.writef('const struct __box_mpuregions *const '
+            '__box_mpuregions[__BOX_COUNT] = {\n')
+        with outf.pushindent():
+            outf.writef('&__box_sys_mpuregions,\n')
+            for box in sys.boxes:
+                if box.runtime.name == self.__argname__:
+                    outf.writef('&__box_%(box)s_mpuregions,\n', box=box.name)
+        outf.writef('};\n')
+
+        # the rest of the dispatch logic
         output.includes.append('<assert.h>') # TODO need this?
         output.decls.append(BOX_SYS_DISPATCH)
 
     def build_parent_c(self, output, sys, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         output.decls.append(BOX_SYS_INIT)
 
     def build_c(self, output, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         self.build_common_c(output, box)
 
         output.decls.append('//// jumptable implementation ////')
@@ -364,13 +544,23 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf.writef('};\n')
 
     def build_parent_partial_ld(self, output, sys, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         # create box calls for imports
         output.decls.append('/* box calls */')
         for import_ in it.chain(
                 # TODO rename this
                 ['__box_%(box)s_rawinit'],
                 (import_.name for import_ in box.exports)):
-            output.decls.append('%(import_)-24s = 0x1ffc0001 + %(id)d*2;',
+            output.decls.append(
+                '%(import_)-24s = %(callprefix)#010x + %(id)d*2 + 1;',
                 import_=import_,
                 id=self.ids[import_ % dict(box=box.name)])
         output.decls.append()
@@ -385,20 +575,48 @@ class ARMv7MPURuntime(runtimes.Runtime):
         super().build_parent_partial_ld(output, sys, box)
 
     def build_parent_ld(self, output, sys, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         return self.build_parent_partial_ld(output, sys, box)
 
     def build_partial_ld(self, output, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         # create box calls for imports
         output.decls.append('/* box calls */')
         for i, import_ in enumerate(it.chain(
                 ['__box_write'],
                 (import_.name for import_ in box.imports))):
-            output.decls.append('%(import_)-24s = 0x1ffc0001 + %(id)d*2;',
+            output.decls.append(
+                '%(import_)-24s = %(callprefix)#010x + %(id)d*2 + 1;',
                 import_=import_,
                 id=self.ids[import_])
         output.decls.append()
 
     def build_ld(self, output, box):
+        output.pushattrs(
+            callprefix=self.callprefix,
+            callmask=self.callmask,
+            retprefix=self.retprefix,
+            retmask=self.retmask,
+            callregionaddr=self.callregionaddr,
+            callregionsize=self.callregionsize, 
+            callregionlog2=self.callregionlog2,
+            mpuregions=self.mpuregions)
         self.build_partial_ld(output, box)
         
         # TODO handle this in ldscript class? ldscript.consume?
@@ -407,7 +625,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
         # TODO what... this just doesn't work...
 #        memory = box.bestmemory('rx', box.jumptable.size,
 #            consumed=output.consumed)
-        memory, _, _ = box.consume('rx', box.jumptable.size)
+        memory, _, _ = box.consume('rx', section=box.jumptable)
         #print(output.consumed)
         # TODO hm
         #output.consumed[memory.name] += box.jumptable.size

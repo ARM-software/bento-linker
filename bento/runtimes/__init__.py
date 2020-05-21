@@ -121,15 +121,15 @@ class Runtime:
                         parent)
 
         for name, output in box.outputs.items():
-                if ('box', box.name) not in output.prologues:
-                    output.prologues[('box', box.name)] = (
-                        getattr(self, 'build_prologue_' + name), box)
-                    build, *args = output.prologues[('box', box.name)]
-                    build(output, *args)
-                getattr(self, 'build_' + name)(output, box)
-                if ('box', box.name) not in output.epilogues:
-                    output.epilogues[('box', box.name)] = (
-                        getattr(self, 'build_epilogue_' + name), box)
+            if ('box', box.name) not in output.prologues:
+                output.prologues[('box', box.name)] = (
+                    getattr(self, 'build_prologue_' + name), box)
+                build, *args = output.prologues[('box', box.name)]
+                build(output, *args)
+            getattr(self, 'build_' + name)(output, box)
+            if ('box', box.name) not in output.epilogues:
+                output.epilogues[('box', box.name)] = (
+                    getattr(self, 'build_epilogue_' + name), box)
 
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS

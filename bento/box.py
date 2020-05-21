@@ -5,10 +5,11 @@ import itertools as it
 from . import argstuff
 from .argstuff import ArgumentParser
 
+
 class Section:
     """
-    Description of the SECTION. Note that the SECTION may not
-    be emitted depending on specified outputs and runtimes.
+    Description of the SECTION section. Note that the SECTION section
+    may not be emitted depending on specified outputs and runtimes.
     """
     __argname__ = "section"
     __arghelp__ = __doc__
@@ -21,7 +22,7 @@ class Section:
         parser.add_argument("--size", type=lambda x: int(x, 0),
             help="Minimum size of the %s. Defaults to 0." % name)
         parser.add_argument("--align", type=lambda x: int(x, 0),
-            help="Minimum alignment of the %s." % name)
+            help="Minimum alignment of the %s. Optional." % name)
         parser.add_argument("--memory",
             help="Explicitly specify the memory to allocate the %s." % name)
 
@@ -63,7 +64,110 @@ class Section:
     def __bool__(self):
         return self.size != 0
 
-class Memory:
+class Region:
+    """
+    Region of addresses to use for REGION.
+    """
+    __argname__ = "region"
+    __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser, name=None, help=None):
+        name = name or cls.__argname__
+        help = (help or cls.__arghelp__).replace('REGION', name)
+        parser.add_argument("region", type=argstuff.pred(cls.parseregion),
+            help=cls.__arghelp__)
+        parser.add_argument("--addr", type=lambda x: int(x, 0),
+            help="Starting address of region. Note that addr may be "
+                "undefined if the exact location does not matter.")
+        parser.add_argument("--size", type=lambda x: int(x, 0),
+            help="Size of the region in bytes.")
+        parser.add_argument("--align", type=lambda x: int(x, 0),
+            help="Minimum alignment of the region. Optional.")
+
+    @staticmethod
+    def parseregion(s):
+        addrpattern = r'(?:0[a-z])?[0-9a-fA-F]+'
+        mempattern = (r'\s*'
+            '(?:(%(addr)s)\s*-)?\s*'
+            '(%(addr)s)?\s*'
+            '(%(addr)s)?\s*'
+            '(?:bytes)?\s*' % dict(addr=addrpattern))
+
+        m = re.match('^%s$' % mempattern, s)
+        if not m:
+            raise ValueError("Invalid region description %r" % s)
+
+        addr = m.group(1) and int(m.group(1), 0)
+        size = m.group(2) and int(m.group(2), 0) - (
+            addr - 1 if addr is not None else 0)
+        if m.group(3) and int(m.group(3), 0) != size:
+            raise ValueError("Range %#x-%#x does not match size %#x" % (
+                addr or 0, addr+size-1, int(m.group(3), 0)))
+
+        return addr, size
+
+    def __init__(self, addr=None, size=None, align=None, region=None):
+        region = Region.parseregion(region) if region else (None, None)
+        self.align = align
+        self.addr = addr if addr is not None else region[0]
+        self.size = size if size is not None else region[1] or 0
+
+        assert self.size >= 0, "Invalid region size %#x?" % self.size
+        if self.align and self.addr:
+            assert self.addr % self.align == 0, ("Region address %#010x "
+                "not aligned to region alignment %#010x" % (
+                    self.addr, self.align))
+        if self.align:
+            assert self.size % self.align == 0, ("Region size %#010x "
+                "not aligned to region alignment %#010x" % (
+                    self.size, self.align))
+
+    def __str__(self):
+        return "%(range)s %(size)d bytes" % dict(
+            range='%#010x-%#010x' % (self.addr, self.addr+self.size-1)
+                if self.addr is not None else
+                '%#010x' % self.size,
+            size=self.size)
+
+    def __bool__(self):
+        return bool(self.size)
+
+    def __lt__(self, other):
+        return self.addr < other.addr
+
+    def __contains__(self, other):
+        if isinstance(other, Region):
+            return (other.addr >= self.addr and
+                other.addr+other.size <= self.addr+self.size)
+        else:
+            return (other >= self.addr and
+                other < self.addr + self.size)
+
+    def __sub__(self, regions):
+        if isinstance(regions, Region):
+            regions = [regions]
+
+        if self.size == 0:
+            return []
+
+        slices = [(self.addr, self.size)]
+        for region in regions:
+            nslices = []
+            for addr, size in slices:
+                if region.addr >= addr+size or region.addr+region.size <= addr:
+                    nslices.append((addr, size))
+                else:
+                    if region.addr > addr:
+                        nslices.append((addr, region.addr - addr))
+                    if addr+size > region.addr+region.size:
+                        nslices.append((region.addr+region.size,
+                            addr+size - region.addr+region.size))
+            slices = nslices
+
+        return [Region(addr=self.addr, size=self.size)
+            for addr, size in slices]
+
+class Memory(Region):
     """
     Description of a memory region named MEMORY.
     """
@@ -213,16 +317,8 @@ class Memory:
                 -self.addr if reverse else self.addr)
         return key
 
-    def __contains__(self, other):
-        if isinstance(other, Memory):
-            return (other.addr >= self.addr and
-                other.addr+other.size <= self.addr+self.size)
-        else:
-            return (other >= self.addr and
-                other < self.addr + self.size)
-
     def __sub__(self, regions):
-        if isinstance(regions, Memory):
+        if isinstance(regions, Region):
             regions = [regions]
 
         if self.size == 0:
@@ -652,13 +748,16 @@ class System(Box):
         Section.__argparse__(
             parser.add_nestedparser('--heap'), name='heap')
         Section.__argparse__(
-            parser.add_nestedparser('--isr_vector'), name='isr_vector')
-        Section.__argparse__(
             parser.add_nestedparser('--text'), name='text')
         Section.__argparse__(
             parser.add_nestedparser('--data'), name='data')
         Section.__argparse__(
             parser.add_nestedparser('--bss'), name='bss')
+        Section.__argparse__(
+            parser.add_nestedparser('--isr_vector'), name='isr_vector')
+        Region.__argparse__(
+            parser.add_nestedparser('--mpu_call_region'),
+            name='mpu_call_region')
         Import.__argparse__(
             parser.add_set('--'+Import.__argname__))
         Export.__argparse__(
@@ -687,13 +786,14 @@ class System(Box):
         
         self.stack = Section(**args.stack.__dict__)
         self.heap = Section(**args.heap.__dict__)
-        self.isr_vector = Section(**{**args.isr_vector.__dict__,
-            'size': args.isr_vector.size
-                if args.isr_vector.size is not None else
-                0x400})
         self.text = Section(**args.text.__dict__)
         self.data = Section(**args.data.__dict__)
         self.bss = Section(**args.bss.__dict__)
+        self.isr_vector = Section(**{**args.isr_vector.__dict__,
+            'size': args.isr_vector.size
+                if args.isr_vector.size is not None else
+                0x400}) # TODO move this?
+        self.mpu_call_region = Region(**args.mpu_call_region.__dict__)
 
         self.imports = sorted(Import(name, **importargs.__dict__)
             for name, importargs in args.imports.items())
