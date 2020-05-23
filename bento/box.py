@@ -17,7 +17,7 @@ class Section:
     def __argparse__(cls, parser, name=None, help=None):
         name = name or cls.__argname__
         help = (help or cls.__arghelp__).replace('SECTION', name)
-        parser.add_argument("size", type=argstuff.pred(cls.parsesection),
+        parser.add_argument("size", pred=cls.parsesection,
             metavar=name, help=help)
         parser.add_argument("--size", type=lambda x: int(x, 0),
             help="Minimum size of the %s. Defaults to 0." % name)
@@ -74,7 +74,7 @@ class Region:
     def __argparse__(cls, parser, name=None, help=None):
         name = name or cls.__argname__
         help = (help or cls.__arghelp__).replace('REGION', name)
-        parser.add_argument("region", type=argstuff.pred(cls.parseregion),
+        parser.add_argument("region", pred=cls.parseregion,
             help=cls.__arghelp__)
         parser.add_argument("--addr", type=lambda x: int(x, 0),
             help="Starting address of region. Note that addr may be "
@@ -176,10 +176,10 @@ class Memory(Region):
     __argname__ = "memories"
     __arghelp__ = __doc__
     @classmethod
-    def __argparse__(cls, parser):
-        parser.add_argument("memory", type=argstuff.pred(cls.parsememory),
+    def __argparse__(cls, parser, **kwargs):
+        parser.add_argument("memory", pred=cls.parsememory,
             help=cls.__arghelp__)
-        parser.add_argument("--mode", type=argstuff.pred(cls.parsemode),
+        parser.add_argument("--mode", pred=cls.parsemode,
             help="String of characters indicating how the underlying memory "
                 "can be accessed. Can be a combination of %s." %
                 ', '.join(map(repr, cls.MODEFLAGS)))
@@ -412,10 +412,10 @@ class Fn:
     Function type.
     """
     @classmethod
-    def __argparse__(cls, parser):
-        parser.add_argument("type", type=argstuff.pred(cls.parsetype),
+    def __argparse__(cls, parser, **kwargs):
+        parser.add_argument("type", pred=cls.parsetype,
             help=cls.__arghelp__)
-        parser.add_argument("--type", type=argstuff.pred(cls.parsetype),
+        parser.add_argument("--type", pred=cls.parsetype,
             help="Type of the function.")
         parser.add_argument("--doc",
             help="Docstring for the function.")
@@ -527,7 +527,8 @@ class Box:
     __argname__ = "boxes"
     __arghelp__ = __doc__
     @classmethod
-    def __argparse__(cls, parser):
+    def __argparse__(cls, parser, recursive=False, **kwargs):
+
         from .runtimes import RUNTIMES
         parser.add_argument("--runtime", choices=RUNTIMES,
             help="Runtime for the box. This can be one of the following "
@@ -536,35 +537,59 @@ class Box:
             help="Working directory for the box, defaults to the "
                 "name of the box.")
 
+#        from .outputs import OUTPUTS
+#        outputparser = parser.add_nestedparser("--outputs")
+#        for Output in OUTPUTS.values():
+#            outputparser.add_argument('--'+Output.__argname__,
+#                help=Output.__arghelp__)
+#
+#        Memory.__argparse__(
+#            parser.add_set('--'+Memory.__argname__))
+#        Section.__argparse__(
+#            parser.add_nestedparser('--stack'), name='stack')
+#        Section.__argparse__(
+#            parser.add_nestedparser('--heap'), name='heap')
+#        Section.__argparse__(
+#            parser.add_nestedparser('--jumptable'), name='jumptable')
+#        Section.__argparse__(
+#            parser.add_nestedparser('--text'), name='text')
+#        Section.__argparse__(
+#            parser.add_nestedparser('--data'), name='data')
+#        Section.__argparse__(
+#            parser.add_nestedparser('--bss'), name='bss')
+#        Import.__argparse__(
+#            parser.add_set('--'+Import.__argname__))
+#        Export.__argparse__(
+#            parser.add_set('--'+Export.__argname__))
+#
+#        Box.__argparse__(
+#            parser.add_set('--'+Box.__argname__, help=Box.__arghelp__, recursive=True))
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--outputs")
         for Output in OUTPUTS.values():
-            outputparser.add_argument('--'+Output.__argname__,
-                help=Output.__arghelp__)
+            outputparser.add_argument(Output)
 
-        Memory.__argparse__(
-            parser.add_set('--'+Memory.__argname__))
-        Section.__argparse__(
-            parser.add_nestedparser('--stack'), name='stack')
-        Section.__argparse__(
-            parser.add_nestedparser('--heap'), name='heap')
-        Section.__argparse__(
-            parser.add_nestedparser('--jumptable'), name='jumptable')
-        Section.__argparse__(
-            parser.add_nestedparser('--text'), name='text')
-        Section.__argparse__(
-            parser.add_nestedparser('--data'), name='data')
-        Section.__argparse__(
-            parser.add_nestedparser('--bss'), name='bss')
-        Import.__argparse__(
-            parser.add_set('--'+Import.__argname__))
-        Export.__argparse__(
-            parser.add_set('--'+Export.__argname__))
+        parser.add_set(Memory)
+        parser.add_nestedparser('--stack', Section)
+        parser.add_nestedparser('--heap', Section)
+        parser.add_nestedparser('--text', Section)
+        parser.add_nestedparser('--data', Section)
+        parser.add_nestedparser('--bss', Section)
+        parser.add_nestedparser('--jumptable', Section)
+        parser.add_nestedparser('--isr_vector', Section)
+        parser.add_nestedparser('--mpu_call_region', Region)
+        parser.add_set(Import)
+        parser.add_set(Export)
+
+        if not recursive:
+            # recursive set will handle further arg nesting
+            parser.add_set(Box, recursive=True, action='append')
 
     def __init__(self, name, parent=None, **args):
         args = argstuff.Namespace(**args)
         self.name = name
         self.parent = parent
+        assert hasattr(args, 'path'), "WHAT %s %s" % (name, args)
         self.path = args.path or name
 
         # Load additional config from the filesystem
@@ -572,7 +597,7 @@ class Box:
             parser = ArgumentParser(add_help=False)
             self.__class__.__argparse__(parser)
             nargs = parser.parse_toml(self.path + '/recipe.toml')
-            args = argstuff.merge(args, nargs)
+            args = argstuff.nsmerge(args, nargs)
         except FileNotFoundError:
             pass
 
@@ -591,8 +616,11 @@ class Box:
         self.exports = sorted(Import(name, **exportargs.__dict__)
             for name, exportargs in args.exports.items())
 
-        # TODO hmm ( ͡° ͜ʖ ͡°)
-        self.boxes = []
+#        # TODO hmm ( ͡° ͜ʖ ͡°)
+#        self.boxes = []
+        
+        self.boxes = sorted(Box(name, **boxargs.__dict__, parent=self)
+            for name, boxargs in sorted(getattr(args, 'boxes', {}).items(), reverse=True))
 
         from .runtimes import RUNTIMES
         self.runtime = RUNTIMES[args.runtime or 'noop']()
@@ -738,33 +766,24 @@ class System(Box):
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--outputs")
         for Output in OUTPUTS.values():
-            outputparser.add_argument('--'+Output.__argname__,
-                help=Output.__arghelp__)
+            outputparser.add_argument(Output)
 
-        Memory.__argparse__(
-            parser.add_set('--'+Memory.__argname__))
-        Section.__argparse__(
-            parser.add_nestedparser('--stack'), name='stack')
-        Section.__argparse__(
-            parser.add_nestedparser('--heap'), name='heap')
-        Section.__argparse__(
-            parser.add_nestedparser('--text'), name='text')
-        Section.__argparse__(
-            parser.add_nestedparser('--data'), name='data')
-        Section.__argparse__(
-            parser.add_nestedparser('--bss'), name='bss')
-        Section.__argparse__(
-            parser.add_nestedparser('--isr_vector'), name='isr_vector')
-        Region.__argparse__(
-            parser.add_nestedparser('--mpu_call_region'),
-            name='mpu_call_region')
-        Import.__argparse__(
-            parser.add_set('--'+Import.__argname__))
-        Export.__argparse__(
-            parser.add_set('--'+Export.__argname__))
+        parser.add_set(Memory)
+        parser.add_nestedparser('--stack', Section)
+        parser.add_nestedparser('--heap', Section)
+        parser.add_nestedparser('--text', Section)
+        parser.add_nestedparser('--data', Section)
+        parser.add_nestedparser('--bss', Section)
+        parser.add_nestedparser('--jumptable', Section)
+        parser.add_nestedparser('--isr_vector', Section)
+        parser.add_nestedparser('--mpu_call_region', Region)
+        parser.add_set(Import)
+        parser.add_set(Export)
 
-        Box.__argparse__(
-            parser.add_set('--'+Box.__argname__))
+        parser.add_set(Box, recursive=True, action='append')
+#
+#        Box.__argparse__(
+#            parser.add_set('--'+Box.__argname__, help=Box.__arghelp__, recursive=True, action='append'))
 
     def __init__(self, **args):
         args = argstuff.Namespace(**args)
@@ -777,7 +796,7 @@ class System(Box):
             parser = ArgumentParser(add_help=False)
             self.__class__.__argparse__(parser)
             nargs = parser.parse_toml(self.path + '/recipe.toml')
-            args = argstuff.merge(args, nargs)
+            args = argstuff.nsmerge(args, nargs)
         except FileNotFoundError:
             pass
 

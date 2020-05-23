@@ -9,4 +9,4 @@ class NoOpRuntime(runtimes.Runtime):
     __argname__ = "noop"
     __arghelp__ = __doc__
     def __init__(self):
-        print("hi")
+        print("hi I'm noop")

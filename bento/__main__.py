@@ -24,26 +24,34 @@ class ListCommand:
     def __argparse__(cls, parser):
         System.__argparse__(parser)
     def __init__(self, **args):
-        sys = System(**args)
-        sys.box()
+        sys_ = System(**args)
+        sys_.box()
 
-        for box in it.chain([sys], sys.boxes):
-            print("system" if box.issys() else "box %s" % box.name)
+        def ls(box):
+            print('sys' if box.issys() else 'box %s' % box.name)
+            print('  %(name)-34s %(path)s' % dict(
+                name='path', path=box.path))
             if not box.issys():
-                print("  %(name)-34s %(runtime)s" % dict(
-                    name="runtime",
-                    runtime=box.runtime.__argname__))
+                print('  %(name)-34s %(runtime)s' % dict(
+                    name='runtime', runtime=box.runtime.__argname__))
             for memory in box.memories:
-                print('  %-34s %s' % ('memories.%s' % memory.name, memory))
+                print('  %(name)-34s %(memory)s' % dict(
+                    name='memories.%s' % memory.name, memory=memory))
             if box.imports:
                 print('  imports')
                 for import_ in box.imports:
-                    print('    %-32s %s' % (import_.name, import_))
+                    print('    %(name)-32s %(import_)s' % dict(
+                        name=import_.name, import_=import_))
             if box.exports:
-                print('  exports')
+                print('   exports')
                 for export in box.exports:
-                    print('    %-32s %s' % (export.name, export))
+                    print('    %(name)-32s %(export)s' % dict(
+                        name=export.name, export=export))
 
+            for box in box.boxes:
+                ls(box)
+
+        ls(sys_)
 
 @command
 class BuildCommand:

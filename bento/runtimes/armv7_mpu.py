@@ -1,6 +1,6 @@
 
 from .. import runtimes
-from ..box import Fn
+from ..box import Fn, Region
 import itertools as it
 import math
 
