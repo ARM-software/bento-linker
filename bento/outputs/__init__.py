@@ -21,9 +21,9 @@ class OutputBlob(io.StringIO):
         self._needindent = True
         self.pushattrs(**kwargs)
 
-    def writef(self, fmt, **kwargs):
-        fmt = fmt % self.attrs(**kwargs)
-        for c in fmt:
+    def writef(self, _fmt, **kwargs):
+        _fmt = _fmt % self.attrs(**kwargs)
+        for c in _fmt:
             if c == '\n':
                 self._needindent = True
             else:
@@ -31,6 +31,16 @@ class OutputBlob(io.StringIO):
                     self._needindent = False
                     super().write(self.get('indent', 0)*' ')
             self.write(c)
+
+    def print(self, *args):
+        for arg in args:
+            self.write(str(arg))
+        self.write('\n')
+
+    def printf(self, *args, **kwargs):
+        for arg in args:
+            self.writef(str(arg), **kwargs)
+        self.writef('\n')
 
     def pushattrs(self, **kwargs):
         self._attrs.append(kwargs)
@@ -157,8 +167,6 @@ class Output(OutputBlob):
         super().__init__()
         self.name = self.__argname__
         self.path = path
-        self.prologues = co.OrderedDict()
-        self.epilogues = co.OrderedDict()
 
     def __lt__(self, other):
         return self.name < other.name
@@ -170,8 +178,7 @@ class Output(OutputBlob):
             box=box.name if box.isbox() else None)
 
     def build(self, box):
-        for build, *args in self.epilogues.values():
-            build(self, *args)
+        pass
 
 # Output class imports
 # These must be imported here, since they depend on the above utilities

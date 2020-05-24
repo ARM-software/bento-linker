@@ -3,6 +3,7 @@ import builtins
 import collections as co
 import itertools as it
 import string
+from .. import outputs
 
 RUNTIMES = co.OrderedDict()
 def runtime(cls):
@@ -10,145 +11,132 @@ def runtime(cls):
     RUNTIMES[cls.__argname__] = cls
     return cls
 
-class Runtime:
+class Runtime(outputs.OutputBlob):
     """A bento-box runtime."""
     __argname__ = "runtime"
     __arghelp__ = __doc__
 
     def __init__(self):
+        super().__init__()
         self.name = self.__argname__
 
+    def __eq__(self, other):
+        if isinstance(other, Runtime):
+            return self.name == other.name
+        else:
+            return self.name == other
+
     def __lt__(self, other):
-        return self.name < other.name
+        if isinstance(other, Runtime):
+            return self.name < other.name
+        else:
+            return self.name < other
 
     def box(self, box):
-        pass
-#        for name, output in box.outputs.items():
-#            if not hasattr(self, 'build_' + output.name):
-#                if hasattr(output, 'default_build'):
-#                    setattr(self, 'build_' + output.name,
-#                        output.default_build)
-#                else:
-#                    setattr(self, 'build_' + output.name,
-#                        lambda output, *args, **kwargs: None)
-#
-#        parent = box.getparent()
-#        if parent:
-#            for name, output in parent.outputs.items():
-#                if not hasattr(self, 'build_parent_' + output.name):
-#                    if hasattr(output, 'default_build'):
-#                        setattr(self, 'build_parent_' + output.name,
-#                            output.default_build)
-#                    else:
-#                        setattr(self, 'build_parent_' + output.name,
-#                            lambda output, *args, **kwargs: None)
-#
-#        root = box.getroot()
-#        if root:
-#            for name, output in root.outputs.items():
-#                if not hasattr(self, 'build_root_' + output.name):
-#                    if hasattr(output, 'default_build'):
-#                        setattr(self, 'build_root_' + output.name,
-#                            output.default_build)
-#                    else:
-#                        setattr(self, 'build_root_' + output.name,
-#                            lambda output, *args, **kwargs: None)
-    
+        for level, lbox in [
+                ('root', box.getroot()),
+                ('muxer', box.getmuxer()),
+                ('parent', box.getparent()),
+                ('box', box)]:
+            if not lbox:
+                continue
 
+            if ('runtime', level) not in lbox.box_prologues:
+                def prologue(f, lbox):
+                    def prologue():
+                        f(lbox)
+                    return prologue
+                lbox.box_prologues[('runtime', level)] = prologue(
+                    getattr(self, 'box_%s_prologue' % level),
+                    lbox)
+                lbox.box_prologues[('runtime', level)]()
 
+            if level != 'box':
+                getattr(self, 'box_%s' % level)(lbox, box)
+            else:
+                getattr(self, 'box_%s' % level)(box)
 
-#    def __getattr__(self, name):
-#        # intercept build_* calls, dynamically provide defaults
-#        if name.startswith('build_root_'):
-#            def build(output, *args, **kwargs):
-#                if output and hasattr(output, 'default_build_root'):
-#                    return output.default_build_root(*args, **kwargs)
-#            return build
-#
-#        if name.startswith('build_parent_'):
-#            def build(output, *args, **kwargs):
-#                if output and hasattr(output, 'default_build_parent'):
-#                    return output.default_build_parent(*args, **kwargs)
-#            return build
-#
-#        if name.startswith('build_'):
-#            def build(output, *args, **kwargs):
-#                if output and hasattr(output, 'default_build'):
-#                    return output.default_build_parent(*args, **kwargs)
-#            return build
-#
-#
-#
-#        if name.startswith('build_'):
-#            def build(output, *args, **kwargs):
-#                nname = 'default_' + name[:-len(output.name)-1]
-#                print(nname)
-#                if output and hasattr(output, nname):
-#                    return getattr(output, nname)(*args, **kwargs)
-#            return build
-#
-#        return super().__getattr__(name)
+            if ('runtime', level) not in lbox.box_epilogues:
+                def epilogue(f, lbox):
+                    def epilogue():
+                        f(lbox)
+                    return epilogue
+                lbox.box_epilogues[('runtime', level)] = epilogue(
+                    getattr(self, 'box_%s_epilogue' % level),
+                    lbox)
 
     def build(self, box):
-        root = box.getroot()
-        if root:
-            for name, output in root.outputs.items():
-                if 'root' not in output.prologues:
-                    output.prologues['root'] = (
-                        getattr(self, 'build_root_prologue_' + name), root)
-                    build, *args = output.prologues['root']
-                    build(output, *args)
-                with output.pushattrs(root=root.name, box=box.name):
-                    getattr(self, 'build_root_' + name)(output, root, box)
-                if 'epilogue' not in output.epilogues:
-                    output.epilogues['root'] = (
-                        getattr(self, 'build_root_epilogue_' + name), root)
+        attrs = self.attrs()
+        for level, lbox in [
+                ('root', box.getroot()),
+                ('muxer', box.getmuxer()),
+                ('parent', box.getparent()),
+                ('box', box)]:
+            if not lbox:
+                continue
 
-        parent = box.getparent()
-        if parent:
-            for name, output in parent.outputs.items():
-                if 'parent' not in output.prologues:
-                    output.prologues['parent'] = (
-                        getattr(self, 'build_parent_prologue_' + name),
-                        parent)
-                    build, *args = output.prologues['parent']
-                    build(output, *args)
-                with output.pushattrs(parent=parent.name, box=box.name):
-                    getattr(self, 'build_parent_' + name)(output, parent, box)
-                if 'epilogue' not in output.epilogues:
-                    output.epilogues['parent'] = (
-                        getattr(self, 'build_parent_epilogue_' + name),
-                        parent)
+            for name, output in lbox.outputs.items():
+                if ('runtime', level, name) not in lbox.build_prologues:
+                    def prologue(f, output, lbox):
+                        def prologue():
+                            with output.pushattrs(**{**attrs,
+                                    level: lbox.name}):
+                                f(output, lbox)
+                        return prologue
+                    lbox.build_prologues[('runtime', level, name)] = prologue(
+                        getattr(self, 'build_%s_prologue_%s' % (level, name)),
+                        output, lbox)
+                    lbox.build_prologues[('runtime', level, name)]()
 
-        for name, output in box.outputs.items():
-            if ('box', box.name) not in output.prologues:
-                output.prologues[('box', box.name)] = (
-                    getattr(self, 'build_prologue_' + name), box)
-                build, *args = output.prologues[('box', box.name)]
-                build(output, *args)
-            getattr(self, 'build_' + name)(output, box)
-            if ('box', box.name) not in output.epilogues:
-                output.epilogues[('box', box.name)] = (
-                    getattr(self, 'build_epilogue_' + name), box)
+                if level != 'box':
+                    with output.pushattrs(**{**attrs,
+                            level: lbox.name, 'box': box.name}):
+                        getattr(self, 'build_%s_%s' % (level, name))(
+                            output, lbox, box)
+                else:
+                    with output.pushattrs(**{**attrs, 'box': box.name}):
+                        getattr(self, 'build_%s_%s' % (level, name))(
+                            output, box)
+
+                if ('runtime', level, name) not in lbox.build_epilogues:
+                    def epilogue(f, output, lbox):
+                        def epilogue():
+                            with output.pushattrs(**{**attrs,
+                                    level: lbox.name}):
+                                f(output, lbox)
+                        return epilogue
+                    lbox.build_epilogues[('runtime', level, name)] = epilogue(
+                        getattr(self, 'build_%s_epilogue_%s' % (level, name)),
+                        output, lbox)
+
+
+# if box rule doesn't exist, fall back to noop
+for level, order in it.product(
+        ['root', 'muxer', 'parent', 'box'],
+        ['_prologue', '', '_epilogue']):
+    method = 'box_%s%s' % (level, order)
+    setattr(Runtime, method,
+        lambda self, *args, **kwargs: None)
 
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS
 for Output in OUTPUTS.values():
     for level, order in it.product(
-            ['_root', '_parent', ''],
+            ['root', 'muxer', 'parent', 'box'],
             ['_prologue', '', '_epilogue']):
-        method = 'build%s%s_%s' % (level, order, Output.__argname__)
-        if hasattr(Output, 'default_build%s%s' % (level, order)):
+        method = 'build_%s%s_%s' % (level, order, Output.__argname__)
+        if hasattr(Output, 'default_build_%s%s' % (level, order)):
             setattr(Runtime, method, (lambda path:
                 lambda self, output, *args, **kwargs:
                     getattr(output, path)(*args, **kwargs))(
-                'default_build%s%s' % (level, order)))
+                'default_build_%s%s' % (level, order)))
         else:
             setattr(Runtime, method,
                 lambda self, output, *args, **kwargs: None)
 
 # Runtime class imports
 # These must be imported here, since they depend on the above utilities
+from .system import SystemRuntime
 from .noop import NoOpRuntime
 from .wasm3 import Wasm3Runtime
 from .armv7_mpu import ARMv7MPURuntime

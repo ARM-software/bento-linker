@@ -40,26 +40,14 @@ class ArgumentParser(argparse.ArgumentParser):
         self._positional = []
         self._parent = None
         self._name = None
+        self._hidden = False
+        self._fake = False
 
         # things get confusing with abbrevs
         kwargs.setdefault('allow_abbrev', False)
         return super().__init__(*args, **kwargs)
 
     def _post_add_argument(self, *args, **kwargs):
-        # allow a predicate to test without converting the argument
-        if 'pred' in kwargs:
-            def mktype(rawpred, rawtype):
-                def type(x):
-                    rawpred(x)
-                    return rawtype(x)
-                return type
-            kwargs['type'] = mktype(
-                kwargs.pop('pred'),
-                kwargs.pop('type', lambda x: x))
-
-        return args, kwargs
-
-    def add_argument(self, *args, **kwargs):
         # Check for __argparse__ classes, note there's no
         # nested parser to actually invoke
         nargs = []
@@ -72,6 +60,29 @@ class ArgumentParser(argparse.ArgumentParser):
                 nargs.append(arg)
         args = nargs
 
+        # allow a predicate to test without converting the argument
+        if 'pred' in kwargs:
+            def mktype(rawpred, rawtype):
+                def type(x):
+                    rawpred(x)
+                    return rawtype(x)
+                return type
+            kwargs['type'] = mktype(
+                kwargs.pop('pred'),
+                kwargs.pop('type', lambda x: x))
+
+        # enable help=argparse.SUPPRESS but in a more flexible way
+        if kwargs.pop('hidden', False) or self._hidden:
+            kwargs['help'] = argparse.SUPPRESS
+
+        # enable fake arguments for better help text
+        if kwargs.pop('fake', False) or self._fake:
+            args = [arg for arg in args if arg.startswith('--')]
+            kwargs['dest'] = ''
+
+        return args, kwargs
+
+    def add_argument(self, *args, **kwargs):
         args, kwargs = self._post_add_argument(*args, **kwargs)
 
         if any(arg.startswith('--') for arg in args):
@@ -81,8 +92,9 @@ class ArgumentParser(argparse.ArgumentParser):
                     for arg in args
                     if arg.startswith('--')]
                 nkwargs = kwargs.copy()
-                nkwargs['dest'] = '%s.%s' % (
-                    self._name, nkwargs.get('dest', args[-1][2:]))
+                if nkwargs.get('dest', True):
+                    nkwargs['dest'] = '%s.%s' % (
+                        self._name, nkwargs.get('dest', args[-1][2:]))
                 if not (kwargs.get('action', 'store')
                         .startswith('store_')):
                     nkwargs.setdefault('metavar',
@@ -93,8 +105,9 @@ class ArgumentParser(argparse.ArgumentParser):
             if self._parent:
                 # Generate nested argument in parent
                 nkwargs = kwargs.copy()
-                nkwargs['dest'] = '%s.%s' % (
-                    self._name, nkwargs.get('dest', args[-1]))
+                if nkwargs.get('dest', True):
+                    nkwargs['dest'] = '%s.%s' % (
+                        self._name, nkwargs.get('dest', args[-1]))
                 if not (kwargs.get('action', 'store')
                         .startswith('store_')):
                     nkwargs.setdefault('metavar', args[-1].upper())
@@ -123,6 +136,8 @@ class ArgumentParser(argparse.ArgumentParser):
         nested = ArgumentParser()
         nested._parent = self
         nested._name = name
+        nested._hidden = kwargs.get('hidden', False)
+        nested._fake = kwargs.get('fake', False)
 
         if hasattr(cls, '__argparse__'):
             cls.__argparse__(nested, name, **kwargs)
@@ -143,11 +158,13 @@ class ArgumentParser(argparse.ArgumentParser):
         # We only support long-form names currently
         assert arg.startswith('--')
         name = arg[2:]
-        recursive = kwargs.get('recursive', False)
+        recursive = (kwargs.get('recursive', False)
+            and not kwargs.get('fake', False))
 
         class SetParser(ArgumentParser):
             def add_argument(self, *args, **kwargs):
                 args, kwargs = self._post_add_argument(*args, **kwargs)
+
                 if any(arg.startswith('--') for arg in args):
                     if self._parent:
                         # Generate nested argument in parent
@@ -157,10 +174,13 @@ class ArgumentParser(argparse.ArgumentParser):
                             for arg in args
                             if arg.startswith('--')]
                         nkwargs = kwargs.copy()
-                        nkwargs['dest'] = '%s.%s.%s' % (
-                            self._name,
-                            '__REC%s' % self._name if recursive else '__SET',
-                            nkwargs.get('dest', args[-1][2:]))
+                        if nkwargs.get('dest', True):
+                            nkwargs['dest'] = '%s.%s.%s' % (
+                                self._name,
+                                '__REC%s' % self._name
+                                if recursive else
+                                '__SET',
+                                nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar',
@@ -174,27 +194,37 @@ class ArgumentParser(argparse.ArgumentParser):
                             self._name,
                             self._name.upper())]
                         nkwargs = kwargs.copy()
-                        nkwargs['dest'] = '%s.%s.%s' % (
-                            self._name,
-                            '__REC%s' % self._name if recursive else '__SET',
-                            nkwargs.get('dest', args[-1]))
+                        if nkwargs.get('dest', True):
+                            nkwargs['dest'] = '%s.%s.%s' % (
+                                self._name,
+                                '__REC%s' % self._name
+                                if recursive else
+                                '__SET',
+                                nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar', args[-1].upper())
                         self._parent.add_argument(*nargs, **nkwargs)
                     self._positional.append((args, kwargs))
+
                 return super(ArgumentParser, self).add_argument(*args, **kwargs)
 
         nested = SetParser()
         nested._parent = self
         nested._name = name
+        nested._hidden = kwargs.get('hidden', False)
+        nested._fake = kwargs.get('fake', False)
 
         # Default set entry creation
         if kwargs.get('action', None) == 'append':
             nkwargs = kwargs.copy()
             nkwargs['action'] = 'store_true'
-            nkwargs.pop('recursive')
+            nkwargs.pop('recursive', None)
+            hidden = nested._hidden
+            if nkwargs.pop('hidden') == 'append_only':
+                nested._hidden = False
             nested.add_argument('__STORE', **nkwargs)
+            nested._hidden = hidden
 
         if hasattr(cls, '__argparse__'):
             cls.__argparse__(nested, name=name, **kwargs)
@@ -208,7 +238,8 @@ class ArgumentParser(argparse.ArgumentParser):
         # first parse out sets, this is a bit complicated
         set_prefixes = set()
         for oargs, okwargs in self._optional:
-            om = re.search(r'\b(__REC|__SET)', okwargs.get('dest', ''))
+            om = re.search(r'\b(__REC|__SET)([\w-]*)\b',
+                okwargs.get('dest', ''))
             if om:
                 for oarg in oargs:
                     pattern = '.'.join(
@@ -230,16 +261,24 @@ class ArgumentParser(argparse.ArgumentParser):
                                 m.group(1),
                                 m.group(2)))
 
+                            # need default empty recursive set?
+                            if om.group(1) == '__REC':
+                                ns.__dict__['%s.%s.%s' % (
+                                    okwargs['dest'][:om.start()-1],
+                                    m.group(1),
+                                    om.group(2))] = {}
+
+                # add default empty set
                 ns = ns or Namespace()
                 ns.__dict__[okwargs['dest'][:om.start()-1]] = {}
-                continue
 
         # create temporary parsers to extract known args
         sets = []
         for prefix, m, suffix in set_prefixes:
             tempparser = ArgumentParser(allow_abbrev=False, add_help=False)
             for oargs, okwargs in self._optional:
-                if any(oarg.startswith(prefix) for oarg in oargs):
+                if (any(oarg.startswith(prefix) for oarg in oargs)
+                        and okwargs.get('dest', True)):
                     nargs = [re.sub(
                         r'(?<=^%s)[\w-]+\b' % re.escape(prefix),
                         m, oarg, 1)

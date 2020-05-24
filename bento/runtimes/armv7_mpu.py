@@ -312,12 +312,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
         super().__init__()
         self.ids = {}
 
-    def box(self, box):
-        super().box(box)
-        # TODO provide this automatically?
-        # we're running this multiple times, which technically works...
-        parent = box.getparent()
-
+    def box_parent(self, parent, box):
         self.call_region = parent.mpu_call_region or Region(
             '0x1e000000-0x1fffffff')
         assert math.log2(self.call_region.size) % 1 == 0, (
@@ -326,18 +321,19 @@ class ARMv7MPURuntime(runtimes.Runtime):
         assert self.call_region.addr % self.call_region.size == 0, (
             "MPU call region is not aligned to size %s"
                 % self.call_region)
-        # TODO inject these into output config?
-        self.callprefix = self.call_region.addr
-        self.callmask = (self.call_region.size//2)-1
-        self.retprefix = self.call_region.addr + self.call_region.size//2
-        self.retmask = (self.call_region.size//2)-1
-        self.callregionaddr = self.call_region.addr
-        self.callregionsize = self.call_region.size
-        self.callregionlog2 = int(math.log2(self.call_region.size))
-        self.mpuregions = 4
+        self.pushattrs(
+            callprefix=self.call_region.addr,
+            callmask=(self.call_region.size//2)-1,
+            retprefix=self.call_region.addr + self.call_region.size//2,
+            retmask=(self.call_region.size//2)-1,
+            callregionaddr=self.call_region.addr,
+            callregionsize=self.call_region.size,
+            callregionlog2=int(math.log2(self.call_region.size)),
+            mpuregions=4 # TODO
+            )
 
         for box in parent.boxes:
-            if box.runtime.name == self.__argname__:
+            if box.runtime == self:
                 for memory in box.memories:
                     assert math.log2(memory.size) % 1 == 0, (
                         "Memory region %s not aligned to a power-of-two"
@@ -364,50 +360,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
                     (export.name for export in box.exports))):
                 self.ids[export] = j*(len(parent.boxes)+1) + i+1
 
-    def build_common_c(self, output, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
-        output.decls.append('//// jumptable declarations ////')
-
-        outf = output.decls.append()
-        outf.writef('struct %(box)s_exportjumptable {\n')
-        with outf.pushindent():
-            # special entries for the sp and __box_init
-            outf.writef('uint32_t *__box_%(box)s_stack_end;\n')
-            outf.writef('void (*__box_%(box)s_init)(void);\n')
-            for export in box.exports:
-                outf.writef('%(fn)s;\n', fn=export.repr_c_ptr())
-        outf.writef('};\n')
-
-        outf = output.decls.append()
-        outf.writef('struct %(box)s_importjumptable {\n')
-        with outf.pushindent():
-            # special entries for __box_write and __box_fault
-            outf.writef('void (*__box_%(box)s_fault)(void);\n')
-            outf.writef('int (*__box_%(box)s_write)('
-                'int a, char* b, int c);\n')
-                # TODO are these the correct types??
-            for import_ in box.imports:
-                outf.writef('%(fn)s;\n', fn=import_.repr_c_ptr())
-        outf.writef('};\n')
-
     def build_parent_prologue_c(self, output, sys):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
@@ -431,7 +384,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
 
         outf = output.decls.append()
         for box in sys.boxes:
-            if box.runtime.name == self.__argname__:
+            if box.runtime == self:
                 outf.writef(
                     'extern const uint32_t __box_%(box)s_jumptable[];\n',
                     box=box.name)
@@ -439,13 +392,13 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf = output.decls.append()
         outf.writef('#define __BOX_COUNT %(boxcount)d\n',
             boxcount=sum(1 for box in sys.boxes
-                if box.runtime.name == self.__argname__) + 1)
+                if box.runtime == self) + 1)
         outf.writef('const uint32_t *const '
             '__box_jumptables[__BOX_COUNT] = {\n');
         with outf.pushindent():
             outf.writef('__box_sys_jumptable,\n')
             for box in sys.boxes:
-                if box.runtime.name == self.__argname__:
+                if box.runtime == self:
                     outf.writef('__box_%(box)s_jumptable,\n',
                         box=box.name)
         outf.writef('};');
@@ -461,7 +414,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf.writef('};\n')
 
         for box in sys.boxes:
-            if box.runtime.name == self.__argname__:
+            if box.runtime == self:
                 outf = output.decls.append(box=box.name)
                 outf.writef('const struct __box_mpuregions '
                     '__box_%(box)s_mpuregions = {\n')
@@ -493,7 +446,7 @@ class ARMv7MPURuntime(runtimes.Runtime):
         with outf.pushindent():
             outf.writef('&__box_sys_mpuregions,\n')
             for box in sys.boxes:
-                if box.runtime.name == self.__argname__:
+                if box.runtime == self:
                     outf.writef('&__box_%(box)s_mpuregions,\n', box=box.name)
         outf.writef('};\n')
 
@@ -502,28 +455,32 @@ class ARMv7MPURuntime(runtimes.Runtime):
         output.decls.append(BOX_SYS_DISPATCH)
 
     def build_parent_c(self, output, sys, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
         output.decls.append(BOX_SYS_INIT)
 
-    def build_c(self, output, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
-        self.build_common_c(output, box)
+    def build_box_c(self, output, box):
+        output.decls.append('//// jumptable declarations ////')
+
+        outf = output.decls.append()
+        outf.writef('struct %(box)s_exportjumptable {\n')
+        with outf.pushindent():
+            # special entries for the sp and __box_init
+            outf.writef('uint32_t *__box_%(box)s_stack_end;\n')
+            outf.writef('void (*__box_%(box)s_init)(void);\n')
+            for export in box.exports:
+                outf.writef('%(fn)s;\n', fn=export.repr_c_ptr())
+        outf.writef('};\n')
+
+        outf = output.decls.append()
+        outf.writef('struct %(box)s_importjumptable {\n')
+        with outf.pushindent():
+            # special entries for __box_write and __box_fault
+            outf.writef('void (*__box_%(box)s_fault)(void);\n')
+            outf.writef('int (*__box_%(box)s_write)('
+                'int a, char* b, int c);\n')
+                # TODO are these the correct types??
+            for import_ in box.imports:
+                outf.writef('%(fn)s;\n', fn=import_.repr_c_ptr())
+        outf.writef('};\n')
 
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(BOX_INIT)
@@ -544,15 +501,6 @@ class ARMv7MPURuntime(runtimes.Runtime):
         outf.writef('};\n')
 
     def build_parent_partial_ld(self, output, sys, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
         # create box calls for imports
         output.decls.append('/* box calls */')
         for import_ in it.chain(
@@ -575,27 +523,9 @@ class ARMv7MPURuntime(runtimes.Runtime):
         super().build_parent_partial_ld(output, sys, box)
 
     def build_parent_ld(self, output, sys, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
         return self.build_parent_partial_ld(output, sys, box)
 
-    def build_partial_ld(self, output, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
+    def build_box_partial_ld(self, output, box):
         # create box calls for imports
         output.decls.append('/* box calls */')
         for i, import_ in enumerate(it.chain(
@@ -607,36 +537,13 @@ class ARMv7MPURuntime(runtimes.Runtime):
                 id=self.ids[import_])
         output.decls.append()
 
-    def build_ld(self, output, box):
-        output.pushattrs(
-            callprefix=self.callprefix,
-            callmask=self.callmask,
-            retprefix=self.retprefix,
-            retmask=self.retmask,
-            callregionaddr=self.callregionaddr,
-            callregionsize=self.callregionsize, 
-            callregionlog2=self.callregionlog2,
-            mpuregions=self.mpuregions)
-        self.build_partial_ld(output, box)
+    def build_box_ld(self, output, box):
+        self.build_box_partial_ld(output, box)
         
-        # TODO handle this in ldscript class? ldscript.consume?
-        # TODO make jumptable come before ldscript declarations.
-        # Need box method?
-        # TODO what... this just doesn't work...
-#        memory = box.bestmemory('rx', box.jumptable.size,
-#            consumed=output.consumed)
         memory, _, _ = box.consume('rx', section=box.jumptable)
-        #print(output.consumed)
-        # TODO hm
-        #output.consumed[memory.name] += box.jumptable.size
         outf = output.sections.insert(0,
             section='.jumptable',
             memory=memory.name)
-            # TODO move these?
-            # TODO shortcut for capitalized?
-#            prefixed_section='%(section_prefix)s%(section)s',
-#            prefixed_memory='%(memory_prefix)s%(memory)s',
-#            prefixed_symbol='%(symbol_prefix)s%(symbol)s', symbol='')
         outf.writef('%(section)s : {\n')
         with outf.pushindent():
             outf.writef('. = ALIGN(%(align)d);\n')
@@ -646,5 +553,5 @@ class ARMv7MPURuntime(runtimes.Runtime):
             outf.writef('__jumptable_end = .;\n')
         outf.writef('} > %(MEMORY)s')
 
-        super().build_ld(output, box)
+        super().build_box_ld(output, box)
 

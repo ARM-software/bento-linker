@@ -122,7 +122,7 @@ class LDOutput(PartialLDOutput):
     __argname__ = "ld"
     __arghelp__ = __doc__
 
-    def default_build(self, box):
+    def default_build_box(self, box):
         for memory in box.memories:
             for slice in memory - it.chain.from_iterable(
                     subbox.memories for subbox in box.boxes):

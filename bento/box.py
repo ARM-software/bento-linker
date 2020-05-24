@@ -2,6 +2,7 @@
 import re
 import collections as co
 import itertools as it
+import os
 from . import argstuff
 from .argstuff import ArgumentParser
 
@@ -269,7 +270,7 @@ class Memory(Region):
             "for size=%#010x" % (self.name, size))
 
         self._addr = self._addr if self._addr is not None else self.addr
-        
+
         if not reverse:
             self._addr += size
             self._size -= size
@@ -500,9 +501,9 @@ class Fn:
             args='void' if len(self.args) == 0 else
                 ', '.join(arg.repr_c(name) for arg, name in
                     zip(self.args, self.argnames)),
-            rets='void' if len(self.rets) == 0 else 
+            rets='void' if len(self.rets) == 0 else
                 ', '.join(ret.repr_c() for ret in self.rets))
-        
+
     def repr_c_ptr(self):
         return self.repr_c(name='(*%s)' % self.name)
 
@@ -522,48 +523,27 @@ class Export(Fn):
 
 class Box:
     """
-    Description of a given box named BOX.
+    Recursive description of a given box named BOX.
     """
     __argname__ = "boxes"
     __arghelp__ = __doc__
     @classmethod
-    def __argparse__(cls, parser, recursive=False, **kwargs):
+    def __argparse__(cls, parser, recursive=False, fake=False, **kwargs):
+        if fake:
+            return
+
+        parser.add_argument("--path",
+            help="Working directory for the box. Defaults to the "
+                "name of the box.")
+        parser.add_argument("--recipe",
+            help="Path to reciple.toml file for box-specific configuration."
+                "Defaults to <path>/recipe.toml.")
 
         from .runtimes import RUNTIMES
         parser.add_argument("--runtime", choices=RUNTIMES,
             help="Runtime for the box. This can be one of the following "
                 "runtimes: {%(choices)s}.")
-        parser.add_argument("--path",
-            help="Working directory for the box, defaults to the "
-                "name of the box.")
 
-#        from .outputs import OUTPUTS
-#        outputparser = parser.add_nestedparser("--outputs")
-#        for Output in OUTPUTS.values():
-#            outputparser.add_argument('--'+Output.__argname__,
-#                help=Output.__arghelp__)
-#
-#        Memory.__argparse__(
-#            parser.add_set('--'+Memory.__argname__))
-#        Section.__argparse__(
-#            parser.add_nestedparser('--stack'), name='stack')
-#        Section.__argparse__(
-#            parser.add_nestedparser('--heap'), name='heap')
-#        Section.__argparse__(
-#            parser.add_nestedparser('--jumptable'), name='jumptable')
-#        Section.__argparse__(
-#            parser.add_nestedparser('--text'), name='text')
-#        Section.__argparse__(
-#            parser.add_nestedparser('--data'), name='data')
-#        Section.__argparse__(
-#            parser.add_nestedparser('--bss'), name='bss')
-#        Import.__argparse__(
-#            parser.add_set('--'+Import.__argname__))
-#        Export.__argparse__(
-#            parser.add_set('--'+Export.__argname__))
-#
-#        Box.__argparse__(
-#            parser.add_set('--'+Box.__argname__, help=Box.__arghelp__, recursive=True))
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--outputs")
         for Output in OUTPUTS.values():
@@ -578,58 +558,75 @@ class Box:
         parser.add_nestedparser('--jumptable', Section)
         parser.add_nestedparser('--isr_vector', Section)
         parser.add_nestedparser('--mpu_call_region', Region)
+
         parser.add_set(Import)
         parser.add_set(Export)
 
+        # recursive set will handle further arg nesting
         if not recursive:
-            # recursive set will handle further arg nesting
-            parser.add_set(Box, recursive=True, action='append')
+            parser.add_set(Box, recursive=True,
+                action='append', hidden='append_only')
 
-    def __init__(self, name, parent=None, **args):
+    def __init__(self, name=None, parent=None, **args):
         args = argstuff.Namespace(**args)
-        self.name = name
+        self.name = name # TODO name?
         self.parent = parent
-        assert hasattr(args, 'path'), "WHAT %s %s" % (name, args)
-        self.path = args.path or name
+        self.path = args.path or (
+            # TODO this isn't a great predicate
+            name if self.parent is not None else '.')
 
         # Load additional config from the filesystem
         try:
             parser = ArgumentParser(add_help=False)
             self.__class__.__argparse__(parser)
-            nargs = parser.parse_toml(self.path + '/recipe.toml')
+            
+            nargs = parser.parse_toml(os.path.join(
+                self.path, args.recipe or 'recipe.toml'))
             args = argstuff.nsmerge(args, nargs)
         except FileNotFoundError:
             pass
+
+        from .runtimes import RUNTIMES
+        self.runtime = RUNTIMES[args.runtime or (
+            # TODO this isn't a great predicate
+            'noop' if self.parent is not None else 'system')]()
+
+        from .outputs import OUTPUTS
+        self.outputs = co.OrderedDict(sorted(
+            (name, OUTPUTS[name](os.path.join(self.path, path)))
+            for name, path in args.outputs.__dict__.items()
+            if path))
 
         self.memories = sorted(Memory(name, **memargs.__dict__)
             for name, memargs in args.memories.items())
 
         self.stack = Section(**args.stack.__dict__)
         self.heap = Section(**args.heap.__dict__)
-        self.jumptable = Section(**args.jumptable.__dict__)
         self.text = Section(**args.text.__dict__)
         self.data = Section(**args.data.__dict__)
         self.bss = Section(**args.bss.__dict__)
+        self.jumptable = Section(**args.jumptable.__dict__)
+        self.isr_vector = Section(**{**args.isr_vector.__dict__,
+            'size': args.isr_vector.size
+                if args.isr_vector.size is not None else
+                0x400}) # TODO move this?
+        self.mpu_call_region = Region(**args.mpu_call_region.__dict__)
 
         self.imports = sorted(Import(name, **importargs.__dict__)
             for name, importargs in args.imports.items())
         self.exports = sorted(Import(name, **exportargs.__dict__)
             for name, exportargs in args.exports.items())
 
-#        # TODO hmm ( ͡° ͜ʖ ͡°)
-#        self.boxes = []
-        
-        self.boxes = sorted(Box(name, **boxargs.__dict__, parent=self)
-            for name, boxargs in sorted(getattr(args, 'boxes', {}).items(), reverse=True))
+        self.boxes = sorted(Box(name, parent=self, **{
+                **boxargs.__dict__,
+                'path': boxargs.path or os.path.join(self.path, name)})
+            for name, boxargs in sorted(args.boxes.items()))
 
-        from .runtimes import RUNTIMES
-        self.runtime = RUNTIMES[args.runtime or 'noop']()
-
-        from .outputs import OUTPUTS
-        self.outputs = co.OrderedDict(sorted(
-            (name, OUTPUTS[name](self.path + '/' + path))
-            for name, path in args.outputs.__dict__.items()
-            if path))
+        # prepare build/box commands for prologue/epilogue handling
+        self.box_prologues = co.OrderedDict()
+        self.box_epilogues = co.OrderedDict()
+        self.build_prologues = co.OrderedDict()
+        self.build_epilogues = co.OrderedDict()
 
     def __eq__(self, other):
         return (self.isbox(), self.name) == (other.isbox(), other.name)
@@ -681,18 +678,36 @@ class Box:
         return best, addr, size
 
     def issys(self):
-        return False
+        # TODO is this a hack?
+        return self.parent is None
 
     def isbox(self):
         return not self.issys()
 
     def getroot(self):
+        """
+        Get the root box of the current tree.
+        """
         root = self
         while root.parent:
             root = root.parent
         return root if root != self else None
 
+    def getmuxer(self):
+        """
+        Returns the muxer box of the current runtime. This is defined to be
+        nearest parent that is a different runtime. This is the point where
+        tree muxing must be done.
+        """
+        muxer = self
+        while muxer.parent and muxer.runtime == self.runtime:
+            muxer = muxer.parent
+        return muxer if muxer != self else None
+
     def getparent(self, n=1):
+        """
+        Returns a box's nth parent, if it has an nth parent.
+        """
         parent = self
         for _ in range(n):
             if not self.parent:
@@ -700,8 +715,8 @@ class Box:
             parent = self.parent
         return parent if parent != self else None
 
-    def box(self, boxesonly=False, runtimesonly=False, outputsonly=False):
-        if not runtimesonly and not outputsonly:
+    def box(self, stage=None):
+        if not stage or stage == 'boxes':
             if self.parent:
                 for memory in self.memories:
                     _, addr, _ = self.parent.consume(
@@ -717,116 +732,39 @@ class Box:
                 self.memories = sorted(self.memories)
 
             for box in self.boxes:
-                box.box(boxesonly=True)
+                box.box(stage='boxes')
 
-        if not boxesonly and not outputsonly:
-            if self.isbox():
-                self.runtime.box(self)
-            else:
-                from .runtimes import Runtime
-                Runtime().box(self)
+        if not stage or stage == 'runtimes':
+            self.runtime.box(self)
             for box in self.boxes:
-                box.box(runtimesonly=True)
+                box.box(stage='runtimes')
 
-        if not boxesonly and not runtimesonly:
+        if not stage or stage == 'outputs':
             for output in self.outputs.values():
                 output.box(self)
             for box in self.boxes:
-                box.box(outputsonly=True)
+                box.box(stage='outputs')
 
-    def build(self, runtimesonly=False, outputsonly=False):
-        if not outputsonly:
+        if not stage or stage == 'epilogues':
             for box in self.boxes:
-                box.build(runtimesonly=True)
-            if self.isbox():
-                self.runtime.build(self)
-            else:
-                # TODO uh, is this the best way to do this?
-                from .runtimes import Runtime
-                Runtime().build(self)
+                box.build(stage='epilogues')
+            for epilogue in self.build_epilogues.values():
+                epilogue()
 
-        if not runtimesonly:
+    def build(self, stage=None):
+        if not stage or stage == 'runtimes':
             for box in self.boxes:
-                box.build(outputsonly=True)
+                box.build(stage='runtimes')
+            self.runtime.build(self)
+
+        if not stage or stage == 'outputs':
+            for box in self.boxes:
+                box.build(stage='outputs')
             for output in self.outputs.values():
                 output.build(self)
 
-class System(Box):
-    """
-    Description of the top-level system which contains boxes.
-    """
-    __argname__ = "system"
-    __arghelp__ = __doc__
-    @classmethod
-    def __argparse__(cls, parser):
-        parser.add_argument("--path",
-            help="Working directory for the system, defaults to the "
-                "current directory.")
-
-        from .outputs import OUTPUTS
-        outputparser = parser.add_nestedparser("--outputs")
-        for Output in OUTPUTS.values():
-            outputparser.add_argument(Output)
-
-        parser.add_set(Memory)
-        parser.add_nestedparser('--stack', Section)
-        parser.add_nestedparser('--heap', Section)
-        parser.add_nestedparser('--text', Section)
-        parser.add_nestedparser('--data', Section)
-        parser.add_nestedparser('--bss', Section)
-        parser.add_nestedparser('--jumptable', Section)
-        parser.add_nestedparser('--isr_vector', Section)
-        parser.add_nestedparser('--mpu_call_region', Region)
-        parser.add_set(Import)
-        parser.add_set(Export)
-
-        parser.add_set(Box, recursive=True, action='append')
-#
-#        Box.__argparse__(
-#            parser.add_set('--'+Box.__argname__, help=Box.__arghelp__, recursive=True, action='append'))
-
-    def __init__(self, **args):
-        args = argstuff.Namespace(**args)
-        self.name = None
-        self.parent = None
-        self.path = args.path or '.'
-
-        # Load additional config from the filesystem
-        try:
-            parser = ArgumentParser(add_help=False)
-            self.__class__.__argparse__(parser)
-            nargs = parser.parse_toml(self.path + '/recipe.toml')
-            args = argstuff.nsmerge(args, nargs)
-        except FileNotFoundError:
-            pass
-
-        self.memories = sorted(Memory(name, **memargs.__dict__)
-            for name, memargs in args.memories.items())
-        
-        self.stack = Section(**args.stack.__dict__)
-        self.heap = Section(**args.heap.__dict__)
-        self.text = Section(**args.text.__dict__)
-        self.data = Section(**args.data.__dict__)
-        self.bss = Section(**args.bss.__dict__)
-        self.isr_vector = Section(**{**args.isr_vector.__dict__,
-            'size': args.isr_vector.size
-                if args.isr_vector.size is not None else
-                0x400}) # TODO move this?
-        self.mpu_call_region = Region(**args.mpu_call_region.__dict__)
-
-        self.imports = sorted(Import(name, **importargs.__dict__)
-            for name, importargs in args.imports.items())
-        self.exports = sorted(Import(name, **exportargs.__dict__)
-            for name, exportargs in args.exports.items())
-        
-        self.boxes = sorted(Box(name, **boxargs.__dict__, parent=self)
-            for name, boxargs in sorted(args.boxes.items(), reverse=True))
-
-        from .outputs import OUTPUTS
-        self.outputs = co.OrderedDict(sorted(
-            (name, OUTPUTS[name](path))
-            for name, path in args.outputs.__dict__.items()
-            if path))
-
-    def issys(self):
-        return True
+        if not stage or stage == 'epilogues':
+            for box in self.boxes:
+                box.build(stage='epilogues')
+            for epilogue in self.build_epilogues.values():
+                epilogue()
