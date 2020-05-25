@@ -55,6 +55,10 @@ class OutputBlob(io.StringIO):
     def popattrs(self):
         return self._attrs.pop()
 
+    def indent(self, indent=4):
+        """ alias for pushindent """
+        return self.pushindent()
+
     def pushindent(self, indent=4):
         return self.pushattrs(indent=self.get('indent', 0) + indent)
 

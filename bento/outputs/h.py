@@ -80,6 +80,27 @@ class HOutput(outputs.Output):
         # always need standard types
         self.includes.append("<sys/types.h>")
 
+        # TODO configurable?
+        out = self.decls.append()
+        out.printf('//// box error codes ////')
+        out.printf('enum box_err {')
+        with out.indent():
+            for name, code, doc in [
+                ('BOX_ERR_OK',       0,    'No error'),
+                ('BOX_ERR_NOBOX',    -8,   'Box format error'),
+                ('BOX_ERR_AGAIN',    -11,  'Try again'),
+                ('BOX_ERR_NOMEM',    -12,  'Cannot allocate memory'),
+                ('BOX_ERR_FAULT',    -14,  'Bad address'),
+                ('BOX_ERR_BUSY',     -16,  'Device or resource busy'),
+                ('BOX_ERR_LOOP',     -20,  'Cyclic data structure detected'),
+                ('BOX_ERR_INVAL',    -22,  'Invalid parameter'),
+                ('BOX_ERR_TIMEDOUT', -110, 'Timed out')]:
+                out.printf('%(name)-24s = %(code)-5s // %(doc)s',
+                    name=name,
+                    code='%s,' % code,
+                    doc=doc)
+        out.printf('};')
+
         # TODO always have this?
         if box.boxes:
             self.decls.append('//// box hooks ////')

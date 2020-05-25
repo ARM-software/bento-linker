@@ -350,17 +350,21 @@ class Type:
     Type of function argument or return value.
     """
     PRIMITIVE_TYPES = [
+        'err32', 'err64',
         'u8', 'u16', 'u32', 'u64', 'usize',
         'i8', 'i16', 'i32', 'i64', 'isize',
         'f32', 'f64']
     PRIMITIVE_ALIASES = [
+        (r'\berr\b',            r'err32'),
+        (r'\bu\b',              r'u32'),
+        (r'\bi\b',              r'i32'),
         (r'\buint(\d+)_t\b',    r'u\1'),
         (r'\bint(\d+)_t\b',     r'i\1'),
         (r'\bsize_t\b',         r'usize'),
         (r'\bssize_t\b',        r'isize'),
         (r'\bfloat\b',          r'f32'),
         (r'\bdouble\b',         r'f64'),
-        (r'\bvoid *\*\b',       r'u8*')]
+        (r'\bvoid *\*',         r'u8*')]
     def __init__(self, type):
         for pattern, repl in it.chain([(r' +', r'')], Type.PRIMITIVE_ALIASES):
             type = re.sub(pattern, repl, type)
@@ -376,8 +380,11 @@ class Type:
             raise ValueError(
                 "Indirect pointers currently not supported in type %r" % type)
 
-    def isptr():
+    def isptr(self):
         return bool(self._ptr)
+
+    def iserr(self):
+        return self._primitive.startswith('err')
 
     def __str__(self, argname=None):
         if argname:
@@ -388,6 +395,8 @@ class Type:
     def repr_c(self, name=None):
         if self._primitive == 'u8' and self._ptr:
             primitive = 'void'
+        if self._primitive.startswith('err'):
+            primitive = 'int%s_t' % self._primitive[3:]
         elif self._primitive == 'usize':
             primitive = 'size_t'
         elif self._primitive == 'isize':
@@ -401,7 +410,7 @@ class Type:
         elif self._primitive == 'f64':
             primtive = 'double'
         else:
-            assert False
+            assert False, 'unknown type %r' % self._primitive
 
         if name:
             return '%s %s%s' % (primitive, self._ptr, name)
@@ -506,6 +515,9 @@ class Fn:
 
     def repr_c_ptr(self):
         return self.repr_c(name='(*%s)' % self.name)
+
+    def falible(self):
+        return any(ret.iserr() for ret in self.rets)
 
 class Import(Fn):
     """
