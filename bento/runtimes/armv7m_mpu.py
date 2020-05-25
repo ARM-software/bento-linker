@@ -1,8 +1,9 @@
 
-from .. import runtimes
-from ..box import Fn, Region
 import itertools as it
 import math
+from .. import argstuff
+from .. import runtimes
+from ..box import Fn, Region
 
 # utility functions in C
 BOX_INIT = """
@@ -300,37 +301,46 @@ int32_t __box_%(box)s_init(void) {
 """
 
 @runtimes.runtime
-class ARMv7MPURuntime(runtimes.Runtime):
+class ARMv7MMPURuntime(runtimes.Runtime):
     """
     A bento-box runtime that uses a v7 MPU to provide memory isolation
     between boxes.
     """
-    __argname__ = "armv7_mpu"
+    __argname__ = "armv7m_mpu"
     __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser, **kwargs):
+        parser.add_argument("--mpu_regions", type=int,
+            help="Upper limit on the number of MPU regions to manage for "
+                "each box. Note the actual number of MPU regions will be "
+                "this plus one region for box calls. Defualts to 4.")
+        parser.add_nestedparser('--call_region', Region)
 
-    def __init__(self):
+    def __init__(self, mpu_regions=None, call_region=None):
         super().__init__()
         self.ids = {}
+        self._mpu_regions = mpu_regions if mpu_regions is not None else 4
+        self._call_region = (
+            Region(**call_region.__dict__)
+            if call_region else
+            Region('0x1e000000-0x1fffffff'))
 
     def box_parent(self, parent, box):
-        self.call_region = parent.mpu_call_region or Region(
-            '0x1e000000-0x1fffffff')
-        assert math.log2(self.call_region.size) % 1 == 0, (
+        assert math.log2(self._call_region.size) % 1 == 0, (
             "MPU call region is not aligned to a power-of-two %s"
-                % self.call_region)
-        assert self.call_region.addr % self.call_region.size == 0, (
+                % self._call_region)
+        assert self._call_region.addr % self._call_region.size == 0, (
             "MPU call region is not aligned to size %s"
-                % self.call_region)
+                % self._call_region)
         self.pushattrs(
-            callprefix=self.call_region.addr,
-            callmask=(self.call_region.size//2)-1,
-            retprefix=self.call_region.addr + self.call_region.size//2,
-            retmask=(self.call_region.size//2)-1,
-            callregionaddr=self.call_region.addr,
-            callregionsize=self.call_region.size,
-            callregionlog2=int(math.log2(self.call_region.size)),
-            mpuregions=4 # TODO
-            )
+            callprefix=self._call_region.addr,
+            callmask=(self._call_region.size//2)-1,
+            retprefix=self._call_region.addr + self._call_region.size//2,
+            retmask=(self._call_region.size//2)-1,
+            callregionaddr=self._call_region.addr,
+            callregionsize=self._call_region.size,
+            callregionlog2=int(math.log2(self._call_region.size)),
+            mpuregions=self._mpu_regions)
 
         for box in parent.boxes:
             if box.runtime == self:

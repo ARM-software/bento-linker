@@ -543,13 +543,16 @@ class Box:
         parser.add_argument("--runtime", choices=RUNTIMES,
             help="Runtime for the box. This can be one of the following "
                 "runtimes: {%(choices)s}.")
+        runtimeparser = parser.add_nestedparser("--runtimes")
+        for Runtime in RUNTIMES.values():
+            runtimeparser.add_nestedparser(Runtime)
 
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser("--outputs")
         for Output in OUTPUTS.values():
-            outputparser.add_argument(Output)
+            outputparser.add_nestedparser(Output)
 
-        parser.add_set(Memory)
+        parser.add_set(Memory, metavar='MEMORY')
         parser.add_nestedparser('--stack', Section)
         parser.add_nestedparser('--heap', Section)
         parser.add_nestedparser('--text', Section)
@@ -557,14 +560,13 @@ class Box:
         parser.add_nestedparser('--bss', Section)
         parser.add_nestedparser('--jumptable', Section)
         parser.add_nestedparser('--isr_vector', Section)
-        parser.add_nestedparser('--mpu_call_region', Region)
 
-        parser.add_set(Import)
-        parser.add_set(Export)
+        parser.add_set(Import, metavar='IMPORT')
+        parser.add_set(Export, metavar='EXPORT')
 
         # recursive set will handle further arg nesting
         if not recursive:
-            parser.add_set(Box, recursive=True,
+            parser.add_set(Box, metavar='BOX', recursive=True,
                 action='append', hidden='append_only')
 
     def __init__(self, name=None, parent=None, **args):
@@ -587,15 +589,18 @@ class Box:
             pass
 
         from .runtimes import RUNTIMES
-        self.runtime = RUNTIMES[args.runtime or (
-            # TODO this isn't a great predicate
-            'noop' if self.parent is not None else 'system')]()
+        runtime = args.runtime or (
+            'noop' if self.parent is not None else 'system')
+        self.runtime = RUNTIMES[runtime](**getattr(
+            args.runtimes, runtime, argstuff.Namespace()).__dict__)
 
         from .outputs import OUTPUTS
         self.outputs = co.OrderedDict(sorted(
-            (name, OUTPUTS[name](os.path.join(self.path, path)))
-            for name, path in args.outputs.__dict__.items()
-            if path))
+            (name, OUTPUTS[name](os.path.join(self.path, outputargs.path),
+                **{k: v for k, v in outputargs.__dict__.items()
+                    if k != 'path'}))
+            for name, outputargs in args.outputs.__dict__.items()
+            if outputargs.path))
 
         self.memories = sorted(Memory(name, **memargs.__dict__)
             for name, memargs in args.memories.items())
@@ -610,7 +615,6 @@ class Box:
             'size': args.isr_vector.size
                 if args.isr_vector.size is not None else
                 0x400}) # TODO move this?
-        self.mpu_call_region = Region(**args.mpu_call_region.__dict__)
 
         self.imports = sorted(Import(name, **importargs.__dict__)
             for name, importargs in args.imports.items())

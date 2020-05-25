@@ -139,4 +139,4 @@ for Output in OUTPUTS.values():
 from .system import SystemRuntime
 from .noop import NoOpRuntime
 from .wasm3 import Wasm3Runtime
-from .armv7_mpu import ARMv7MPURuntime
+from .armv7m_mpu import ARMv7MMPURuntime

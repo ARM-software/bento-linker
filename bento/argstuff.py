@@ -140,7 +140,7 @@ class ArgumentParser(argparse.ArgumentParser):
         nested._fake = kwargs.get('fake', False)
 
         if hasattr(cls, '__argparse__'):
-            cls.__argparse__(nested, name, **kwargs)
+            cls.__argparse__(nested, name=name, **kwargs)
 
         return nested
 
@@ -160,6 +160,7 @@ class ArgumentParser(argparse.ArgumentParser):
         name = arg[2:]
         recursive = (kwargs.get('recursive', False)
             and not kwargs.get('fake', False))
+        metavar = kwargs.get('metavar', name.upper())
 
         class SetParser(ArgumentParser):
             def add_argument(self, *args, **kwargs):
@@ -169,7 +170,7 @@ class ArgumentParser(argparse.ArgumentParser):
                     if self._parent:
                         # Generate nested argument in parent
                         nargs = [re.sub('--(.*)', r'--%s.%s.\1' % (
-                                self._name, self._name.upper()),
+                                self._name, metavar),
                                 arg)
                             for arg in args
                             if arg.startswith('--')]
@@ -183,8 +184,7 @@ class ArgumentParser(argparse.ArgumentParser):
                                 nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
-                            nkwargs.setdefault('metavar',
-                                args[-1][2:].split('.')[-1].upper())
+                            nkwargs.setdefault('metavar', metavar)
                         self._parent.add_argument(*nargs, **nkwargs)
                     self._optional.append((args, kwargs))
                 else:
@@ -192,7 +192,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         # Generate nested argument in parent
                         nargs = ['--%s.%s' % (
                             self._name,
-                            self._name.upper())]
+                            metavar)]
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
                             nkwargs['dest'] = '%s.%s.%s' % (
@@ -203,7 +203,7 @@ class ArgumentParser(argparse.ArgumentParser):
                                 nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
-                            nkwargs.setdefault('metavar', args[-1].upper())
+                            nkwargs.setdefault('metavar', metavar)
                         self._parent.add_argument(*nargs, **nkwargs)
                     self._positional.append((args, kwargs))
 
@@ -220,6 +220,7 @@ class ArgumentParser(argparse.ArgumentParser):
             nkwargs = kwargs.copy()
             nkwargs['action'] = 'store_true'
             nkwargs.pop('recursive', None)
+            nkwargs.pop('metavar', None)
             hidden = nested._hidden
             if nkwargs.pop('hidden') == 'append_only':
                 nested._hidden = False

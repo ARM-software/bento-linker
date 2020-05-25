@@ -163,6 +163,13 @@ class Output(OutputBlob):
     __argname__ = "unnamed_output"
     __arghelp__ = __doc__
 
+    @classmethod
+    def __argparse__(cls, parser, **kwargs):
+        parser.add_argument("path",
+            help=cls.__arghelp__)
+        parser.add_argument("--path",
+            help=cls.__arghelp__)
+
     def __init__(self, path=None):
         super().__init__()
         self.name = self.__argname__
