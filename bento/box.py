@@ -769,9 +769,9 @@ class Box:
 
     def build(self, stage=None):
         if not stage or stage == 'runtimes':
+            self.runtime.build(self)
             for box in self.boxes:
                 box.build(stage='runtimes')
-            self.runtime.build(self)
 
         if not stage or stage == 'outputs':
             for box in self.boxes:

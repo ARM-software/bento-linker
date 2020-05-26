@@ -43,6 +43,14 @@ MPU_REGISTERS = """
 #define MPU_RASR ((volatile uint32_t*)0xe000eda0)
 """
 
+BOX_STRUCT_STATE = """
+struct __box_state {
+    uint32_t caller;
+    uint32_t lr;
+    uint32_t *sp;
+};
+"""
+
 BOX_STRUCT_MPUREGIONS = """
 struct __box_mpuregions {
     uint32_t count;
@@ -58,36 +66,42 @@ struct __box_faulthandler {
 """
 
 BOX_SYS_DISPATCH = """
+struct __box_frame {
+    uint32_t *fp;
+    uint32_t lr;
+    uint32_t *sp;
+};
+
 uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
-    const uint32_t *jumptable = __box_jumptables[__box_active];
-    uint32_t *state = (uint32_t*)jumptable[0];
-    sp[0] = (uint32_t)fp;
-    sp[1] = state[-2];
-    sp[2] = state[-1];
-    state[-2] = (uint32_t)lr;
-    state[-1] = (uint32_t)sp;
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_frame *frame = (struct __box_frame*)sp;
+    frame->fp = fp;
+    frame->lr = state->lr;
+    frame->sp = state->sp;
+    state->lr = lr;
+    state->sp = sp;
 
-    // TODO table walk
     uint32_t path = (op & %(callmask)#x)/2;
-    uint32_t retbox = __box_active;
+    uint32_t caller = __box_active;
     __box_active = path %% (__BOX_COUNT+1);
     const uint32_t *targetjumptable = __box_jumptables[__box_active];
-    uint32_t *targetstate = (uint32_t*)targetjumptable[0];
-    uint32_t targetlr = targetstate[-2];
-    uint32_t *targetsp = (uint32_t*)targetstate[-1];
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    // keep track of caller
+    targetstate->caller = caller;
     // don't allow returns while executing
-    targetstate[-2] = 0; 
+    targetstate->lr = 0;
     // need sp to fixup instruction aborts
-    targetstate[-1] = (uint32_t)targetsp;
+    targetstate->sp = targetsp;
     uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
 
     // select MPU regions
     *MPU_CTRL = 0;
     const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
     uint32_t count = regions->count;
-    // TODO check restrictions
     for (int i = 0; i < %(mpuregions)d; i++) {
         if (i < count) {
             *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
@@ -103,7 +117,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     uint32_t control;
     __asm__ volatile ("mrs %%0, control" : "=r"(control));
     control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0 \\n\\t isb" :: "r"(control) : "memory");
+    __asm__ volatile ("msr control, %%0" :: "r"(control));
 
     // setup new call frame
     targetsp -= 8;
@@ -112,7 +126,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetsp[2] = fp[2];        // r2 = arg2
     targetsp[3] = fp[3];        // r3 = arg3
     targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = %(retprefix)#010x + retbox*2 + 1; // lr = __box_ret
+    targetsp[5] = %(retprefix)#010x + caller*2 + 1; // lr = __box_ret
     targetsp[6] = targetpc;     // pc = targetpc
     targetsp[7] = fp[7];        // psr = psr
 
@@ -156,29 +170,26 @@ void __box_call(uint32_t lr, uint32_t *sp, uint32_t op) {
 uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
-    const uint32_t *jumptable = __box_jumptables[__box_active];
-    uint32_t *state = (uint32_t*)jumptable[0];
+    struct __box_state *state = __box_state[__box_active];
     // drop exception frame and fixup instruction aborts
-    sp = (uint32_t*)state[-1];
-    state[-2] = (uint32_t)lr;
-    state[-1] = (uint32_t)sp;
+    sp = state->sp;
+    state->lr = lr;
+    state->sp = sp;
 
-    // TODO table walk
     uint32_t path = (op & %(retmask)#x)/2;
     __box_active = path %% (__BOX_COUNT+1);
-    const uint32_t *targetjumptable = __box_jumptables[__box_active];
-    uint32_t *targetstate = (uint32_t*)targetjumptable[0];
-    uint32_t targetlr = targetstate[-2];
-    uint32_t *targetsp = (uint32_t*)targetstate[-1];
-    uint32_t *targetfp = (uint32_t*)targetsp[0];
-    targetstate[-2] = targetsp[1];
-    targetstate[-1] = targetsp[2];
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetframe = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetframe->fp;
+    targetstate->lr = targetframe->lr;
+    targetstate->sp = targetframe->sp;
 
     // select MPU regions
     *MPU_CTRL = 0;
     const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
     uint32_t count = regions->count;
-    // TODO check restrictions
     for (int i = 0; i < %(mpuregions)d; i++) {
         if (i < count) {
             *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
@@ -191,11 +202,10 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     *MPU_CTRL = 5;
 
     // enable control?
-    // TODO need isb?
     uint32_t control;
     __asm__ volatile ("mrs %%0, control" : "=r"(control));
     control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0 \\n\\t isb" :: "r"(control) : "memory");
+    __asm__ volatile ("msr control, %%0" :: "r"(control));
 
     // copy return frame
     targetfp[0] = fp[0];       // r0 = arg0
@@ -232,44 +242,18 @@ void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
     );
 }
 
-//void __box_halt(uint32_t lr, uint32_t *sp, uint32_t op) {
-//    printf("Intercepted fault\\n");
-//    printf("CFSR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed28);
-//    printf("MMFAR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed34);
-//    printf("isr lr 0x%%08x\\n", lr);
-//    uint32_t pc = sp[6];
-//    printf("pc 0x%%08x\\n", pc);
-//    printf("sp 0x%%08x\\n", sp);
-//    printf("op 0x%%08x\\n", op);
-//    printf("MPU regions:\\n");
-//    for (int i = 0; i < %(mpuregions)d+1; i++) {
-//        *((volatile uint32_t*)0xe000ed98) = i;
-//        printf("MPU_RBAR 0x%%08x\\n", *(volatile uint32_t*)0xe000ed9c);
-//        printf("MPU_RASR 0x%%08x\\n", *(volatile uint32_t*)0xe000eda0);
-//    }
-//    while (1) {}
-//}
-
 uint64_t __box_faultsetup(int32_t err) {
-    uint32_t badbox = __box_active;
-    if (badbox == 0) {
-        // fault in system?
-        while (1) {}
-    }
-
-    // TODO table walk
-    const struct __box_faulthandler *fh = __box_faulthandlers[badbox-1];
+    const struct __box_faulthandler *fh = __box_faulthandlers[__box_active];
+    struct __box_state *state = __box_state[__box_active];
 
     // invoke user handler, may not return
     fh->handler(err);
 
-    // TODO table walk
-    // TODO we assume sys is caller? this is not correct
-    const uint32_t *targetjumptable = __box_jumptables[0];
-    uint32_t *targetstate = (uint32_t*)targetjumptable[0];
-    uint32_t targetlr = targetstate[-2];
-    uint32_t *targetsp = (uint32_t*)targetstate[-1];
-    uint32_t *targetfp = (uint32_t*)targetsp[0];
+    struct __box_state *targetstate = __box_state[state->caller];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetbf->fp;
     // in call?
     if (!targetlr) {
         // halt if not handled
@@ -285,15 +269,14 @@ uint64_t __box_faultsetup(int32_t err) {
     }
 
     // we can return an error
-    __box_active = 0;
-    targetstate[-2] = targetsp[1];
-    targetstate[-1] = targetsp[2];
+    __box_active = state->caller;
+    targetstate->lr = targetbf->lr;
+    targetstate->sp = targetbf->sp;
 
     // select MPU regions
     *MPU_CTRL = 0;
     const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
     uint32_t count = regions->count;
-    // TODO check restrictions
     for (int i = 0; i < %(mpuregions)d; i++) {
         if (i < count) {
             *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
@@ -306,11 +289,10 @@ uint64_t __box_faultsetup(int32_t err) {
     *MPU_CTRL = 5;
 
     // enable control?
-    // TODO need isb?
     uint32_t control;
     __asm__ volatile ("mrs %%0, control" : "=r"(control));
     control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0 \\n\\t isb" :: "r"(control) : "memory");
+    __asm__ volatile ("msr control, %%0" :: "r"(control));
 
     // copy return frame
     targetfp[0] = err;         // r0 = arg0
@@ -366,7 +348,7 @@ void MemManage_Handler(void) {
         "ldr r3, =#%(retprefix)#010x \\n\\t"
         "sub r3, r2, r3 \\n\\t"
         "lsrs r3, r3, #16 \\n\\t"
-        "beq __box_ret \\n\\t" // TODO box ret
+        "beq __box_ret \\n\\t"
         // fallback to fault handler (call 1)
         "ldr r0, =%%0 \\n\\t"
         "b __box_fault \\n\\t"
@@ -395,10 +377,9 @@ int32_t __box_%(box)s_init(void) {
     }
 
     // prepare box's stack
-    uint32_t *state = (uint32_t*)__box_%(box)s_jumptable[0];
     // must use PSP, otherwise boxes could overflow ISR stack
-    state[-2] = 0xfffffffd; // TODO determine fp?
-    state[-1] = (uint32_t)(state - 2);
+    __box_%(box)s_state.lr = 0xfffffffd; // TODO determine fp?
+    __box_%(box)s_state.sp = (uint32_t*)__box_%(box)s_jumptable[0];
 
     // call box's init
     return __box_%(box)s_rawinit();
@@ -476,6 +457,8 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 self.ids[export] = j*(len(parent.boxes)+1) + i+1
 
     def build_parent_prologue_c(self, output, sys):
+        # TODO need stdout?
+        output.includes.append('<stdio.h>')
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
@@ -485,13 +468,13 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         outf = output.decls.append(doc='System state')
         outf.writef('uint32_t __box_active = 0;\n')
-        outf.writef('uint32_t __box_sys_state[2];\n')
+        outf.writef('uint32_t __box_sys_state_[2];\n')
 
         # jumptables
-        outf = output.decls.append()
+        outf = output.decls.append(doc='Jumptables')
         outf.writef('const uint32_t __box_sys_jumptable[] = {\n')
         with outf.pushindent():
-            outf.writef('(uint32_t)(&__box_sys_state + 1),\n')
+            outf.writef('(uint32_t)(&__box_sys_state_ + 1),\n')
             outf.writef('(uint32_t)&_write,\n')
             for export in sys.exports:
                 outf.writef('(uint32_t)%(export)s,\n', export=export.name)
@@ -519,7 +502,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         outf.writef('};');
 
         # mpu regions
-        output.decls.append(BOX_STRUCT_MPUREGIONS)
+        output.decls.append(BOX_STRUCT_MPUREGIONS, doc='MPU Regions')
 
         outf = output.decls.append()
         outf.writef('const struct __box_mpuregions __box_sys_mpuregions = {\n')
@@ -566,7 +549,22 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         outf.writef('};\n')
 
         # fault handlers
-        output.decls.append(BOX_STRUCT_FAULTHANDLER)
+        output.decls.append(BOX_STRUCT_FAULTHANDLER, doc='Fault handlers')
+
+        out = output.decls.append()
+        out.printf('void __box_sys_fault(int32_t err) {')
+        with out.indent():
+            # TODO print if write is hooked up?
+            out.printf('// system must halt, no way to recover')
+            out.printf('while (1) {}')
+        out.printf('}')
+
+        out = output.decls.append()
+        out.printf('const struct __box_faulthandler '
+                '__box_sys_faulthandler = {')
+        with out.indent():
+            out.printf('.handler = &__box_sys_fault,')
+        out.printf('};')
 
         for box in sys.boxes:
             if box.runtime == self:
@@ -600,16 +598,35 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         out = output.decls.append()
         out.printf('const struct __box_faulthandler *const '
-            '__box_faulthandlers[__BOX_COUNT] = {')
+            '__box_faulthandlers[__BOX_COUNT+1] = {')
         with out.indent():
+            out.printf('&__box_sys_faulthandler,', box=box.name)
             for box in sys.boxes:
                 if box.runtime == self:
                     out.printf('&__box_%(box)s_faulthandler,', box=box.name)
         out.printf('};')
 
+        # state
+        output.decls.append(BOX_STRUCT_STATE, doc='Box state')
+        out = output.decls.append()
+        out.printf('struct __box_state __box_sys_state;')
+        for box in sys.boxes:
+            if box.runtime == self:
+                out.printf('struct __box_state __box_%(box)s_state;',
+                    box=box.name)
+
+        out = output.decls.append()
+        out.printf('struct __box_state *const __box_state[__BOX_COUNT+1] = {')
+        with out.indent():
+            out.printf('&__box_sys_state,', box=box.name)
+            for box in sys.boxes:
+                if box.runtime == self:
+                    out.printf('&__box_%(box)s_state,', box=box.name)
+        out.printf('};')
+
         # the rest of the dispatch logic
         output.includes.append('<assert.h>') # TODO need this?
-        output.decls.append(BOX_SYS_DISPATCH)
+        output.decls.append(BOX_SYS_DISPATCH, doc='Dispach logic')
 
     def build_parent_c(self, output, sys, box):
         output.decls.append(BOX_SYS_INIT)
