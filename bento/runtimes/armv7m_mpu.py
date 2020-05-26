@@ -35,14 +35,6 @@ int _write(int handle, char *buffer, int size) {
 }
 """
 
-MPU_REGISTERS = """
-#define SHCSR    ((volatile uint32_t*)0xe000ed24)
-#define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
-#define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
-#define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
-#define MPU_RASR ((volatile uint32_t*)0xe000eda0)
-"""
-
 BOX_STRUCT_STATE = """
 struct __box_state {
     uint32_t caller;
@@ -56,6 +48,47 @@ struct __box_mpuregions {
     uint32_t count;
     uint32_t regions[][2];
 };
+"""
+
+BOX_MPU_DISPATCH = """
+#define SHCSR    ((volatile uint32_t*)0xe000ed24)
+#define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
+#define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
+#define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
+#define MPU_RASR ((volatile uint32_t*)0xe000eda0)
+
+static int32_t __box_mpu_init(void) {
+    // make sure MPU is initialized
+    if (!(*MPU_CTRL & 0x1)) {
+        // do we have an MPU?
+        assert(*MPU_TYPE >= %(mpuregions)d);
+        // enable MemManage exception
+        *SHCSR = *SHCSR | 0x00010000;
+        // setup call region
+        *MPU_RBAR = %(callprefix)#010x | 0x10;
+        // disallow execution
+        //*MPU_RASR = 0x10230021;
+        *MPU_RASR = 0x10000001 | ((%(callregionlog2)d-1) << 1);
+        // enable the MPU
+        *MPU_CTRL = 5;
+    }
+    return 0;
+}
+
+static void __box_mpu_switch(const struct __box_mpuregions *regions) {
+    *MPU_CTRL = 0;
+    uint32_t count = regions->count;
+    for (int i = 0; i < %(mpuregions)d; i++) {
+        if (i < count) {
+            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RASR = regions->regions[i][1];
+        } else {
+            *MPU_RBAR = 0x10 | (i+1);
+            *MPU_RASR = 0;
+        }
+    }
+    *MPU_CTRL = 5;
+}
 """
 
 BOX_SYS_DISPATCH = """
@@ -103,19 +136,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
 
     // select MPU regions
-    *MPU_CTRL = 0;
-    const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
-    uint32_t count = regions->count;
-    for (int i = 0; i < %(mpuregions)d; i++) {
-        if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
-            *MPU_RASR = regions->regions[i][1];
-        } else {
-            *MPU_RBAR = 0x10 | (i+1);
-            *MPU_RASR = 0;
-        }
-    }
-    *MPU_CTRL = 5;
+    __box_mpu_switch(__box_mpuregions[__box_active]);
 
     // enable control?
     uint32_t control;
@@ -191,19 +212,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     targetstate->sp = targetframe->sp;
 
     // select MPU regions
-    *MPU_CTRL = 0;
-    const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
-    uint32_t count = regions->count;
-    for (int i = 0; i < %(mpuregions)d; i++) {
-        if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
-            *MPU_RASR = regions->regions[i][1];
-        } else {
-            *MPU_RBAR = 0x10 | (i+1);
-            *MPU_RASR = 0;
-        }
-    }
-    *MPU_CTRL = 5;
+    __box_mpu_switch(__box_mpuregions[__box_active]);
 
     // enable control?
     uint32_t control;
@@ -276,19 +285,7 @@ uint64_t __box_faultsetup(int32_t err) {
     targetstate->sp = targetbf->sp;
 
     // select MPU regions
-    *MPU_CTRL = 0;
-    const struct __box_mpuregions *regions = __box_mpuregions[__box_active];
-    uint32_t count = regions->count;
-    for (int i = 0; i < %(mpuregions)d; i++) {
-        if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
-            *MPU_RASR = regions->regions[i][1];
-        } else {
-            *MPU_RBAR = 0x10 | (i+1);
-            *MPU_RASR = 0;
-        }
-    }
-    *MPU_CTRL = 5;
+    __box_mpu_switch(__box_mpuregions[__box_active]);
 
     // enable control?
     uint32_t control;
@@ -329,6 +326,8 @@ void __box_faulthandler(int32_t err) {
     );
 }
 
+__attribute__((alias("MemManage_Handler")))
+void BusFault_Handler(void);
 __attribute__((naked))
 void MemManage_Handler(void) {
     __asm__ volatile (
@@ -344,7 +343,7 @@ void MemManage_Handler(void) {
         // call?
         "ldr r3, =#%(callprefix)#010x \\n\\t"
         "sub r3, r2, r3 \\n\\t"
-        "lsrs r3, r3, #16 \\n\\t"
+        "lsrs r3, r3, #%(callregionlog2)d-1 \\n\\t"
         "beq __box_callhandler \\n\\t"
         // ret?
         "ldr r3, =#%(retprefix)#010x \\n\\t"
@@ -366,19 +365,9 @@ void MemManage_Handler(void) {
 BOX_SYS_INIT = """
 extern int32_t __box_%(box)s_rawinit(void);
 int32_t __box_%(box)s_init(void) {
-    // make sure MPU is initialized
-    if (!(*MPU_CTRL & 0x1)) {
-        // do we have an MPU?
-        assert(*MPU_TYPE);
-        // enable MemManage exception
-        *SHCSR = *SHCSR | 0x00010000;
-        // setup call region
-        *MPU_RBAR = %(callprefix)#010x | 0x10;
-        // disallow execution
-        //*MPU_RASR = 0x10230021;
-        *MPU_RASR = 0x10000001 | ((%(callregionlog2)d-1) << 1);
-        // enable the MPU
-        *MPU_CTRL = 5;
+    int32_t err = __box_mpu_init();
+    if (err) {
+        return err;
     }
 
     // prepare box's stack
@@ -461,14 +450,45 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                     (export.name for export in box.exports))):
                 self.ids[export] = j*(len(parent.boxes)+1) + i+1
 
+    # overridable
+    def build_mpu_dispatch(self, output, sys):
+        output.decls.append(BOX_STRUCT_MPUREGIONS)
+        output.decls.append(BOX_MPU_DISPATCH)
+
+    # overridable
+    def build_mpu_regions(self, output, sys, box):
+        out = output.decls.append(box=box.name)
+        out.printf('const struct __box_mpuregions '
+            '__box_%(box)s_mpuregions = {')
+        with out.pushindent():
+            out.printf('.count = %(count)d,',
+                count=len(box.memories))
+            out.printf('.regions = {')
+            with out.pushindent():
+                for memory in box.memories:
+                    out.printf('{%(rbar)#010x, %(rasr)#010x},',
+                        rbar=memory.addr,
+                        rasr= (0x10000000
+                                if 'x' not in memory.mode else
+                                0x00000000)
+                            | (0x03000000
+                                if set('rw').issubset(memory.mode) else
+                                0x02000000
+                                if 'r' in memory.mode else
+                                0x00000000)
+                            | 0 #(0x00080000)
+                            | ((int(math.log2(memory.size))-1) << 1)
+                            | 1)
+            out.printf('},')
+        out.printf('};')
+
     def build_parent_prologue_c(self, output, sys):
-        # TODO need stdout?
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
             doc='GCC stdlib hook')
 
-        output.decls.append(MPU_REGISTERS)
+        self.build_mpu_dispatch(output, sys)
 
         out = output.decls.append(doc='System state')
         out.printf('uint32_t __box_active = 0;')
@@ -505,8 +525,6 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out.printf('};');
 
         # mpu regions
-        output.decls.append(BOX_STRUCT_MPUREGIONS, doc='MPU Regions')
-
         out = output.decls.append()
         out.printf('const struct __box_mpuregions __box_sys_mpuregions = {')
         with out.pushindent():
@@ -516,30 +534,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         for box in sys.boxes:
             if box.runtime == self:
-                out = output.decls.append(box=box.name)
-                out.printf('const struct __box_mpuregions '
-                    '__box_%(box)s_mpuregions = {')
-                with out.pushindent():
-                    out.printf('.count = %(count)d,',
-                        count=len(box.memories))
-                    out.printf('.regions = {')
-                    with out.pushindent():
-                        for memory in box.memories:
-                            out.printf('{%(rbar)#010x, %(rasr)#010x},',
-                                rbar=memory.addr,
-                                rasr= (0x10000000
-                                        if 'x' not in memory.mode else
-                                        0x00000000)
-                                    | (0x03000000
-                                        if set('rw').issubset(memory.mode) else
-                                        0x02000000
-                                        if 'r' in memory.mode else
-                                        0x00000000)
-                                    | 0 #(0x00080000)
-                                    | ((int(math.log2(memory.size))-1) << 1)
-                                    | 1)
-                    out.printf('},')
-                out.printf('};')
+                self.build_mpu_regions(output, sys, box)
 
         out = output.decls.append()
         out.printf('const struct __box_mpuregions *const '
