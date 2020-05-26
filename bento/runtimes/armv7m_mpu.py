@@ -58,19 +58,23 @@ struct __box_mpuregions {
 };
 """
 
-BOX_STRUCT_FAULTHANDLER = """
-struct __box_faulthandler {
-    void (*handler)(int32_t err);
-    uint8_t mask[];
-};
-"""
-
 BOX_SYS_DISPATCH = """
 struct __box_frame {
     uint32_t *fp;
     uint32_t lr;
     uint32_t *sp;
 };
+
+// foward declaration of fault wrapper, may be called directly
+// in other handlers, but only in other handlers! (needs isr context)
+__attribute__((naked, noreturn))
+void __box_faulthandler(int32_t err);
+
+#define __BOX_ASSERT(test, code) do {   \\
+        if (!(test)) {                  \\
+            __box_faulthandler(code);   \\
+        }                               \\
+    } while (0)
 
 uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
@@ -83,7 +87,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     state->lr = lr;
     state->sp = sp;
 
-    uint32_t path = (op & %(callmask)#x)/2;
+    uint32_t path = (op & %(callmask)#x)/4;
     uint32_t caller = __box_active;
     __box_active = path %% (__BOX_COUNT+1);
     const uint32_t *targetjumptable = __box_jumptables[__box_active];
@@ -126,7 +130,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetsp[2] = fp[2];        // r2 = arg2
     targetsp[3] = fp[3];        // r3 = arg3
     targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = %(retprefix)#010x + caller*2 + 1; // lr = __box_ret
+    targetsp[5] = %(retprefix)#010x + 1; // lr = __box_ret
     targetsp[6] = targetpc;     // pc = targetpc
     targetsp[7] = fp[7];        // psr = psr
 
@@ -134,7 +138,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
 }
 
 __attribute__((naked, noreturn))
-void __box_call(uint32_t lr, uint32_t *sp, uint32_t op) {
+void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of args
         "mov r3, r1 \\n\\t"
@@ -176,10 +180,10 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     state->lr = lr;
     state->sp = sp;
 
-    uint32_t path = (op & %(retmask)#x)/2;
-    __box_active = path %% (__BOX_COUNT+1);
+    __box_active = state->caller;
     struct __box_state *targetstate = __box_state[__box_active];
     uint32_t targetlr = targetstate->lr;
+    __BOX_ASSERT(targetlr, BOX_ERR_FAULT); // in call?
     uint32_t *targetsp = targetstate->sp;
     struct __box_frame *targetframe = (struct __box_frame*)targetsp;
     uint32_t *targetfp = targetframe->fp;
@@ -218,7 +222,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
 }
 
 __attribute__((naked, noreturn))
-void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
+void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of rets
         "mov r3, r1 \\n\\t"
@@ -243,12 +247,11 @@ void __box_ret(uint32_t lr, uint32_t *sp, uint32_t op) {
 }
 
 uint64_t __box_faultsetup(int32_t err) {
-    const struct __box_faulthandler *fh = __box_faulthandlers[__box_active];
-    struct __box_state *state = __box_state[__box_active];
-
     // invoke user handler, may not return
-    fh->handler(err);
+    // TODO should we set this up to be called in non-isr context?
+    __box_faults[__box_active](err);
 
+    struct __box_state *state = __box_state[__box_active];
     struct __box_state *targetstate = __box_state[state->caller];
     uint32_t targetlr = targetstate->lr;
     uint32_t *targetsp = targetstate->sp;
@@ -261,9 +264,8 @@ uint64_t __box_faultsetup(int32_t err) {
     }
 
     // check if our return target supports erroring
-    uint32_t op = ((targetfp[6] & %(callmask)#x)/2)
-        / (__BOX_COUNT+1);
-    if (!(fh->mask[op/8] & (1 << (7-(op%%8))))) {
+    uint32_t op = targetfp[6];
+    if (!(op & 2)) {
         // halt if not handled
         while (1) {}
     }
@@ -305,7 +307,7 @@ uint64_t __box_faultsetup(int32_t err) {
 }
 
 __attribute__((naked, noreturn))
-void __box_fault(int32_t err) {
+void __box_faulthandler(int32_t err) {
     __asm__ volatile (
         // call into c with stack control
         "bl __box_faultsetup \\n\\t"
@@ -343,15 +345,18 @@ void MemManage_Handler(void) {
         "ldr r3, =#%(callprefix)#010x \\n\\t"
         "sub r3, r2, r3 \\n\\t"
         "lsrs r3, r3, #16 \\n\\t"
-        "beq __box_call \\n\\t"
+        "beq __box_callhandler \\n\\t"
         // ret?
         "ldr r3, =#%(retprefix)#010x \\n\\t"
-        "sub r3, r2, r3 \\n\\t"
-        "lsrs r3, r3, #16 \\n\\t"
-        "beq __box_ret \\n\\t"
-        // fallback to fault handler (call 1)
+        "subs r3, r2, r3 \\n\\t"
+        "beq __box_rethandler \\n\\t"
+        // explicit fault?
+        "ldr r3, =#%(retprefix)#010x + 1*4 \\n\\t"
+        "subs r3, r2, r3 \\n\\t"
+        "beq __box_faulthandler \\n\\t"
+        // fallback to fault handler
         "ldr r0, =%%0 \\n\\t"
-        "b __box_fault \\n\\t"
+        "b __box_faulthandler \\n\\t"
         :
         : "i"(BOX_ERR_FAULT)
     );
@@ -458,7 +463,6 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
     def build_parent_prologue_c(self, output, sys):
         # TODO need stdout?
-        output.includes.append('<stdio.h>')
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(
             'extern int _write(int handle, char *buffer, int size);',
@@ -466,63 +470,62 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         output.decls.append(MPU_REGISTERS)
 
-        outf = output.decls.append(doc='System state')
-        outf.writef('uint32_t __box_active = 0;\n')
-        outf.writef('uint32_t __box_sys_state_[2];\n')
+        out = output.decls.append(doc='System state')
+        out.printf('uint32_t __box_active = 0;')
 
         # jumptables
-        outf = output.decls.append(doc='Jumptables')
-        outf.writef('const uint32_t __box_sys_jumptable[] = {\n')
-        with outf.pushindent():
-            outf.writef('(uint32_t)(&__box_sys_state_ + 1),\n')
-            outf.writef('(uint32_t)&_write,\n')
+        out = output.decls.append(doc='Jumptables')
+        out.printf('const uint32_t __box_sys_jumptable[] = {')
+        with out.pushindent():
+            out.printf('(uint32_t)NULL, // no stack for sys')
+            out.printf('(uint32_t)&_write,')
             for export in sys.exports:
-                outf.writef('(uint32_t)%(export)s,\n', export=export.name)
-        outf.write('};')
+                out.printf('(uint32_t)%(export)s,', export=export.name)
+        out.write('};')
 
-        outf = output.decls.append()
+        out = output.decls.append()
         for box in sys.boxes:
             if box.runtime == self:
-                outf.writef(
-                    'extern const uint32_t __box_%(box)s_jumptable[];\n',
+                out.printf(
+                    'extern const uint32_t __box_%(box)s_jumptable[];',
                     box=box.name)
 
-        outf = output.decls.append()
-        outf.writef('#define __BOX_COUNT %(boxcount)d\n',
+        out = output.decls.append()
+        out.printf('#define __BOX_COUNT %(boxcount)d',
             boxcount=sum(1 for box in sys.boxes
                 if box.runtime == self))
-        outf.writef('const uint32_t *const '
-            '__box_jumptables[__BOX_COUNT+1] = {\n');
-        with outf.pushindent():
-            outf.writef('__box_sys_jumptable,\n')
+        out.printf('const uint32_t *const '
+            '__box_jumptables[__BOX_COUNT+1] = {');
+        with out.pushindent():
+            out.printf('__box_sys_jumptable,')
             for box in sys.boxes:
                 if box.runtime == self:
-                    outf.writef('__box_%(box)s_jumptable,\n',
+                    out.printf('__box_%(box)s_jumptable,',
                         box=box.name)
-        outf.writef('};');
+        out.printf('};');
 
         # mpu regions
         output.decls.append(BOX_STRUCT_MPUREGIONS, doc='MPU Regions')
 
-        outf = output.decls.append()
-        outf.writef('const struct __box_mpuregions __box_sys_mpuregions = {\n')
-        with outf.pushindent():
-            outf.writef('.count = 0,\n')
-            outf.writef('.regions = {},\n')
-        outf.writef('};\n')
+        out = output.decls.append()
+        out.printf('const struct __box_mpuregions __box_sys_mpuregions = {')
+        with out.pushindent():
+            out.printf('.count = 0,')
+            out.printf('.regions = {},')
+        out.printf('};')
 
         for box in sys.boxes:
             if box.runtime == self:
-                outf = output.decls.append(box=box.name)
-                outf.writef('const struct __box_mpuregions '
-                    '__box_%(box)s_mpuregions = {\n')
-                with outf.pushindent():
-                    outf.writef('.count = %(count)d,\n',
+                out = output.decls.append(box=box.name)
+                out.printf('const struct __box_mpuregions '
+                    '__box_%(box)s_mpuregions = {')
+                with out.pushindent():
+                    out.printf('.count = %(count)d,',
                         count=len(box.memories))
-                    outf.writef('.regions = {\n')
-                    with outf.pushindent():
+                    out.printf('.regions = {')
+                    with out.pushindent():
                         for memory in box.memories:
-                            outf.writef('{%(rbar)#010x, %(rasr)#010x},\n',
+                            out.printf('{%(rbar)#010x, %(rasr)#010x},',
                                 rbar=memory.addr,
                                 rasr= (0x10000000
                                         if 'x' not in memory.mode else
@@ -535,22 +538,20 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                                     | 0 #(0x00080000)
                                     | ((int(math.log2(memory.size))-1) << 1)
                                     | 1)
-                    outf.writef('},\n')
-                outf.writef('};')
+                    out.printf('},')
+                out.printf('};')
 
-        outf = output.decls.append()
-        outf.writef('const struct __box_mpuregions *const '
-            '__box_mpuregions[__BOX_COUNT+1] = {\n')
-        with outf.pushindent():
-            outf.writef('&__box_sys_mpuregions,\n')
+        out = output.decls.append()
+        out.printf('const struct __box_mpuregions *const '
+            '__box_mpuregions[__BOX_COUNT+1] = {')
+        with out.pushindent():
+            out.printf('&__box_sys_mpuregions,')
             for box in sys.boxes:
                 if box.runtime == self:
-                    outf.writef('&__box_%(box)s_mpuregions,\n', box=box.name)
-        outf.writef('};\n')
+                    out.printf('&__box_%(box)s_mpuregions,', box=box.name)
+        out.printf('};')
 
         # fault handlers
-        output.decls.append(BOX_STRUCT_FAULTHANDLER, doc='Fault handlers')
-
         out = output.decls.append()
         out.printf('void __box_sys_fault(int32_t err) {')
         with out.indent():
@@ -559,51 +560,24 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             out.printf('while (1) {}')
         out.printf('}')
 
-        out = output.decls.append()
-        out.printf('const struct __box_faulthandler '
-                '__box_sys_faulthandler = {')
-        with out.indent():
-            out.printf('.handler = &__box_sys_fault,')
-        out.printf('};')
-
         for box in sys.boxes:
             if box.runtime == self:
                 out = output.decls.append(box=box.name)
                 out.printf('__attribute__((weak))')
                 out.printf('void __box_%(box)s_fault(int32_t err) {')
                 with out.indent():
+                    # TODO print if write is hooked up?
                     out.printf('// overridable by user')
-                    # TODO rm me?
-                    out.printf('printf("default fault handler '
-                        'for %(box)s, errored with %%d\\n", err);')
                 out.printf('}')
 
-                out = output.decls.append(box=box.name)
-                out.printf('const struct __box_faulthandler '
-                    '__box_%(box)s_faulthandler = {')
-                with out.indent():
-                    out.printf('.handler = __box_%(box)s_fault,')
-                    out.printf('.mask = {')
-                    with out.indent():
-                        def group(n, iterable, fillvalue=None):
-                            args = [iter(iterable)] * n
-                            return it.zip_longest(*args, fillvalue=fillvalue)
-                        for bits in group(8, it.chain([True],
-                                (export.falible() for export in box.exports)),
-                                fillvalue=False):
-                            out.printf('%#04x,' % int(''.join(
-                                str(int(b)) for b in bits), 2))
-                    out.printf('}')
-                out.printf('};')
-
         out = output.decls.append()
-        out.printf('const struct __box_faulthandler *const '
-            '__box_faulthandlers[__BOX_COUNT+1] = {')
+        out.printf('void (*const '
+            '__box_faults[__BOX_COUNT+1])(int32_t err) = {')
         with out.indent():
-            out.printf('&__box_sys_faulthandler,', box=box.name)
+            out.printf('&__box_sys_fault,', box=box.name)
             for box in sys.boxes:
                 if box.runtime == self:
-                    out.printf('&__box_%(box)s_faulthandler,', box=box.name)
+                    out.printf('&__box_%(box)s_fault,', box=box.name)
         out.printf('};')
 
         # state
@@ -635,66 +609,56 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         super().build_box_c(output, box)
         output.decls.append('//// jumptable declarations ////')
 
-        outf = output.decls.append()
-        outf.writef('struct %(box)s_exportjumptable {\n')
-        with outf.pushindent():
+        out = output.decls.append()
+        out.printf('struct %(box)s_exportjumptable {')
+        with out.pushindent():
             # special entries for the sp and __box_init
-            outf.writef('uint32_t *__box_%(box)s_stack_end;\n')
-            outf.writef('void (*__box_%(box)s_init)(void);\n')
+            out.printf('uint32_t *__box_%(box)s_stack_end;')
+            out.printf('void (*__box_%(box)s_init)(void);')
             for export in box.exports:
-                outf.writef('%(fn)s;\n', fn=export.repr_c_ptr())
-        outf.writef('};\n')
-
-        outf = output.decls.append()
-        outf.writef('struct %(box)s_importjumptable {\n')
-        with outf.pushindent():
-            # special entries for __box_write and __box_fault
-            outf.writef('void (*__box_%(box)s_fault)(void);\n')
-            outf.writef('int (*__box_%(box)s_write)('
-                'int a, char* b, int c);\n')
-                # TODO are these the correct types??
-            for import_ in box.imports:
-                outf.writef('%(fn)s;\n', fn=import_.repr_c_ptr())
-        outf.writef('};\n')
+                out.printf('%(fn)s;', fn=export.repr_c_ptr())
+        out.printf('};')
 
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(BOX_INIT)
         output.decls.append(BOX_WRITE)
 
         output.decls.append('extern uint32_t __stack_end;')
-        outf = output.decls.append(doc='box-side jumptable')
-        outf.writef('__attribute__((section(".jumptable")))\n')
-        outf.writef('__attribute__((used))\n')
-        outf.writef('const struct %(box)s_exportjumptable '
-            '__box_%(box)s_jumptable = {\n')
-        with outf.pushindent():
+        out = output.decls.append(doc='box-side jumptable')
+        out.printf('__attribute__((section(".jumptable")))')
+        out.printf('__attribute__((used))')
+        out.printf('const struct %(box)s_exportjumptable '
+            '__box_%(box)s_jumptable = {')
+        with out.pushindent():
             # special entries for the sp and __box_init
-            outf.writef('&__stack_end,\n')
-            outf.writef('__box_%(box)s_init,\n')
+            out.printf('&__stack_end,')
+            out.printf('__box_%(box)s_init,')
             for export in box.exports:
-                outf.writef('%(export)s,\n', export=export.name)
-        outf.writef('};\n')
+                out.printf('%(export)s,', export=export.name)
+        out.printf('};')
 
     def build_parent_partial_ld(self, output, sys, box):
         # create box calls for imports
         output.decls.append('/* box calls */')
         for import_ in it.chain(
                 # TODO rename this
-                ['__box_%(box)s_rawinit'],
-                (import_.name for import_ in box.exports)):
+                [Fn('__box_%s_rawinit' % box.name, 'fn() -> err32')],
+                (import_ for import_ in box.exports)):
             output.decls.append(
-                '%(import_)-24s = %(callprefix)#010x + %(id)d*2 + 1;',
-                import_=import_,
-                id=self.ids[import_ % dict(box=box.name)])
+                '%(import_)-24s = %(callprefix)#010x + '
+                    '%(id)d*4 + %(falible)d*2 + 1;',
+                import_=import_.name,
+                id=self.ids[import_.name],
+                falible=import_.isfalible())
         output.decls.append()
 
         memory, _, _ = box.consume('rx', box.jumptable.size)
-        outf = output.sections.insert(0,
+        out = output.sections.insert(0,
             box_memory=memory.name,
             section='.box.%(box)s.%(box_memory)s',
             memory='box_%(box)s_%(box_memory)s')
-        outf.writef('. = ORIGIN(%(MEMORY)s);\n')
-        outf.writef('__box_%(box)s_jumptable = .;')
+        out.printf('. = ORIGIN(%(MEMORY)s);')
+        out.printf('__box_%(box)s_jumptable = .;')
         super().build_parent_partial_ld(output, sys, box)
 
     def build_parent_ld(self, output, sys, box):
@@ -702,31 +666,39 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
     def build_box_partial_ld(self, output, box):
         # create box calls for imports
-        output.decls.append('/* box calls */')
+        out = output.decls.append(doc='box calls')
         for i, import_ in enumerate(it.chain(
-                ['__box_write'],
-                (import_.name for import_ in box.imports))):
-            output.decls.append(
-                '%(import_)-24s = %(callprefix)#010x + %(id)d*2 + 1;',
-                import_=import_,
-                id=self.ids[import_])
-        output.decls.append()
+                [Fn('__box_write', 'fn(i32, u8*, usize) -> err32')],
+                (import_ for import_ in box.imports))):
+            out.printf(
+                '%(import_)-24s = %(callprefix)#010x + '
+                    '%(id)d*4 + %(falible)d*2 + 1;',
+                import_=import_.name,
+                id=self.ids[import_.name],
+                falible=import_.isfalible())
+
+        out = output.decls.append(doc='special box triggers')
+        out.printf('%(name)-24s = %(retprefix)#010x + 1;',
+            name='__box_ret')
+        out.printf('%(name)-24s = %(retprefix)#010x + %(id)d*4 + 1;',
+            name='__box_fault',
+            id=1)
 
     def build_box_ld(self, output, box):
         self.build_box_partial_ld(output, box)
         
         memory, _, _ = box.consume('rx', section=box.jumptable)
-        outf = output.sections.insert(0,
+        out = output.sections.insert(0,
             section='.jumptable',
             memory=memory.name)
-        outf.writef('%(section)s : {\n')
-        with outf.pushindent():
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__jumptable = .;\n')
-            outf.writef('KEEP(*(.jumptable))\n')
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__jumptable_end = .;\n')
-        outf.writef('} > %(MEMORY)s')
+        out.printf('%(section)s : {')
+        with out.pushindent():
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable = .;')
+            out.printf('KEEP(*(.jumptable))')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable_end = .;')
+        out.printf('} > %(MEMORY)s')
 
         super().build_box_ld(output, box)
 

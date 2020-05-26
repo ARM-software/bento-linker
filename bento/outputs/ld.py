@@ -4,28 +4,16 @@ import io
 import textwrap
 import itertools as it
 
-def buildmemory(outf, memory):
-    outf.pushattrs(
-        prefix=outf.get('prefix', ''),
+def buildmemory(out, memory):
+    out.pushattrs(
+        prefix=out.get('prefix', ''),
         memory='%(prefix)s' + memory.name,
         mode=''.join(sorted(memory.mode)),
         addr=memory.addr,
         size=memory.size)
-    outf.writef('%(MEMORY)-16s (%(MODE)-3s) : '
+    out.writef('%(MEMORY)-16s (%(MODE)-3s) : '
         'ORIGIN = %(addr)#010x, '
         'LENGTH = %(size)#010x')
-
-def buildsymbol(outf, symbol):
-    outf.pushattrs(
-        symbol=symbol[0],
-        addr=symbol[1])
-    outf.writef('%(symbol)-24s = ')
-    if outf.get('cond', False):
-        outf.writef('DEFINED(%(symbol)s) ? %(symbol)s : ')
-    try:
-        outf.writef('%(addr)#010x;')
-    except TypeError:
-        outf.writef('%(addr)s;')
 
 @outputs.output
 class PartialLDOutput(outputs.Output):
@@ -39,7 +27,7 @@ class PartialLDOutput(outputs.Output):
 
     def __init__(self, path=None):
         super().__init__(path)
-        self.decls = outputs.OutputField(self, {tuple: buildsymbol})
+        self.decls = outputs.OutputField(self)
         self.memories = outputs.OutputField(self, {Memory: buildmemory},
             indent=4,
             memory=None,
@@ -57,18 +45,17 @@ class PartialLDOutput(outputs.Output):
         for memory in box.memories:
             self.memories.append(memory, prefix='box_%(box)s_')
 
-            outf = self.sections.append(
+            out = self.sections.append(
                 section='.box.%(box)s.' + memory.name,
                 memory='box_%(box)s_' + memory.name)
-            outf.writef('%(section)s : {\n')
-            with outf.pushindent():
-                # TODO prefixes considered harmful?
-                outf.writef('__%(memory)s = .;\n')
-                outf.writef('KEEP(*(%(section)s*))\n')
-                outf.writef('. = ORIGIN(%(MEMORY)s) + '
-                    'LENGTH(%(MEMORY)s);\n')
-                outf.writef('__%(memory)s_end = .;\n')
-            outf.writef('} > %(MEMORY)s')
+            out.printf('%(section)s : {')
+            with out.pushindent():
+                out.printf('__%(memory)s = .;')
+                out.printf('KEEP(*(%(section)s*))')
+                out.printf('. = ORIGIN(%(MEMORY)s) + '
+                    'LENGTH(%(MEMORY)s);')
+                out.printf('__%(memory)s_end = .;')
+            out.printf('} > %(MEMORY)s')
 
     def build(self, box):
         # TODO docs?
@@ -76,15 +63,21 @@ class PartialLDOutput(outputs.Output):
         self.write('\n')
         if self.decls:
             for decl in self.decls:
-                self.write(decl.getvalue())
-                self.write('\n')
-            self.write('\n')
+                if 'doc' in decl:
+                    for line in textwrap.wrap(decl['doc'], width=72):
+                        self.write('/* %s */\n' % line)
+                self.write(decl.getvalue().strip())
+                self.write('\n\n')
         if self.memories:
             self.write('MEMORY {\n')
             # order memories based on address
             for memory in sorted(self.memories, key=lambda m: m['addr']):
                 if memory['mode']:
-                    self.write(memory.getvalue())
+                    if 'doc' in memory:
+                        for line in textwrap.wrap(memory['doc'], width=68):
+                            self.write(4*' '+'/* %s */\n' % line)
+                    self.write(4*' ')
+                    self.write(memory.getvalue().strip())
                     self.write('\n')
             self.write('}\n')
             self.write('\n')
@@ -100,7 +93,12 @@ class PartialLDOutput(outputs.Output):
                 nsections = []
                 for section in sections:
                     if section['memory'] == memory['memory']:
-                        self.write(section.getvalue())
+                        if 'doc' in section:
+                            for line in textwrap.wrap(section['doc'],
+                                    width=68):
+                                self.write(4*' '+'/* %s */\n' % line)
+                        self.write(4*' ')
+                        self.write(section.getvalue().strip())
                         self.write('\n\n')
                     else:
                         nsections.append(section)
@@ -109,7 +107,12 @@ class PartialLDOutput(outputs.Output):
             if sections:
                 self.write('    /* misc sections */\n')
                 for section in sections:
-                    self.write(section.getvalue())
+                    if 'doc' in section:
+                        for line in textwrap.wrap(section['doc'],
+                                width=68):
+                            self.write(4*' '+'/* %s */\n' % line)
+                    self.write(4*' ')
+                    self.write(section.getvalue().strip())
                     self.write('\n\n')
             self.write('}\n')
             self.write('\n')
@@ -130,115 +133,122 @@ class LDOutput(PartialLDOutput):
 
         if box.issys():
             self.decls.insert(0, 'ENTRY(Reset_Handler)')
+        constants = self.decls.append(doc='overridable constants')
 
         # write out rom sections
         # need interrupt vector?
         if box.issys() and box.isr_vector:
             memory, _, _ = box.consume('rx', section=box.isr_vector)
-            self.decls.append(('__isr_vector_min', box.isr_vector.size),
-                cond=True)
-            outf = self.sections.append(
+            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
+                '? %(symbol)s \n%()24s : %(value)#010x;',
+                symbol='__isr_vector_min',
+                value=box.isr_vector.size)
+            out = self.sections.append(
                 section='.isr_vector',
                 memory=memory.name)
-            outf.writef('.isr_vector : {\n')
-            with outf.pushindent():
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__isr_vector = .;\n')
-                outf.writef('KEEP(*(.isr_vector))\n')
-                outf.writef('. = __isr_vector +'
-                    '__isr_vector_min;\n')
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__isr_vector_end = .;\n')
-            outf.writef('} > %(MEMORY)s')
+            out.printf('.isr_vector : {')
+            with out.pushindent():
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__isr_vector = .;')
+                out.printf('KEEP(*(.isr_vector))')
+                out.printf('. = __isr_vector +'
+                    '__isr_vector_min;')
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__isr_vector_end = .;')
+            out.printf('} > %(MEMORY)s')
 
         memory, _, _ = box.consume('rx', section=box.text)
-        outf = self.sections.append(
+        out = self.sections.append(
             section='.text',
             memory=memory.name)
-        outf.writef('%(section)s : {\n')
-        with outf.pushindent():
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__text = .;\n')
-            outf.writef('*(.text*)\n')
-            outf.writef('*(.rodata*)\n')
-            outf.writef('*(.glue_7*)\n')
-            outf.writef('*(.glue_7t*)\n')
-            outf.writef('*(.eh_frame*)\n')
-            outf.writef('KEEP(*(.init*))\n')
-            outf.writef('KEEP(*(.fini*))\n') # TODO oh boy there's a lot of other things
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__text_end = .;\n')
-            outf.writef('__data_init = .;\n')
-        outf.writef('} > %(MEMORY)s')
+        out.printf('%(section)s : {')
+        with out.pushindent():
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__text = .;')
+            out.printf('*(.text*)')
+            out.printf('*(.rodata*)')
+            out.printf('*(.glue_7*)')
+            out.printf('*(.glue_7t*)')
+            out.printf('*(.eh_frame*)')
+            out.printf('KEEP(*(.init*))')
+            out.printf('KEEP(*(.fini*))') # TODO oh boy there's a lot of other things
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__text_end = .;')
+            out.printf('__data_init = .;')
+        out.printf('} > %(MEMORY)s')
 
-        # writef out ram sections
+        # write out ram sections
         if box.stack:
             memory, _, _ = box.consume('rw', section=box.stack)
-            self.decls.append(('__stack_min', box.stack.size),
-                cond=True)
-            outf = self.sections.append(
+            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
+                '? %(symbol)s \n%()24s : %(value)#010x;',
+                symbol='__stack_min',
+                value=box.stack.size)
+            out = self.sections.append(
                 section='.stack',
                 memory=memory.name)
-            outf.writef('%(section)s (NOLOAD) : {\n')
-            with outf.pushindent():
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__stack = .;\n')
-                outf.writef('. += __stack_min;\n')
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__stack_end = .;\n')
-            outf.writef('} > %(MEMORY)s')
+            out.printf('%(section)s (NOLOAD) : {')
+            with out.pushindent():
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__stack = .;')
+                out.printf('. += __stack_min;')
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__stack_end = .;')
+            out.printf('} > %(MEMORY)s')
 
         memory, _, _ = box.consume('rw', section=box.data)
-        outf = self.sections.append(
+        out = self.sections.append(
             section='.data',
             memory=memory.name)
-        outf.writef('%(section)s : AT(__data_init) {\n')
-        with outf.pushindent():
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__data = .;\n')
-            outf.writef('*(.data*)\n')
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__data_end = .;\n')
-        outf.writef('} > %(MEMORY)s')
+        out.printf('%(section)s : AT(__data_init) {')
+        with out.pushindent():
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__data = .;')
+            out.printf('*(.data*)')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__data_end = .;')
+        out.printf('} > %(MEMORY)s')
 
         memory, _, _ = box.consume('rw', section=box.bss)
-        outf = self.sections.append(
+        out = self.sections.append(
             section='.bss',
             memory=memory.name)
-        outf.writef('%(section)s (NOLOAD) : {\n')
-        with outf.pushindent():
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__bss = .;\n')
+        out.printf('%(section)s (NOLOAD) : {')
+        with out.pushindent():
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__bss = .;')
             # TODO hm
-            outf.writef('__bss_start__ = .;\n')
-            outf.writef('*(.bss*)\n')
-            outf.writef('*(COMMON)\n')
-            outf.writef('. = ALIGN(%(align)d);\n')
-            outf.writef('__bss_end = .;\n')
-            outf.writef('__bss_end__ = .;\n')
-        outf.writef('} > %(MEMORY)s')
+            out.printf('__bss_start__ = .;')
+            out.printf('*(.bss*)')
+            out.printf('*(COMMON)')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__bss_end = .;')
+            out.printf('__bss_end__ = .;')
+        out.printf('} > %(MEMORY)s')
 
         if box.heap:
             memory, _, _ = box.consume('rw', section=box.heap)
-            self.decls.append(('__heap_min', box.heap.size),
-                cond=True)
-            outf = self.sections.append(
+            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
+                '? %(symbol)s \n%()24s : %(value)#010x;',
+                symbol='__heap_min',
+                value=box.heap.size)
+            out = self.sections.append(
                 section='.heap',
                 memory=memory.name)
-            outf.writef('%(section)s (NOLOAD) : {\n')
-            with outf.pushindent():
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__end__ = .;\n')
-                outf.writef('PROVIDE(end = .);\n')
-                outf.writef('__heap = .;\n')
+            out.printf('%(section)s (NOLOAD) : {')
+            with out.pushindent():
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__end__ = .;')
+                out.printf('PROVIDE(end = .);')
+                out.printf('__heap = .;')
                 # TODO need all these?
-                outf.writef('__HeapBase = .;\n')
-                outf.writef('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);\n')
-                outf.writef('. = ALIGN(%(align)d);\n')
-                outf.writef('__heap_end = .;\n')
+                out.printf('__HeapBase = .;')
+                out.printf('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);')
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__heap_end = .;')
                 # TODO need all these?
-                outf.writef('__HeapLimit = .;\n')
-                outf.writef('__heap_limit = .;\n')
-            outf.writef('} > %(MEMORY)s\n')
-            outf.writef('ASSERT(__heap_end - __heap > __heap_min,\n')
-            outf.writef('    "Not enough memory for heap")')
+                out.printf('__HeapLimit = .;')
+                out.printf('__heap_limit = .;')
+            out.printf('} > %(MEMORY)s')
+            out.printf('ASSERT(__heap_end - __heap > __heap_min,')
+            out.printf('    "Not enough memory for heap")')

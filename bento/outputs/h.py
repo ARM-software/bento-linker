@@ -3,17 +3,17 @@ from ..box import Fn
 import io
 import textwrap
 
-def buildinclude(outf, include):
+def buildinclude(out, include):
     if not (include.startswith('"') or include.startswith('<')):
         include = '"%s"' % include
-    outf.writef(include)
+    out.writef(include)
 
-def buildfn(outf, fn):
+def buildfn(out, fn):
     if fn.doc:
-        outf.pushattrs(doc=fn.doc)
-    if outf.get('attrs', False):
-        outf.writef('%(attrs)s ')
-    outf.writef('%(fn)s;', fn=fn.repr_c())
+        out.pushattrs(doc=fn.doc)
+    if out.get('attrs', False):
+        out.writef('%(attrs)s ')
+    out.writef('%(fn)s;', fn=fn.repr_c())
 
 @outputs.output
 class HOutput(outputs.Output):
@@ -94,10 +94,8 @@ class HOutput(outputs.Output):
         self.write('\n')
 
         for decl in self.decls:
-            if decl.getvalue().startswith(4*'/'):
-                self.write('\n')
-            if decl.get('doc', None) is not None:
-                for line in textwrap.wrap(decl['doc'] % decl, width=77):
+            if 'doc' in decl:
+                for line in textwrap.wrap(decl['doc'], width=77):
                     self.write('// %s\n' % line)
             self.write(decl.getvalue().strip())
             self.write('\n\n')

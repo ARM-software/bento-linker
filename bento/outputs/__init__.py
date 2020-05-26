@@ -19,6 +19,7 @@ class OutputBlob(io.StringIO):
         super().__init__(*args)
         self._attrs = []
         self._needindent = True
+        self.pushattrs(**{'':''})
         self.pushattrs(**kwargs)
 
     def writef(self, _fmt, **kwargs):

@@ -516,7 +516,7 @@ class Fn:
     def repr_c_ptr(self):
         return self.repr_c(name='(*%s)' % self.name)
 
-    def falible(self):
+    def isfalible(self):
         return any(ret.iserr() for ret in self.rets)
 
 class Import(Fn):
