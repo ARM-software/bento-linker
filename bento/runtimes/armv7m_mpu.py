@@ -63,7 +63,7 @@ static int32_t __box_mpu_init(void) {
         // do we have an MPU?
         assert(*MPU_TYPE >= %(mpuregions)d);
         // enable MemManage exception
-        *SHCSR = *SHCSR | 0x00010000;
+        *SHCSR = *SHCSR | 0x00070000;
         // setup call region
         *MPU_RBAR = %(callprefix)#010x | 0x10;
         // disallow execution
@@ -326,10 +326,14 @@ void __box_faulthandler(int32_t err) {
     );
 }
 
-__attribute__((alias("MemManage_Handler")))
+__attribute__((alias("__box_mpu_handler")))
+void UsageFault_Handler(void);
+__attribute__((alias("__box_mpu_handler")))
 void BusFault_Handler(void);
+__attribute__((alias("__box_mpu_handler")))
+void MemManage_Handler(void);
 __attribute__((naked))
-void MemManage_Handler(void) {
+void __box_mpu_handler(void) {
     __asm__ volatile (
         // get lr
         "mov r0, lr \\n\\t"
