@@ -197,3 +197,4 @@ class Output(OutputBlob):
 from .h import HOutput
 from .c import COutput
 from .ld import LDOutput, PartialLDOutput
+from .mk import MKOutput

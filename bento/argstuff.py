@@ -1,8 +1,8 @@
-
 import re
 import argparse
 import sys
 import os
+import io
 import toml
 from argparse import Namespace
 import itertools as it
@@ -70,6 +70,27 @@ class ArgumentParser(argparse.ArgumentParser):
             kwargs['type'] = mktype(
                 kwargs.pop('pred'),
                 kwargs.pop('type', lambda x: x))
+
+        # some extra special types
+        if kwargs.get('type', None) == list:
+            def parselist(x):
+                s = io.StringIO()
+                s.write('x='+x)
+                s.seek(0)
+                return toml.load(s)['x']
+            kwargs['type'] = parselist
+        elif kwargs.get('type', None) == bool:
+            def parsebool(x):
+                if x in {'false', 'True', 'no', '0', ''}:
+                    return False
+                elif x in {'true', 'False', 'yes', '1'}:
+                    return True
+                else:
+                    raise ValueError("I don't recognize this bool "
+                        "argument %r" % x)
+            kwargs['type'] = parsebool
+            kwargs.setdefault('nargs', '?')
+            kwargs.setdefault('const', True)
 
         # enable help=argparse.SUPPRESS but in a more flexible way
         if kwargs.pop('hidden', False) or self._hidden:
@@ -222,7 +243,7 @@ class ArgumentParser(argparse.ArgumentParser):
             nkwargs.pop('recursive', None)
             nkwargs.pop('metavar', None)
             hidden = nested._hidden
-            if nkwargs.pop('hidden') == 'append_only':
+            if nkwargs.pop('hidden', None) == 'append_only':
                 nested._hidden = False
             nested.add_argument('__STORE', **nkwargs)
             nested._hidden = hidden

@@ -638,18 +638,17 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
     def build_parent_partial_ld(self, output, sys, box):
         # create box calls for imports
-        output.decls.append('/* box calls */')
+        out = output.decls.append(doc='box calls')
         for import_ in it.chain(
                 # TODO rename this
                 [Fn('__box_%s_rawinit' % box.name, 'fn() -> err32')],
                 (import_ for import_ in box.exports)):
-            output.decls.append(
+            out.printf(
                 '%(import_)-24s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
                 import_=import_.name,
                 id=self.ids[import_.name],
                 falible=import_.isfalible())
-        output.decls.append()
 
         memory, _, _ = box.consume('rx', box.jumptable.size)
         out = output.sections.insert(0,
@@ -658,6 +657,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             memory='box_%(box)s_%(box_memory)s')
         out.printf('. = ORIGIN(%(MEMORY)s);')
         out.printf('__box_%(box)s_jumptable = .;')
+
         super().build_parent_partial_ld(output, sys, box)
 
     def build_parent_ld(self, output, sys, box):
@@ -666,9 +666,9 @@ class ARMv7MMPURuntime(runtimes.Runtime):
     def build_box_partial_ld(self, output, box):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
-        for i, import_ in enumerate(it.chain(
+        for import_ in it.chain(
                 [Fn('__box_write', 'fn(i32, u8*, usize) -> err32')],
-                (import_ for import_ in box.imports))):
+                (import_ for import_ in box.imports)):
             out.printf(
                 '%(import_)-24s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
@@ -682,6 +682,8 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out.printf('%(name)-24s = %(retprefix)#010x + %(id)d*4 + 1;',
             name='__box_fault',
             id=1)
+
+        super().build_box_partial_ld(output, box)
 
     def build_box_ld(self, output, box):
         self.build_box_partial_ld(output, box)

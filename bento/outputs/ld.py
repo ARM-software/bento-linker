@@ -3,6 +3,7 @@ from ..box import Memory
 import io
 import textwrap
 import itertools as it
+import collections as co
 
 def buildmemory(out, memory):
     out.pushattrs(
@@ -24,9 +25,20 @@ class PartialLDOutput(outputs.Output):
     """
     __argname__ = "partial_ld"
     __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser, **kwargs):
+        outputs.Output.__argparse__(parser, **kwargs)
 
-    def __init__(self, path=None):
+        defineparser = parser.add_set('--defines', metavar='DEFINE')
+        defineparser.add_argument('define',
+            help='Add custom symbols to the linkerscript. For example: '
+                'define.__HeapLimit=__heap_end.')
+
+    def __init__(self, path=None, defines={}):
         super().__init__(path)
+        self._defines = co.OrderedDict(sorted(
+            (k, getattr(v, 'define', v)) for k, v in defines.items()))
+
         self.decls = outputs.OutputField(self)
         self.memories = outputs.OutputField(self, {Memory: buildmemory},
             indent=4,
@@ -39,6 +51,12 @@ class PartialLDOutput(outputs.Output):
             section=None,
             memory=None,
             align=4)
+
+    def default_build_box(self, box):
+        if self._defines:
+            out = self.decls.append(doc='User defined symbols')
+            for k, v in self._defines.items():
+                out.write('%-24s = %s;' % (k, v))
 
     def default_build_parent(self, parent, box):
         # create memories + sections for subboxes?
@@ -126,36 +144,14 @@ class LDOutput(PartialLDOutput):
     __arghelp__ = __doc__
 
     def default_build_box(self, box):
+        super().default_build_box(box)
+
         for memory in box.memories:
             for slice in memory - it.chain.from_iterable(
                     subbox.memories for subbox in box.boxes):
                 self.memories.append(slice)
 
-        if box.issys():
-            self.decls.insert(0, 'ENTRY(Reset_Handler)')
         constants = self.decls.append(doc='overridable constants')
-
-        # write out rom sections
-        # need interrupt vector?
-        if box.issys() and box.isr_vector:
-            memory, _, _ = box.consume('rx', section=box.isr_vector)
-            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
-                '? %(symbol)s \n%()24s : %(value)#010x;',
-                symbol='__isr_vector_min',
-                value=box.isr_vector.size)
-            out = self.sections.append(
-                section='.isr_vector',
-                memory=memory.name)
-            out.printf('.isr_vector : {')
-            with out.pushindent():
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__isr_vector = .;')
-                out.printf('KEEP(*(.isr_vector))')
-                out.printf('. = __isr_vector +'
-                    '__isr_vector_min;')
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__isr_vector_end = .;')
-            out.printf('} > %(MEMORY)s')
 
         memory, _, _ = box.consume('rx', section=box.text)
         out = self.sections.append(
@@ -181,7 +177,7 @@ class LDOutput(PartialLDOutput):
         if box.stack:
             memory, _, _ = box.consume('rw', section=box.stack)
             constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
-                '? %(symbol)s \n%()24s : %(value)#010x;',
+                '? %(symbol)s : %(value)#010x;',
                 symbol='__stack_min',
                 value=box.stack.size)
             out = self.sections.append(
@@ -229,7 +225,7 @@ class LDOutput(PartialLDOutput):
         if box.heap:
             memory, _, _ = box.consume('rw', section=box.heap)
             constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
-                '? %(symbol)s \n%()24s : %(value)#010x;',
+                '? %(symbol)s : %(value)#010x;',
                 symbol='__heap_min',
                 value=box.heap.size)
             out = self.sections.append(
