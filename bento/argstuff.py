@@ -74,10 +74,12 @@ class ArgumentParser(argparse.ArgumentParser):
         # some extra special types
         if kwargs.get('type', None) == list:
             def parselist(x):
-                s = io.StringIO()
-                s.write('x='+x)
-                s.seek(0)
-                return toml.load(s)['x']
+                m = re.match(r'\[(.*)\]', x.strip())
+                if not m:
+                    raise ValueError("Not a list %r", x)
+                xs = m.group(1).split(',')
+                return [re.match(r'(\')?(.*)(?(1)\')', x.strip()).group(2)
+                    for x in xs]
             kwargs['type'] = parselist
         elif kwargs.get('type', None) == bool:
             def parsebool(x):
