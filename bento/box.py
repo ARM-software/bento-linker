@@ -107,7 +107,7 @@ class Region:
 
         return addr, size
 
-    def __init__(self, addr=None, size=None, align=None, region=None):
+    def __init__(self, region=None, addr=None, size=None, align=None):
         region = Region.parseregion(region) if region else (None, None)
         self.align = align
         self.addr = addr if addr is not None else region[0]
@@ -222,8 +222,8 @@ class Memory(Region):
 
         return mode, addr, size
 
-    def __init__(self, name, mode=None, addr=None, size=None,
-            align=None, memory=None):
+    def __init__(self, name, memory=None,
+            mode=None, addr=None, size=None, align=None):
         self.name = name
         memory = Memory.parsememory(memory) if memory else (None, None, None)
         self.mode = Memory.parsemode(mode) if mode else memory[0] or set()

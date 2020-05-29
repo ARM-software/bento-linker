@@ -406,7 +406,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
         self._call_region = (
             Region(**call_region.__dict__)
-            if call_region else
+            if call_region.addr is not None else
             Region('0x1e000000-0x1fffffff'))
 
     def box_parent(self, parent, box):

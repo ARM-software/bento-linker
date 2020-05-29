@@ -180,7 +180,6 @@ class MKOutput(outputs.Output):
             out.printf('override CFLAGS += -Os')
             out.printf('endif')
             out.printf('override CFLAGS += -mthumb')
-            out.printf('override CFLAGS += -mthumb')
             out.printf('override CFLAGS += -mcpu=cortex-m4')
             out.printf('override CFLAGS += -mfpu=fpv4-sp-d16')
             out.printf('override CFLAGS += -mfloat-abi=softfp')
@@ -280,7 +279,12 @@ class MKOutput(outputs.Output):
                 'echo %(path)s/%(box)s.bin)')
             out.printf('%(path)s/%(box)s.bin:')
             with out.indent():
-                out.printf('$(MAKE) -C %(path)s %(box)s.bin')
+                out.printf('@echo "' + 6*'='
+                    + (' make -C %s ' % out['box']).center(48-2*6, '=')
+                    + 6*'=' + '"')
+                out.printf('$(MAKE) --no-print-directory -C %(path)s '
+                    '%(box)s.bin')
+                out.printf('@echo "' + 48*'=' + '"')
             out.printf('%(box)s.o: %(path)s/%(box)s.bin')
             with out.indent():
                 # Hm, we've lost memory info, grab first memory?

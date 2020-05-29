@@ -56,7 +56,7 @@ class PartialLDOutput(outputs.Output):
         if self._defines:
             out = self.decls.append(doc='User defined symbols')
             for k, v in self._defines.items():
-                out.write('%-24s = %s;' % (k, v))
+                out.write('%-16s = %s;' % (k, v))
 
     def default_build_parent(self, parent, box):
         # create memories + sections for subboxes?
@@ -176,7 +176,7 @@ class LDOutput(PartialLDOutput):
         # write out ram sections
         if box.stack:
             memory, _, _ = box.consume('rw', section=box.stack)
-            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
+            constants.printf('%(symbol)-16s = DEFINED(%(symbol)s) '
                 '? %(symbol)s : %(value)#010x;',
                 symbol='__stack_min',
                 value=box.stack.size)
@@ -224,7 +224,7 @@ class LDOutput(PartialLDOutput):
 
         if box.heap:
             memory, _, _ = box.consume('rw', section=box.heap)
-            constants.printf('%(symbol)-24s = DEFINED(%(symbol)s) '
+            constants.printf('%(symbol)-16s = DEFINED(%(symbol)s) '
                 '? %(symbol)s : %(value)#010x;',
                 symbol='__heap_min',
                 value=box.heap.size)

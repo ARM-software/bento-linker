@@ -124,12 +124,13 @@ for Output in OUTPUTS.values():
     for level, order in it.product(
             ['root', 'muxer', 'parent', 'box'],
             ['_prologue', '', '_epilogue']):
-        method = 'build_%s%s_%s' % (level, order, Output.__argname__)
-        if hasattr(Output, 'default_build_%s%s' % (level, order)):
-            setattr(Runtime, method, (lambda path:
+        default = 'default_build_%s%s' % (level, order)
+        method  = 'build_%s%s_%s' % (level, order, Output.__argname__)
+        if hasattr(Output, default):
+            setattr(Runtime, method, (lambda f:
                 lambda self, output, *args, **kwargs:
-                    getattr(output, path)(*args, **kwargs))(
-                'default_build_%s%s' % (level, order)))
+                    f(output, *args, **kwargs)
+                )(getattr(Output, default)))
         else:
             setattr(Runtime, method,
                 lambda self, output, *args, **kwargs: None)
