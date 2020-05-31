@@ -1,6 +1,6 @@
 from .. import outputs
 from ..box import Fn
-from .h import buildinclude, buildfn, HOutput
+from .h import HOutput
 import io
 import textwrap
 
@@ -11,11 +11,6 @@ class COutput(outputs.HOutput):
     """
     __argname__ = "c"
     __arghelp__ = __doc__
-
-    def __init__(self, path=None):
-        super().__init__(path)
-        self.includes = outputs.OutputField(self, rules={str: buildinclude})
-        self.decls = outputs.OutputField(self, rules={Fn: buildfn})
 
     def build(self, box):
         outputs.Output.build(self, box)

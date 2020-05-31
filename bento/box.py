@@ -82,8 +82,6 @@ class Region:
                 "undefined if the exact location does not matter.")
         parser.add_argument("--size", type=lambda x: int(x, 0),
             help="Size of the region in bytes.")
-        parser.add_argument("--align", type=lambda x: int(x, 0),
-            help="Minimum alignment of the region. Optional.")
 
     @staticmethod
     def parseregion(s):
@@ -107,21 +105,11 @@ class Region:
 
         return addr, size
 
-    def __init__(self, region=None, addr=None, size=None, align=None):
+    def __init__(self, region=None, addr=None, size=None):
         region = Region.parseregion(region) if region else (None, None)
-        self.align = align
         self.addr = addr if addr is not None else region[0]
         self.size = size if size is not None else region[1] or 0
-
         assert self.size >= 0, "Invalid region size %#x?" % self.size
-        if self.align and self.addr:
-            assert self.addr % self.align == 0, ("Region address %#010x "
-                "not aligned to region alignment %#010x" % (
-                    self.addr, self.align))
-        if self.align:
-            assert self.size % self.align == 0, ("Region size %#010x "
-                "not aligned to region alignment %#010x" % (
-                    self.size, self.align))
 
     def __str__(self):
         return "%(range)s %(size)d bytes" % dict(
@@ -165,8 +153,7 @@ class Region:
                             addr+size - region.addr+region.size))
             slices = nslices
 
-        return [Region(addr=self.addr, size=self.size)
-            for addr, size in slices]
+        return [Region(addr=addr, size=size) for addr, size in slices]
 
 class Memory(Region):
     """
@@ -257,64 +244,48 @@ class Memory(Region):
     def __lt__(self, other):
         return (self.addr, self.name) < (other.addr, other.name)
 
-    def consume(self, addr=None, size=None, align=None, section=None,
-            reverse=False):
+    def used(self):
+        return self.size - self._size
+
+    def unused(self):
+        return self._size
+
+    def consume(self, size=None, align=None, section=None, reverse=False):
         if section is not None:
             size = section.size
             align = section.align
-        if size is None:
-            addr, size = None, addr or 0
-        #assert addr is None, "TODO" # TODO
-        addr = None # TODO HACK
         assert align is None, "TODO" # TODO
         assert size <= self._size, ("Not enough memory in %s "
             "for size=%#010x" % (self.name, size))
 
-        self._addr = self._addr if self._addr is not None else self.addr
-
         if not reverse:
             self._addr += size
             self._size -= size
-            return self._addr, size
+            return Memory(self.name, mode=self.mode,
+                addr=self._addr, size=size, align=None)
         else:
             self._size -= size
-            return self._addr + self._size, size
+            return Memory(self.name, mode=self.mode,
+                addr=self._addr + self._size, size=size, align=None)
 
-    def consumed(self):
-        return self.size - self._size
-
-    def remaining(self):
-        return self._size
-
-    def compatible(self, mode='rwx', addr=None, size=None,
-            align=None, name=None, section=None):
+    def iscompatible(self, mode='rwx', size=None, align=None,
+            section=None, memory=None):
         if section is not None:
             size = section.size
             align = section.align
-            name = section.memory
-        if size is None:
-            addr, size = None, addr
-        #assert addr is None, "TODO" # TODO
-        addr = None # TODO HACK
+            memory = section.memory
+        if isinstance(memory, Memory):
+            memory = memory.name
         assert align is None, "TODO" # TODO
         return (
             self._size != 0 and
             set(mode).issubset(self.mode) and
-            (size is None or size <= self._size) and
-            (name is None or name == self.name))
+            (memory is None or memory == self.name) and
+            (size is None or size <= self._size))
 
     @staticmethod
-    def compatiblekey(mode='rwx', addr=None, size=None,
-            align=None, reverse=False, section=None):
-        if section is not None:
-            size = section.size
-            align = section.align
-            name = section.memory
-        if size is None:
-            addr, size = None, addr
-        #assert addr is None, "TODO" # TODO
-        addr = None # TODO HACK
-        assert align is None, "TODO" # TODO
+    def bestkey(mode='rwx', size=None, align=None,
+            section=None, memory=None, reverse=False):
         def key(self):
             return (
                 len(self.mode - set(mode)),
@@ -322,31 +293,10 @@ class Memory(Region):
         return key
 
     def __sub__(self, regions):
-        if isinstance(regions, Region):
-            regions = [regions]
-
-        if self.size == 0:
-            return []
-
-        slices = [(self.addr, self.size)]
-        for region in regions:
-            nslices = []
-            for addr, size in slices:
-                if region.addr >= addr+size or region.addr+region.size <= addr:
-                    nslices.append((addr, size))
-                else:
-                    if region.addr > addr:
-                        nslices.append((addr, region.addr - addr))
-                    if addr+size > region.addr+region.size:
-                        nslices.append((region.addr+region.size,
-                            addr+size - region.addr+region.size))
-            slices = nslices
-
-        return [Memory(
-                self.name if len(slices) == 1 else '%s%d' % (self.name, i+1),
-                mode=self.mode, addr=addr, size=size, align=None)
-            for i, (addr, size) in enumerate(slices)]
-
+        return [
+            Memory(self.name, mode=self.mode, align=self.align,
+                addr=region.addr, size=region.size)
+            for region in super().__sub__(regions)]
 
 class Type:
     """
@@ -606,6 +556,7 @@ class Box:
         self.memories = sorted(
             Memory(name, **memargs.__dict__)
             for name, memargs in memory.items())
+        self.memoryslices = self.memories
 
         self.stack = Section(**stack.__dict__)
         self.heap = Section(**heap.__dict__)
@@ -633,48 +584,29 @@ class Box:
     def __lt__(self, other):
         return self.name < other.name
 
-    def bestmemories(self, mode='rwx', addr=None, size=None,
-            align=None, name=None, section=None, reverse=False):
-        if section:
-            size = section.size
-            align = section.align
-            name = section.memory
-        if size is None:
-            addr, size = None, addr
+    def bestmemories(self, mode='rwx', size=None, align=None,
+            section=None, memory=None, reverse=False):
         return sorted((
-                m for m in self.memories
-                if m.compatible(mode=mode, addr=addr, size=size,
-                    align=align, name=name)),
-            key=Memory.compatiblekey(mode=mode, addr=addr, size=size,
-                align=align, section=section, reverse=reverse))
+                m for m in self.memoryslices
+                if m.iscompatible(mode=mode, size=size, align=align,
+                    section=section, memory=memory)),
+            key=Memory.bestkey(mode=mode, size=size, align=align,
+                section=section, memory=memory, reverse=reverse))
 
-    def bestmemory(self, mode='rwx', addr=None, size=None,
-            align=None, name=None, section=None, reverse=False):
-        if section:
-            size = section.size
-            align = section.align
-            name = section.memory
-        if size is None:
-            addr, size = None, addr
-        compatible = self.bestmemories(mode=mode, addr=addr, size=size,
-            align=align, name=name, section=section, reverse=reverse)
+    def bestmemory(self, mode='rwx', size=None, align=None,
+            section=None, memory=None, reverse=False):
+        compatible = self.bestmemories(mode=mode, size=size, align=align,
+            section=section, memory=memory, reverse=reverse)
         return compatible[0] if compatible else None
 
-    def consume(self, mode='rwx', size=None, addr=None,
-            align=None, name=None, section=None, reverse=False):
-        if section:
-            size = section.size
-            align = section.align
-            name = section.memory
-        if size is None:
-            addr, size = None, addr
-        best = self.bestmemory(mode=mode, addr=addr, size=size,
-            align=align, name=name, section=section, reverse=reverse)
-        assert best, "No memory found that satisfies mode=%s size=%#010x" % (
-            mode, size)
-        addr, size = best.consume(addr=addr, size=size,
-            align=align, section=section, reverse=reverse)
-        return best, addr, size
+    def consume(self, mode='rwx', size=None, align=None,
+            section=None, memory=None, reverse=False):
+        best = self.bestmemory(mode=mode, size=size, align=align,
+            section=section, memory=memory, reverse=reverse)
+        assert best, ("No memory found that satisfies "
+            "mode=%s size=%#010x" % (mode, section.size if section else size))
+        return best.consume(size=size, align=align,
+            section=section, reverse=reverse)
 
     def getroot(self):
         """
@@ -806,8 +738,6 @@ class Box:
         while box.parent:
             box = box.parent
 
-        # go ahead and box the box, it's always needed 
-        box.box()
         return box
 
     scan.__func__.__argparse__ = _scan_argparse.__func__
@@ -816,39 +746,57 @@ class Box:
         """
         Apply any post-init configuration that needs to know the full
         tree of boxes.
+
+        Needs to:
+        - Allocate box memory
+        - Allocate sections
         """
         if not stage or stage == 'boxes':
-            if self.parent:
-                for memory in self.memories:
-                    _, addr, _ = self.parent.consume(
-                        mode=memory.mode,
-                        addr=memory.addr,
-                        size=memory.size,
-                        align=memory.align,
-                        reverse=True)
+            # create memory slices for children
+            for child in self.boxes:
+                for memory in child.memories:
                     if memory.addr is None:
-                        memory.addr = addr
+                        slice = self.consume(
+                            mode=memory.mode,
+                            size=memory.size,
+                            align=memory.align,
+                            reverse=True)
+                        memory.addr = slice.addr
+
+                    self.memoryslices = list(it.chain.from_iterable(
+                        slice - memory for slice in self.memoryslices))
 
                 # sort again in case new addresses changed order
-                self.memories = sorted(self.memories)
+                child.memories = sorted(child.memories)
 
-            for box in self.boxes:
-                box.box(stage='boxes')
+            # make slice names unique
+            namecount = {}
+            for slice in self.memoryslices:
+                namecount[slice.name] = namecount.get(slice.name, 0) + 1
+            for name, count in namecount.items():
+                if count > 1:
+                    for i, slice in enumerate(
+                            slice for slice in self.memoryslices
+                            if slice.name == name):
+                        slice.name = '%s%d' % (name, i+1)
+
+            for child in self.boxes:
+                child.box(stage='boxes')
 
         if not stage or stage == 'runtimes':
             self.runtime.box(self)
-            for box in self.boxes:
-                box.box(stage='runtimes')
+            for child in self.boxes:
+                child.box(stage='runtimes')
 
         if not stage or stage == 'outputs':
             for output in self.outputs:
                 output.box(self)
-            for box in self.boxes:
-                box.box(stage='outputs')
+            for child in self.boxes:
+                child.box(stage='outputs')
 
         if not stage or stage == 'epilogues':
-            for box in self.boxes:
-                box.build(stage='epilogues')
+            for child in self.boxes:
+                child.build(stage='epilogues')
             for epilogue in self.build_epilogues.values():
                 epilogue()
 
@@ -858,17 +806,17 @@ class Box:
         """
         if not stage or stage == 'runtimes':
             self.runtime.build(self)
-            for box in self.boxes:
-                box.build(stage='runtimes')
+            for child in self.boxes:
+                child.build(stage='runtimes')
 
         if not stage or stage == 'outputs':
-            for box in self.boxes:
-                box.build(stage='outputs')
+            for child in self.boxes:
+                child.build(stage='outputs')
             for output in self.outputs:
                 output.build(self)
 
         if not stage or stage == 'epilogues':
-            for box in self.boxes:
-                box.build(stage='epilogues')
+            for child in self.boxes:
+                child.build(stage='epilogues')
             for epilogue in self.build_epilogues.values():
                 epilogue()

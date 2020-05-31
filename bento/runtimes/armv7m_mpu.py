@@ -638,7 +638,11 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 out.printf('%(export)s,', export=export.name)
         out.printf('};')
 
-    def build_parent_partial_ld(self, output, sys, box):
+    def box_box(self, box):
+        self._jumptable.memory = box.consume('rx', section=self._jumptable)
+        super().box_box(box)
+
+    def build_parent_ld(self, output, sys, box):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
         for import_ in it.chain(
@@ -646,62 +650,52 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 [Fn('__box_%s_rawinit' % box.name, 'fn() -> err32')],
                 (import_ for import_ in box.exports)):
             out.printf(
-                '%(import_)-24s = %(callprefix)#010x + '
+                '%(import_)-16s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
                 import_=import_.name,
                 id=self.ids[import_.name],
                 falible=import_.isfalible())
 
-        memory, _, _ = box.consume('rx', self._jumptable.size)
-        out = output.sections.insert(0,
-            box_memory=memory.name,
-            section='.box.%(box)s.%(box_memory)s',
-            memory='box_%(box)s_%(box_memory)s')
-        out.printf('. = ORIGIN(%(MEMORY)s);')
-        out.printf('__box_%(box)s_jumptable = .;')
+        super().build_parent_ld(output, sys, box)
 
-        super().build_parent_partial_ld(output, sys, box)
+        if not output.no_sections:
+            out = output.sections.append(
+                box_memory=self._jumptable.memory.name,
+                section='.box.%(box)s.%(box_memory)s',
+                memory='box_%(box)s_%(box_memory)s')
+            out.printf('__box_%(box)s_jumptable = __%(memory)s;')
 
-    def build_parent_ld(self, output, sys, box):
-        return self.build_parent_partial_ld(output, sys, box)
-
-    def build_box_partial_ld(self, output, box):
+    def build_box_ld(self, output, box):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
         for import_ in it.chain(
                 [Fn('__box_write', 'fn(i32, u8*, usize) -> err32')],
                 (import_ for import_ in box.imports)):
             out.printf(
-                '%(import_)-24s = %(callprefix)#010x + '
+                '%(import_)-16s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
                 import_=import_.name,
                 id=self.ids[import_.name],
                 falible=import_.isfalible())
 
         out = output.decls.append(doc='special box triggers')
-        out.printf('%(name)-24s = %(retprefix)#010x + 1;',
+        out.printf('%(name)-16s = %(retprefix)#010x + 1;',
             name='__box_ret')
-        out.printf('%(name)-24s = %(retprefix)#010x + %(id)d*4 + 1;',
+        out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
             name='__box_fault',
             id=1)
 
-        super().build_box_partial_ld(output, box)
-
-    def build_box_ld(self, output, box):
-        self.build_box_partial_ld(output, box)
-        
-        memory, _, _ = box.consume('rx', section=self._jumptable)
-        out = output.sections.insert(0,
-            section='.jumptable',
-            memory=memory.name)
-        out.printf('%(section)s : {')
-        with out.pushindent():
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__jumptable = .;')
-            out.printf('KEEP(*(.jumptable))')
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__jumptable_end = .;')
-        out.printf('} > %(MEMORY)s')
+        if not output.no_sections:
+            out = output.sections.append(
+                section='.jumptable',
+                memory=self._jumptable.memory.name)
+            out.printf('%(section)s : {')
+            with out.pushindent():
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__jumptable = .;')
+                out.printf('KEEP(*(.jumptable))')
+                out.printf('. = ALIGN(%(align)d);')
+                out.printf('__jumptable_end = .;')
+            out.printf('} > %(MEMORY)s')
 
         super().build_box_ld(output, box)
-

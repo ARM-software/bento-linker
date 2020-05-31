@@ -32,6 +32,13 @@ class Runtime(outputs.OutputBlob):
         else:
             return self.name < other
 
+    def box_box(self, box):
+        box.text.memory     = box.consume('rx', section=box.text)
+        box.stack.memory    = box.consume('rw', section=box.stack)
+        box.data.memory     = box.consume('rw', section=box.data)
+        box.bss.memory      = box.consume('rw', section=box.bss)
+        box.heap.memory     = box.consume('rw', section=box.heap)
+
     def box(self, box):
         for level, lbox in [
                 ('root', box.getroot()),
@@ -115,8 +122,9 @@ for level, order in it.product(
         ['root', 'muxer', 'parent', 'box'],
         ['_prologue', '', '_epilogue']):
     method = 'box_%s%s' % (level, order)
-    setattr(Runtime, method,
-        lambda self, *args, **kwargs: None)
+    if not hasattr(Runtime, method):
+        setattr(Runtime, method,
+            lambda self, *args, **kwargs: None)
 
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS
@@ -126,14 +134,15 @@ for Output in OUTPUTS.values():
             ['_prologue', '', '_epilogue']):
         default = 'default_build_%s%s' % (level, order)
         method  = 'build_%s%s_%s' % (level, order, Output.__argname__)
-        if hasattr(Output, default):
-            setattr(Runtime, method, (lambda f:
-                lambda self, output, *args, **kwargs:
-                    f(output, *args, **kwargs)
-                )(getattr(Output, default)))
-        else:
-            setattr(Runtime, method,
-                lambda self, output, *args, **kwargs: None)
+        if not hasattr(Runtime, method):
+            if hasattr(Output, default):
+                setattr(Runtime, method, (lambda f:
+                    lambda self, output, *args, **kwargs:
+                        f(output, *args, **kwargs)
+                    )(getattr(Output, default)))
+            else:
+                setattr(Runtime, method,
+                    lambda self, output, *args, **kwargs: None)
 
 # Runtime class imports
 # These must be imported here, since they depend on the above utilities

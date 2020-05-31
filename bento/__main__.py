@@ -24,6 +24,7 @@ class ListCommand:
         Box.scan.__argparse__(parser)
     def __init__(self, **args):
         box = Box.scan(**args)
+        box.box()
 
         def ls(box):
             print('box %s' % box.name)
@@ -64,6 +65,7 @@ class BuildCommand:
     def __init__(self, **args):
         print("scanning...")
         box = Box.scan(**args)
+        box.box()
 
         def stackwarn(box):
             if not box.stack.size:

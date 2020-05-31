@@ -3,18 +3,6 @@ from ..box import Fn
 import io
 import textwrap
 
-def buildinclude(out, include):
-    if not (include.startswith('"') or include.startswith('<')):
-        include = '"%s"' % include
-    out.writef(include)
-
-def buildfn(out, fn):
-    if fn.doc:
-        out.pushattrs(doc=fn.doc)
-    if out.get('attrs', False):
-        out.writef('%(attrs)s ')
-    out.writef('%(fn)s;', fn=fn.repr_c())
-
 @outputs.output
 class HOutput(outputs.Output):
     """
@@ -25,6 +13,19 @@ class HOutput(outputs.Output):
 
     def __init__(self, path=None):
         super().__init__(path)
+
+        def buildinclude(out, include):
+            if not (include.startswith('"') or include.startswith('<')):
+                include = '"%s"' % include
+            out.writef(include)
+
+        def buildfn(out, fn):
+            if fn.doc:
+                out.pushattrs(doc=fn.doc)
+            if out.get('attrs', False):
+                out.writef('%(attrs)s ')
+            out.writef('%(fn)s;', fn=fn.repr_c())
+
         self.includes = outputs.OutputField(self, {str: buildinclude})
         self.decls = outputs.OutputField(self, {Fn: buildfn})
 

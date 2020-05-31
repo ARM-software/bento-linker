@@ -196,5 +196,5 @@ class Output(OutputBlob):
 # These must be imported here, since they depend on the above utilities
 from .h import HOutput
 from .c import COutput
-from .ld import LDOutput, PartialLDOutput
+from .ld import LDOutput
 from .mk import MKOutput

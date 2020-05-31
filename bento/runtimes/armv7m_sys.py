@@ -83,6 +83,10 @@ class ARMv7MSysRuntime(runtimes.Runtime):
                 if isr_vector.size is not None else
                 0x400})
 
+    def box_box(self, box):
+        self._isr_vector.memory = box.consume('rx', section=self._isr_vector)
+        super().box_box(box)
+
     # overidable
     def build_reset_handler(self, output, box):
         output.decls.append(RESET_HANDLER)
@@ -93,10 +97,9 @@ class ARMv7MSysRuntime(runtimes.Runtime):
 
         # interrupt vector
         if self._isr_vector:
-            memory, _, _ = box.consume('rx', section=self._isr_vector)
             out = output.sections.append(
                 section='.isr_vector',
-                memory=memory.name)
+                memory=self._isr_vector.memory.name)
             out.printf('.isr_vector : {')
             with out.pushindent():
                 out.printf('. = ALIGN(%(align)d);')
