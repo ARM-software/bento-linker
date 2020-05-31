@@ -174,7 +174,7 @@ class Memory(Region):
     """
     MODEFLAGS = ['r', 'w', 'x']
 
-    __argname__ = "memories"
+    __argname__ = "memory"
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, **kwargs):
@@ -526,93 +526,100 @@ class Import(Fn):
     """
     Description of an imported function for a box.
     """
-    __argname__ = "imports"
+    __argname__ = "import"
     __arghelp__ = __doc__
 
 class Export(Fn):
     """
     Description of an exported function for a box.
     """
-    __argname__ = "exports"
+    __argname__ = "export"
     __arghelp__ = __doc__
 
 class Box:
     """
     Recursive description of a given box named BOX.
     """
-    __argname__ = "boxes"
+    __argname__ = "box"
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, recursive=False, fake=False, **kwargs):
-        parser.add_argument("--name",
-            help="Name of the box.")
-        parser.add_argument("--path",
-            help="Working directory for the box. Defaults to the "
-                "name of the box.")
-        parser.add_argument("--recipe",
-            help="Path to reciple.toml file for box-specific configuration."
-                "Defaults to <path>/recipe.toml.")
+        parser.add_argument('--name',
+            help='Name of the box.')
+        parser.add_argument('--path',
+            help='Working directory for the box. Defaults to the '
+                'name of the box.')
+        parser.add_argument('--recipe',
+            help='Path to reciple.toml file for box-specific configuration.'
+                'Defaults to <path>/recipe.toml.')
 
         from .runtimes import RUNTIMES
-        parser.add_argument("--runtime", choices=RUNTIMES,
-            help="Runtime for the box. This can be one of the following "
-                "runtimes: {%(choices)s}.")
-        runtimeparser = parser.add_nestedparser("--runtimes")
+        runtimeparser = parser.add_nestedparser('--runtime')
+        runtimeparser.add_argument("select",
+            metavar='RUNTIME', choices=RUNTIMES,
+            help='Runtime for the box. This can be one of the following '
+                'runtimes: {%(choices)s}.')
+        runtimeparser.add_argument("--select",
+            metavar='RUNTIME', choices=RUNTIMES,
+            help='Runtime for the box. This can be one of the following '
+                'runtimes: {%(choices)s}.')
         for Runtime in RUNTIMES.values():
             runtimeparser.add_nestedparser(Runtime)
 
         from .outputs import OUTPUTS
-        outputparser = parser.add_nestedparser("--outputs")
+        outputparser = parser.add_nestedparser('--output')
         for Output in OUTPUTS.values():
             outputparser.add_nestedparser(Output)
 
-        parser.add_set(Memory, metavar='MEMORY')
+        parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
         parser.add_nestedparser('--heap', Section)
         parser.add_nestedparser('--text', Section)
         parser.add_nestedparser('--data', Section)
         parser.add_nestedparser('--bss', Section)
 
-        parser.add_set(Import, metavar='IMPORT')
-        parser.add_set(Export, metavar='EXPORT')
+        parser.add_set(Import, dest='import_')
+        parser.add_set(Export)
 
-    def __init__(self, name=None, parent=None, **args):
-        args = argstuff.Namespace(**args)
+    def __init__(self, name=None, parent=None, path=None, recipe=None,
+            runtime=None, output=None, memory=None,
+            stack=None, heap=None, text=None, data=None, bss=None,
+            import_=None, export=None, box=None):
         self.name = name or 'system'
         self.parent = parent
-        self.path = args.path or (
-            # TODO this isn't a great predicate
-            name if self.parent is not None else '.')
-        self.recipe = args.recipe
+        self.path = path
+        self.recipe = recipe
 
         from .runtimes import RUNTIMES
-        runtime = args.runtime or (
-            'noop' if self.parent is not None else 'system')
-        self.runtime = RUNTIMES[runtime](**getattr(
-            args.runtimes, runtime, argstuff.Namespace()).__dict__)
+        selected = runtime.select or 'noop'
+        self.runtime = RUNTIMES[selected](**getattr(
+            runtime, selected).__dict__)
 
         from .outputs import OUTPUTS
-        self.outputs = co.OrderedDict(sorted(
-            (name, OUTPUTS[name](os.path.join(self.path, outputargs.path),
+        self.outputs = sorted(
+            OUTPUTS[name](os.path.join(self.path, outputargs.path),
                 **{k: v for k, v in outputargs.__dict__.items()
-                    if k != 'path'}))
-            for name, outputargs in args.outputs.__dict__.items()
-            if outputargs.path))
+                    if k != 'path'})
+            for name, outputargs in output.__dict__.items()
+            if outputargs.path)
 
-        self.memories = sorted(Memory(name, **memargs.__dict__)
-            for name, memargs in args.memories.items())
+        self.memories = sorted(
+            Memory(name, **memargs.__dict__)
+            for name, memargs in memory.items())
 
-        self.stack = Section(**args.stack.__dict__)
-        self.heap = Section(**args.heap.__dict__)
-        self.text = Section(**args.text.__dict__)
-        self.data = Section(**args.data.__dict__)
-        self.bss = Section(**args.bss.__dict__)
+        self.stack = Section(**stack.__dict__)
+        self.heap = Section(**heap.__dict__)
+        self.text = Section(**text.__dict__)
+        self.data = Section(**data.__dict__)
+        self.bss = Section(**bss.__dict__)
 
-        self.imports = sorted(Import(name, **importargs.__dict__)
-            for name, importargs in args.imports.items())
-        self.exports = sorted(Import(name, **exportargs.__dict__)
-            for name, exportargs in args.exports.items())
-        self.boxes = [] # TODO ordereddict
+        self.imports = sorted(
+            Import(name, **importargs.__dict__)
+            for name, importargs in import_.items())
+        self.exports = sorted(
+            Import(name, **exportargs.__dict__)
+            for name, exportargs in export.items())
+        self.boxes = [] 
 
         # prepare build/box commands for prologue/epilogue handling
         self.box_prologues = co.OrderedDict()
@@ -706,7 +713,7 @@ class Box:
         Box.__argparse__(parser)
         # add nested boxes
         parser.add_set(Box, glob=True, action='append',
-            help='Recursive description of a given box named BOX that is'
+            help='Recursive description of a given box named BOX that is '
                 'contained in the current box.')
         parser.add_set('--super', cls=Box, glob=True, action='append',
             help='Recursive description of superboxes. These are boxes '
@@ -714,9 +721,8 @@ class Box:
                 'one superbox, however that superbox can have other boxes.')
         # also add a shortcut for providing box defaults
         parser.add_nestedparser('--all', cls=Box, glob=True,
-            help='Alias for all boxes. This provides a mechanism for'
-                'specifying config that all boxes inherit unless explicitly'
-                'overwritten.')
+            help='Alias for all boxes. This allows you to specify config '
+                'that all boxes inherit unless explicitly overwritten.')
 
     @staticmethod
     def scan(name=None, **args):
@@ -778,10 +784,10 @@ class Box:
 
             boxes = []
             if child:
-                assert all(name != child.name for name in args.boxes.items()), (
+                assert all(name != child.name for name in args.box.items()), (
                     "Parent box can't have child with same name (%s)" % name)
                 boxes.append(child)
-            for name, boxargs in sorted(args.boxes.items()):
+            for name, boxargs in sorted(args.box.items()):
                 # create child
                 boxes.append(recurse(**{**boxargs.__dict__, **dict(
                     name=name,
@@ -835,7 +841,7 @@ class Box:
                 box.box(stage='runtimes')
 
         if not stage or stage == 'outputs':
-            for output in self.outputs.values():
+            for output in self.outputs:
                 output.box(self)
             for box in self.boxes:
                 box.box(stage='outputs')
@@ -858,7 +864,7 @@ class Box:
         if not stage or stage == 'outputs':
             for box in self.boxes:
                 box.build(stage='outputs')
-            for output in self.outputs.values():
+            for output in self.outputs:
                 output.build(self)
 
         if not stage or stage == 'epilogues':

@@ -75,39 +75,39 @@ class Runtime(outputs.OutputBlob):
             if not lbox:
                 continue
 
-            for name, output in lbox.outputs.items():
-                if ('runtime', level, name) not in lbox.build_prologues:
+            for output in lbox.outputs:
+                if ('runtime', level, output.name) not in lbox.build_prologues:
                     def prologue(f, output, lbox):
                         def prologue():
                             with output.pushattrs(**{**attrs,
                                     level: lbox.name}):
                                 f(output, lbox)
                         return prologue
-                    lbox.build_prologues[('runtime', level, name)] = prologue(
-                        getattr(self, 'build_%s_prologue_%s' % (level, name)),
-                        output, lbox)
-                    lbox.build_prologues[('runtime', level, name)]()
+                    lbox.build_prologues[('runtime', level, output.name)] = (
+                        prologue(getattr(self, 'build_%s_prologue_%s'
+                            % (level, output.name)), output, lbox))
+                    lbox.build_prologues[('runtime', level, output.name)]()
 
                 if level != 'box':
                     with output.pushattrs(**{**attrs,
                             level: lbox.name, 'box': box.name}):
-                        getattr(self, 'build_%s_%s' % (level, name))(
+                        getattr(self, 'build_%s_%s' % (level, output.name))(
                             output, lbox, box)
                 else:
                     with output.pushattrs(**{**attrs, 'box': box.name}):
-                        getattr(self, 'build_%s_%s' % (level, name))(
+                        getattr(self, 'build_%s_%s' % (level, output.name))(
                             output, box)
 
-                if ('runtime', level, name) not in lbox.build_epilogues:
+                if ('runtime', level, output.name) not in lbox.build_epilogues:
                     def epilogue(f, output, lbox):
                         def epilogue():
                             with output.pushattrs(**{**attrs,
                                     level: lbox.name}):
                                 f(output, lbox)
                         return epilogue
-                    lbox.build_epilogues[('runtime', level, name)] = epilogue(
-                        getattr(self, 'build_%s_epilogue_%s' % (level, name)),
-                        output, lbox)
+                    lbox.build_epilogues[('runtime', level, output.name)] = (
+                        epilogue(getattr(self, 'build_%s_epilogue_%s'
+                            % (level, output.name)), output, lbox))
 
 
 # if box rule doesn't exist, fall back to noop

@@ -15,7 +15,7 @@ def command(cls):
 @command
 class ListCommand:
     """
-    List the setup of boxes as sepcified by the current configuration.
+    List the setup of boxes as specified by the current configuration.
     """
     __argname__ = "ls"
     __arghelp__ = __doc__
@@ -78,9 +78,9 @@ class BuildCommand:
         box.build()
 
         def outputwrite(box):
-            for name, output in box.outputs.items():
+            for output in box.outputs:
                 print("writing %s %s %s > %s..." % (
-                    box.name, box.runtime.name, name, output.path))
+                    box.name, box.runtime.name, output.name, output.path))
                 with open(output.path, 'w') as outf:
                     # TODO open in Output.__init__?
                     outf.write(output.getvalue())

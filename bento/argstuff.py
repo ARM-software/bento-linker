@@ -61,6 +61,7 @@ class ArgumentParser(argparse.ArgumentParser):
         self._positional = []
         self._parent = None
         self._name = None
+        self._dest = None
         self._hidden = False
         self._fake = False
 
@@ -143,7 +144,7 @@ class ArgumentParser(argparse.ArgumentParser):
                 nkwargs = kwargs.copy()
                 if nkwargs.get('dest', True):
                     nkwargs['dest'] = '%s.%s' % (
-                        self._name, nkwargs.get('dest', args[-1][2:]))
+                        self._dest, nkwargs.get('dest', args[-1][2:]))
                 if not (kwargs.get('action', 'store')
                         .startswith('store_')):
                     nkwargs.setdefault('metavar',
@@ -156,7 +157,7 @@ class ArgumentParser(argparse.ArgumentParser):
                 nkwargs = kwargs.copy()
                 if nkwargs.get('dest', True):
                     nkwargs['dest'] = '%s.%s' % (
-                        self._name, nkwargs.get('dest', args[-1]))
+                        self._dest, nkwargs.get('dest', args[-1]))
                 if not (kwargs.get('action', 'store')
                         .startswith('store_')):
                     nkwargs.setdefault('metavar', args[-1].upper())
@@ -180,6 +181,7 @@ class ArgumentParser(argparse.ArgumentParser):
         # we only support long-form names currently
         assert arg.startswith('--')
         name = arg[2:]
+        dest = kwargs.get('dest', name)
 
         # create nested parser
         nested = ArgumentParser()
@@ -187,13 +189,14 @@ class ArgumentParser(argparse.ArgumentParser):
         if not kwargs.get('glob', False):
             nested._parent = self
         nested._name = name
+        nested._dest = dest
         nested._hidden = kwargs.get('hidden', False)
         nested._fake = kwargs.get('fake', False)
 
         if kwargs.get('glob', False):
             # real arg to parse glob
             self.add_argument('--%s.GLOB' % name,
-                dest='%s.__GLOB' % name,
+                dest='%s.__GLOB' % dest,
                 nargs='?', const=True, hidden=True)
             # fake arg to show in help
             self.add_argument('--%s.*' % name,
@@ -219,6 +222,7 @@ class ArgumentParser(argparse.ArgumentParser):
         # we only support long-form names currently
         assert arg.startswith('--')
         name = arg[2:]
+        dest = kwargs.get('dest', name)
         metavar = kwargs.get('metavar', name.upper())
 
         class SetParser(ArgumentParser):
@@ -236,7 +240,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
                             nkwargs['dest'] = '%s.__SET.%s' % (
-                                self._name, nkwargs.get('dest', args[-1][2:]))
+                                self._dest, nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar', metavar)
@@ -251,7 +255,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
                             nkwargs['dest'] = '%s.__SET.%s' % (
-                                self._name, nkwargs.get('dest', args[-1]))
+                                self._dest, nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar', metavar)
@@ -265,18 +269,19 @@ class ArgumentParser(argparse.ArgumentParser):
         if not kwargs.get('glob', False):
             nested._parent = self
         nested._name = name
+        nested._dest = dest
         nested._hidden = kwargs.get('hidden', False)
         nested._fake = kwargs.get('fake', False)
 
         if kwargs.get('glob', False):
             # real arg to parse glob
             self.add_argument('--%s.%s.GLOB' % (name, metavar),
-                dest='%s.__SET.__GLOB' % name,
+                dest='%s.__SET.__GLOB' % dest,
                 nargs='?', const=True, hidden=True)
             if kwargs.get('action', None) == 'append':
                 # enable appending?
                 self.add_argument('--%s.%s' % (name, metavar),
-                    dest='%s.__SET.__STORE' % name,
+                    dest='%s.__SET.__STORE' % dest,
                     action='store_true', hidden=True)
 
             # fake arg to show in help
@@ -304,8 +309,9 @@ class ArgumentParser(argparse.ArgumentParser):
         # first parse out sets, this is a bit complicated
         set_prefixes = set()
         for oargs, okwargs in self._optional:
-            om = re.search(r'\b(__GLOB|__SET)([\w-]*)\b',
-                okwargs.get('dest', ''))
+            if not okwargs.get('dest', False):
+                continue
+            om = re.search(r'\b(__GLOB|__SET)([\w-]*)\b', okwargs['dest'])
             if om:
                 for oarg in oargs:
                     pattern = '\.'.join(
@@ -338,15 +344,15 @@ class ArgumentParser(argparse.ArgumentParser):
         for prefix, m, dest in set_prefixes:
             tempparser = ArgumentParser(allow_abbrev=False, add_help=False)
             for oargs, okwargs in self._optional:
-                if (any(oarg.startswith(prefix) for oarg in oargs)
-                        and okwargs.get('dest', False)):
+                if (okwargs.get('dest', False) and 
+                        any(oarg.startswith(prefix) for oarg in oargs)):
                     nargs = [re.sub(
                         r'(?<=^%s)(?:[\w-]+\b)' % re.escape(prefix),
                         m, oarg, 1)
                         for oarg in oargs]
                     nkwargs = okwargs.copy()
                     nkwargs['dest'] = re.sub(
-                        r'(?<=^%s)[\w-]+\b' % re.escape(prefix[2:]),
+                        r'\b__[\w-]+\b',
                         m, nkwargs['dest'], 1)
                     tempparser.add_argument(*nargs, **nkwargs)
 
