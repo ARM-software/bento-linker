@@ -264,7 +264,8 @@ class Memory(Region):
             align = section.align
         if size is None:
             addr, size = None, addr or 0
-        assert addr is None, "TODO" # TODO
+        #assert addr is None, "TODO" # TODO
+        addr = None # TODO HACK
         assert align is None, "TODO" # TODO
         assert size <= self._size, ("Not enough memory in %s "
             "for size=%#010x" % (self.name, size))
@@ -293,7 +294,8 @@ class Memory(Region):
             name = section.memory
         if size is None:
             addr, size = None, addr
-        assert addr is None, "TODO" # TODO
+        #assert addr is None, "TODO" # TODO
+        addr = None # TODO HACK
         assert align is None, "TODO" # TODO
         return (
             self._size != 0 and
@@ -310,7 +312,8 @@ class Memory(Region):
             name = section.memory
         if size is None:
             addr, size = None, addr
-        assert addr is None, "TODO" # TODO
+        #assert addr is None, "TODO" # TODO
+        addr = None # TODO HACK
         assert align is None, "TODO" # TODO
         def key(self):
             return (
@@ -541,9 +544,8 @@ class Box:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, recursive=False, fake=False, **kwargs):
-        if fake:
-            return
-
+        parser.add_argument("--name",
+            help="Name of the box.")
         parser.add_argument("--path",
             help="Working directory for the box. Defaults to the "
                 "name of the box.")
@@ -570,35 +572,18 @@ class Box:
         parser.add_nestedparser('--text', Section)
         parser.add_nestedparser('--data', Section)
         parser.add_nestedparser('--bss', Section)
-        parser.add_nestedparser('--jumptable', Section)
-        parser.add_nestedparser('--isr_vector', Section)
 
         parser.add_set(Import, metavar='IMPORT')
         parser.add_set(Export, metavar='EXPORT')
 
-        # recursive set will handle further arg nesting
-        if not recursive:
-            parser.add_set(Box, metavar='BOX', recursive=True,
-                action='append', hidden='append_only')
-
     def __init__(self, name=None, parent=None, **args):
         args = argstuff.Namespace(**args)
-        self.name = name # TODO name?
+        self.name = name or 'system'
         self.parent = parent
         self.path = args.path or (
             # TODO this isn't a great predicate
             name if self.parent is not None else '.')
-
-        # Load additional config from the filesystem
-        try:
-            parser = ArgumentParser(add_help=False)
-            self.__class__.__argparse__(parser)
-            
-            nargs = parser.parse_toml(os.path.join(
-                self.path, args.recipe or 'recipe.toml'))
-            args = argstuff.nsmerge(args, nargs)
-        except FileNotFoundError:
-            pass
+        self.recipe = args.recipe
 
         from .runtimes import RUNTIMES
         runtime = args.runtime or (
@@ -622,21 +607,12 @@ class Box:
         self.text = Section(**args.text.__dict__)
         self.data = Section(**args.data.__dict__)
         self.bss = Section(**args.bss.__dict__)
-        self.jumptable = Section(**args.jumptable.__dict__)
-        self.isr_vector = Section(**{**args.isr_vector.__dict__,
-            'size': args.isr_vector.size
-                if args.isr_vector.size is not None else
-                0x400}) # TODO move this?
 
         self.imports = sorted(Import(name, **importargs.__dict__)
             for name, importargs in args.imports.items())
         self.exports = sorted(Import(name, **exportargs.__dict__)
             for name, exportargs in args.exports.items())
-
-        self.boxes = sorted(Box(name, parent=self, **{
-                **boxargs.__dict__,
-                'path': boxargs.path or os.path.join(self.path, name)})
-            for name, boxargs in sorted(args.boxes.items()))
+        self.boxes = [] # TODO ordereddict
 
         # prepare build/box commands for prologue/epilogue handling
         self.box_prologues = co.OrderedDict()
@@ -645,10 +621,10 @@ class Box:
         self.build_epilogues = co.OrderedDict()
 
     def __eq__(self, other):
-        return (self.isbox(), self.name) == (other.isbox(), other.name)
+        return self.name == other.name
 
     def __lt__(self, other):
-        return (self.isbox(), self.name) < (other.isbox(), other.name)
+        return self.name < other.name
 
     def bestmemories(self, mode='rwx', addr=None, size=None,
             align=None, name=None, section=None, reverse=False):
@@ -693,13 +669,6 @@ class Box:
             align=align, section=section, reverse=reverse)
         return best, addr, size
 
-    def issys(self):
-        # TODO is this a hack?
-        return self.parent is None
-
-    def isbox(self):
-        return not self.issys()
-
     def getroot(self):
         """
         Get the root box of the current tree.
@@ -731,7 +700,117 @@ class Box:
             parent = self.parent
         return parent if parent != self else None
 
+    @staticmethod
+    def _scan_argparse(parser):
+        # add root box
+        Box.__argparse__(parser)
+        # add nested boxes
+        parser.add_set(Box, glob=True, action='append',
+            help='Recursive description of a given box named BOX that is'
+                'contained in the current box.')
+        parser.add_set('--super', cls=Box, glob=True, action='append',
+            help='Recursive description of superboxes. These are boxes '
+                'that contain the current box. Note, each box can only have '
+                'one superbox, however that superbox can have other boxes.')
+        # also add a shortcut for providing box defaults
+        parser.add_nestedparser('--all', cls=Box, glob=True,
+            help='Alias for all boxes. This provides a mechanism for'
+                'specifying config that all boxes inherit unless explicitly'
+                'overwritten.')
+
+    @staticmethod
+    def scan(name=None, **args):
+        """
+        Build up tree of config information for boxes. This handles box
+        creation and reading recipe.json files from the filesystem. Tree
+        is rotated so superbox is returned, even if it's not located in the
+        current directory.
+        """
+        # prepare parser
+        parser = ArgumentParser(add_help=False)
+        Box.scan.__argparse__(parser)
+
+        def recurse(prefix=None, parent=None, child=None,
+                parentallargs=argstuff.Namespace(), **args):
+            # reparse
+            args = parser.parse_dict(args, prefix=prefix)
+
+            # load additional config from the filesystem
+            path = args.path or '.'
+            recipe = args.recipe or 'recipe.toml'
+            try:
+                nargs = parser.parse_toml(os.path.join(path, recipe),
+                    prefix=prefix)
+                args = argstuff.nsmerge(args, nargs)
+            except FileNotFoundError:
+                pass
+
+            # apply all
+            allargs = parser.parse_dict(args.all)
+            allargs = argstuff.nsmerge(parentallargs, allargs)
+            args = argstuff.nsmerge(allargs, args)
+
+            # create the box!
+            # note that name may be in recipe.toml (root only)
+            box = Box(args.name, path=path, recipe=recipe, **{
+                k: v for k, v in args.__dict__.items()
+                if k not in {
+                    'name', 'path', 'recipe', 'boxes', 'super', 'all'}})
+
+            # scan parent/children
+            if parent:
+                assert not args.super, (
+                    "Child box can't have parent (%s)" % box.name)
+                box.parent = parent
+            elif args.super:
+                assert len(args.super) == 1, (
+                    "A box can only have one superbox (%s)" %
+                        ', '.join(args.super.keys()))
+                name, boxargs = next(iter(args.super.items()))
+                # create parent
+                box.parent = recurse(**{**boxargs.__dict__, **dict(
+                    name=name,
+                    prefix=(prefix or '--') + 'super.%s.' % name,
+                    path=os.path.join(path,
+                        getattr(boxargs, 'path', None) or name),
+                    child=box,
+                    parentallargs=allargs)})
+
+            boxes = []
+            if child:
+                assert all(name != child.name for name in args.boxes.items()), (
+                    "Parent box can't have child with same name (%s)" % name)
+                boxes.append(child)
+            for name, boxargs in sorted(args.boxes.items()):
+                # create child
+                boxes.append(recurse(**{**boxargs.__dict__, **dict(
+                    name=name,
+                    prefix=(prefix or '--') + 'boxes.%s.' % name,
+                    path=os.path.join(path,
+                        getattr(boxargs, 'path', None) or name),
+                    parent=box,
+                    parentallargs=allargs)}))
+            box.boxes = sorted(boxes)
+
+            return box
+
+        box = recurse(name, **args)
+
+        # unzip the box
+        while box.parent:
+            box = box.parent
+
+        # go ahead and box the box, it's always needed 
+        box.box()
+        return box
+
+    scan.__func__.__argparse__ = _scan_argparse.__func__
+
     def box(self, stage=None):
+        """
+        Apply any post-init configuration that needs to know the full
+        tree of boxes.
+        """
         if not stage or stage == 'boxes':
             if self.parent:
                 for memory in self.memories:
@@ -768,6 +847,9 @@ class Box:
                 epilogue()
 
     def build(self, stage=None):
+        """
+        Generate output data based on configured runtimes and outputs.
+        """
         if not stage or stage == 'runtimes':
             self.runtime.build(self)
             for box in self.boxes:

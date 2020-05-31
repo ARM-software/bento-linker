@@ -3,7 +3,7 @@ import itertools as it
 import math
 from .. import argstuff
 from .. import runtimes
-from ..box import Fn, Region
+from ..box import Fn, Section, Region
 
 # utility functions in C
 BOX_INIT = """
@@ -398,12 +398,14 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             help="Upper limit on the number of MPU regions to manage for "
                 "each box. Note the actual number of MPU regions will be "
                 "this plus one region for box calls. Defualts to 4.")
+        parser.add_nestedparser('--jumptable', Section)
         parser.add_nestedparser('--call_region', Region)
 
-    def __init__(self, mpu_regions=None, call_region=None):
+    def __init__(self, mpu_regions=None, jumptable=None, call_region=None):
         super().__init__()
         self.ids = {}
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
+        self._jumptable = Section(**jumptable.__dict__)
         self._call_region = (
             Region(**call_region.__dict__)
             if call_region.addr is not None else
@@ -650,7 +652,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 id=self.ids[import_.name],
                 falible=import_.isfalible())
 
-        memory, _, _ = box.consume('rx', box.jumptable.size)
+        memory, _, _ = box.consume('rx', self._jumptable.size)
         out = output.sections.insert(0,
             box_memory=memory.name,
             section='.box.%(box)s.%(box_memory)s',
@@ -688,7 +690,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
     def build_box_ld(self, output, box):
         self.build_box_partial_ld(output, box)
         
-        memory, _, _ = box.consume('rx', section=box.jumptable)
+        memory, _, _ = box.consume('rx', section=self._jumptable)
         out = output.sections.insert(0,
             section='.jumptable',
             memory=memory.name)

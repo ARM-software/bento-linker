@@ -30,7 +30,7 @@ class HOutput(outputs.Output):
 
     def box(self, box):
         super().box(box)
-        self.pushattrs(gaurd='__BOX_%(BOX)s_H' if box.isbox() else '__BOX_H')
+        self.pushattrs(gaurd='__BOX_%(BOX)s_H')
 
     def default_build_box_prologue(self, box):
         # always need standard types

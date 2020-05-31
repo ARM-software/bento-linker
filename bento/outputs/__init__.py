@@ -187,7 +187,7 @@ class Output(OutputBlob):
         self.pushattrs(
             name=self.name,
             path=self.path,
-            box=box.name if box.isbox() else None)
+            box=box.name)
 
     def build(self, box):
         pass

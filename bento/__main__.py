@@ -21,13 +21,12 @@ class ListCommand:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
-        Box.__argparse__(parser)
+        Box.scan.__argparse__(parser)
     def __init__(self, **args):
-        sys_ = Box(**args)
-        sys_.box()
+        box = Box.scan(**args)
 
         def ls(box):
-            print('system' if box.issys() else 'box %s' % box.name)
+            print('box %s' % box.name)
             print('  %(name)-34s %(path)s' % dict(
                 name='path', path=box.path))
             print('  %(name)-34s %(runtime)s' % dict(
@@ -41,7 +40,7 @@ class ListCommand:
                     print('    %(name)-32s %(import_)s' % dict(
                         name=import_.name, import_=import_))
             if box.exports:
-                print('   exports')
+                print('  exports')
                 for export in box.exports:
                     print('    %(name)-32s %(export)s' % dict(
                         name=export.name, export=export))
@@ -49,7 +48,7 @@ class ListCommand:
             for box in box.boxes:
                 ls(box)
 
-        ls(sys_)
+        ls(box)
 
 @command
 class BuildCommand:
@@ -61,26 +60,33 @@ class BuildCommand:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
-        Box.__argparse__(parser)
+        Box.scan.__argparse__(parser)
     def __init__(self, **args):
-        print("parsing...")
-        sys_ = Box(**args)
+        print("scanning...")
+        box = Box.scan(**args)
+
+        def stackwarn(box):
+            if not box.stack.size:
+                print("%s: warning: box %s has no stack!" % (
+                    os.path.basename(sys.argv[0]), box.name))
+            for child in box.boxes:
+                stackwarn(child)
+        stackwarn(box)
+        sys_ = box
 
         print("building...")
-        sys_.box()
-        sys_.build()
+        box.build()
 
-        for box in it.chain(sys_.boxes, [sys_]):
+        def outputwrite(box):
             for name, output in box.outputs.items():
-                print("writing %s %s %s..." % (
-                    '%s %s' % (box.name, box.runtime.name)
-                    if not box.issys() else
-                    'system',
-                    name, output.path))
+                print("writing %s %s %s > %s..." % (
+                    box.name, box.runtime.name, name, output.path))
                 with open(output.path, 'w') as outf:
                     # TODO open in Output.__init__?
                     outf.write(output.getvalue())
-
+            for child in box.boxes:
+                outputwrite(child)
+        outputwrite(box)
         print("done!")
 
 def main():
@@ -97,7 +103,9 @@ def main():
     args = parser.parse_args()
     if not args.command:
         parser.parse_args(['-h'])
-    args.command(**args.__dict__)
+    args.command(**{
+        k: v for k, v in args.__dict__.items()
+        if k != 'command'})
     sys.exit(0)
 
 if __name__ == "__main__":

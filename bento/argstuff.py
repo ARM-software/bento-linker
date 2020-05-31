@@ -7,6 +7,27 @@ import toml
 from argparse import Namespace
 import itertools as it
 
+def nsnest(ns):
+    """
+    Create a "nested namespace" from a normal namespace. This
+    uses the '.' character as a separator in namespace keys to
+    determine how many namespaces are nested.
+    """
+    if isinstance(ns, Namespace):
+        return Namespace(**nsnest(ns.__dict__))
+
+    ndict = {}
+    nested = {}
+    for k, v in ns.items():
+        if '.' in k:
+            scope, name = k.split('.', 1)
+            nested.setdefault(scope, {})[name] = v
+        else:
+            ndict[k] = v
+    for k, v in nested.items():
+        ndict[k] = nsnest(Namespace(**v))
+    return ndict
+
 def nsmerge(a, b):
     """
     Merge two Namespaces or dicts recursively. Note this doesn't work
@@ -21,9 +42,9 @@ def nsmerge(a, b):
 
     ndict = {}
     for k in set(a) | set(b):
-        if (k in a and k in b and (
-                isinstance(a[k], Namespace) or
-                isinstance(b[k], dict))):
+        if k in a and k in b and (
+                isinstance(a[k], (Namespace, dict)) and
+                isinstance(b[k], (Namespace, dict))):
             ndict[k] = nsmerge(a[k], b[k])
         elif k in a and a[k] is not None:
             ndict[k] = a[k]
@@ -54,14 +75,19 @@ class ArgumentParser(argparse.ArgumentParser):
         for arg in args:
             if not isinstance(arg, str):
                 nargs.append('--'+arg.__argname__)
-                if hasattr(arg, '__arghelp__'):
-                    kwargs.setdefault('help', arg.__arghelp__)
             else:
                 nargs.append(arg)
+            if hasattr(arg, '__arghelp__'):
+                kwargs.setdefault('help', arg.__arghelp__)
         args = nargs
 
+        # default gets in the way of namespace merging, just test
+        # for None where needed
+        assert kwargs.get('default', None) in {None, argparse.SUPPRESS}, (
+            "default in argparse not supported")
+
         # allow a predicate to test without converting the argument
-        if 'pred' in kwargs:
+        if kwargs.get('pred', None) is not None:
             def mktype(rawpred, rawtype):
                 def type(x):
                     rawpred(x)
@@ -144,23 +170,35 @@ class ArgumentParser(argparse.ArgumentParser):
         nested parser in namespaced with long-form optional arguments instead of
         provided a new command.
         """
-        # Check for special __argparse__ classes
+        # check for special __argparse__ classes
         if not isinstance(arg, str):
             cls = arg
             arg = '--'+cls.__argname__
-            if hasattr(cls, '__arghelp__'):
-                kwargs.setdefault('help', cls.__arghelp__)
+        if hasattr(cls, '__arghelp__'):
+            kwargs.setdefault('help', cls.__arghelp__)
 
-        # We only support long-form names currently
+        # we only support long-form names currently
         assert arg.startswith('--')
         name = arg[2:]
 
-        # Create nested parser
+        # create nested parser
         nested = ArgumentParser()
-        nested._parent = self
+        # don't actually feed parent if we're globbing
+        if not kwargs.get('glob', False):
+            nested._parent = self
         nested._name = name
         nested._hidden = kwargs.get('hidden', False)
         nested._fake = kwargs.get('fake', False)
+
+        if kwargs.get('glob', False):
+            # real arg to parse glob
+            self.add_argument('--%s.GLOB' % name,
+                dest='%s.__GLOB' % name,
+                nargs='?', const=True, hidden=True)
+            # fake arg to show in help
+            self.add_argument('--%s.*' % name,
+                fake=True, metavar='',
+                help=kwargs.get('help', None))
 
         if hasattr(cls, '__argparse__'):
             cls.__argparse__(nested, name=name, **kwargs)
@@ -171,18 +209,16 @@ class ArgumentParser(argparse.ArgumentParser):
         """
         Create a nested parser that can capture a set of same-type objects.
         """
-        # Check for special __argparse__ classes
+        # check for special __argparse__ classes
         if not isinstance(arg, str):
             cls = arg
             arg = '--'+cls.__argname__
-            if hasattr(cls, '__arghelp__'):
-                kwargs.setdefault('help', cls.__arghelp__)
+        if hasattr(cls, '__arghelp__'):
+            kwargs.setdefault('help', cls.__arghelp__)
 
-        # We only support long-form names currently
+        # we only support long-form names currently
         assert arg.startswith('--')
         name = arg[2:]
-        recursive = (kwargs.get('recursive', False)
-            and not kwargs.get('fake', False))
         metavar = kwargs.get('metavar', name.upper())
 
         class SetParser(ArgumentParser):
@@ -191,7 +227,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
                 if any(arg.startswith('--') for arg in args):
                     if self._parent:
-                        # Generate nested argument in parent
+                        # generate nested argument in parent
                         nargs = [re.sub('--(.*)', r'--%s.%s.\1' % (
                                 self._name, metavar),
                                 arg)
@@ -199,12 +235,8 @@ class ArgumentParser(argparse.ArgumentParser):
                             if arg.startswith('--')]
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
-                            nkwargs['dest'] = '%s.%s.%s' % (
-                                self._name,
-                                '__REC%s' % self._name
-                                if recursive else
-                                '__SET',
-                                nkwargs.get('dest', args[-1][2:]))
+                            nkwargs['dest'] = '%s.__SET.%s' % (
+                                self._name, nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar', metavar)
@@ -212,18 +244,14 @@ class ArgumentParser(argparse.ArgumentParser):
                     self._optional.append((args, kwargs))
                 else:
                     if self._parent:
-                        # Generate nested argument in parent
+                        # generate nested argument in parent
                         nargs = ['--%s.%s' % (
                             self._name,
                             metavar)]
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
-                            nkwargs['dest'] = '%s.%s.%s' % (
-                                self._name,
-                                '__REC%s' % self._name
-                                if recursive else
-                                '__SET',
-                                nkwargs.get('dest', args[-1]))
+                            nkwargs['dest'] = '%s.__SET.%s' % (
+                                self._name, nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
                             nkwargs.setdefault('metavar', metavar)
@@ -233,22 +261,36 @@ class ArgumentParser(argparse.ArgumentParser):
                 return super(ArgumentParser, self).add_argument(*args, **kwargs)
 
         nested = SetParser()
-        nested._parent = self
+        # don't actually feed parent if we're globbing
+        if not kwargs.get('glob', False):
+            nested._parent = self
         nested._name = name
         nested._hidden = kwargs.get('hidden', False)
         nested._fake = kwargs.get('fake', False)
+
+        if kwargs.get('glob', False):
+            # real arg to parse glob
+            self.add_argument('--%s.%s.GLOB' % (name, metavar),
+                dest='%s.__SET.__GLOB' % name,
+                nargs='?', const=True, hidden=True)
+            if kwargs.get('action', None) == 'append':
+                # enable appending?
+                self.add_argument('--%s.%s' % (name, metavar),
+                    dest='%s.__SET.__STORE' % name,
+                    action='store_true', hidden=True)
+
+            # fake arg to show in help
+            self.add_argument('--%s.%s.*' % (name, metavar),
+                fake=True, metavar='',
+                help=kwargs.get('help', None))
 
         # Default set entry creation
         if kwargs.get('action', None) == 'append':
             nkwargs = kwargs.copy()
             nkwargs['action'] = 'store_true'
-            nkwargs.pop('recursive', None)
+            nkwargs.pop('glob', None)
             nkwargs.pop('metavar', None)
-            hidden = nested._hidden
-            if nkwargs.pop('hidden', None) == 'append_only':
-                nested._hidden = False
             nested.add_argument('__STORE', **nkwargs)
-            nested._hidden = hidden
 
         if hasattr(cls, '__argparse__'):
             cls.__argparse__(nested, name=name, **kwargs)
@@ -262,15 +304,16 @@ class ArgumentParser(argparse.ArgumentParser):
         # first parse out sets, this is a bit complicated
         set_prefixes = set()
         for oargs, okwargs in self._optional:
-            om = re.search(r'\b(__REC|__SET)([\w-]*)\b',
+            om = re.search(r'\b(__GLOB|__SET)([\w-]*)\b',
                 okwargs.get('dest', ''))
             if om:
                 for oarg in oargs:
-                    pattern = '.'.join(
-                        r'([\w-]+)(?:\.(%s)\.[\w-]+)*' % rule[len('__REC'):]
-                        if rule.startswith('__REC') else
-                        r'([\w-]+)()'
-                        if rule == '__SET' else part
+                    pattern = '\.'.join(
+                        r'([\.\w-]+)'
+                        if rule.startswith('__GLOB') else
+                        r'([\w-]+)'
+                        if rule == '__SET' else
+                        part
                         for part, rule in zip(
                             oarg.split('.'),
                             it.chain(
@@ -283,28 +326,22 @@ class ArgumentParser(argparse.ArgumentParser):
                             set_prefixes.add((
                                 arg[:m.start(1)],
                                 m.group(1),
-                                m.group(2)))
-
-                            # need default empty recursive set?
-                            if om.group(1) == '__REC':
-                                ns.__dict__['%s.%s.%s' % (
-                                    okwargs['dest'][:om.start()-1],
-                                    m.group(1),
-                                    om.group(2))] = {}
+                                okwargs['dest']))
 
                 # add default empty set
                 ns = ns or Namespace()
-                ns.__dict__[okwargs['dest'][:om.start()-1]] = {}
+                ns.__dict__[okwargs['dest'][:om.start()-1]] = (
+                    {} if om.group(1) == '__SET' else Namespace())
 
         # create temporary parsers to extract known args
         sets = []
-        for prefix, m, suffix in set_prefixes:
+        for prefix, m, dest in set_prefixes:
             tempparser = ArgumentParser(allow_abbrev=False, add_help=False)
             for oargs, okwargs in self._optional:
                 if (any(oarg.startswith(prefix) for oarg in oargs)
-                        and okwargs.get('dest', True)):
+                        and okwargs.get('dest', False)):
                     nargs = [re.sub(
-                        r'(?<=^%s)[\w-]+\b' % re.escape(prefix),
+                        r'(?<=^%s)(?:[\w-]+\b)' % re.escape(prefix),
                         m, oarg, 1)
                         for oarg in oargs]
                     nkwargs = okwargs.copy()
@@ -312,33 +349,22 @@ class ArgumentParser(argparse.ArgumentParser):
                         r'(?<=^%s)[\w-]+\b' % re.escape(prefix[2:]),
                         m, nkwargs['dest'], 1)
                     tempparser.add_argument(*nargs, **nkwargs)
-                    if suffix:
-                        nargs = [re.sub(
-                            r'(?<=^%s)[\w-]+\b' % re.escape(prefix),
-                            '.'.join([m, suffix, suffix.upper()]),
-                            oarg, 1)
-                            for oarg in oargs]
-                        nkwargs = okwargs.copy()
-                        nkwargs['dest'] = re.sub(
-                            r'(?<=^%s)[\w-]+\b' % re.escape(prefix[2:]),
-                            '.'.join([m, suffix, '__REC'+suffix]),
-                            nkwargs['dest'], 1)
-                        tempparser.add_argument(*nargs, **nkwargs)
 
             nns, args = tempparser.parse_known_args(args, Namespace())
 
-            # turn sets into python dicts
+            # turn sets into python dicts, stopping on first rule
+            # since later rules get handled by recursive descent
             def nsdict(ns, path):
                 if not path:
                     return ns
-                elif path[0] == '__DICT':
-                    return {k: nsdict(v, path[1:])
-                        for k, v in ns.__dict__.items()}
+                elif path[0] == '__SET':
+                    return ns.__dict__
+                elif path[0] == '__GLOB':
+                    return ns
                 else:
                     return Namespace(**{k: nsdict(v, path[1:])
                         for k, v in ns.__dict__.items()})
-
-            sets.append(nsdict(nns, (prefix+'__DICT').split('.')))
+            sets.append(nsdict(nns, dest.split('.')))
 
         # parse!
         ns, args = super().parse_known_args(args, ns)
@@ -346,21 +372,7 @@ class ArgumentParser(argparse.ArgumentParser):
         # delete fake args and merge sets
         ns.__dict__ = {
             k: v for k, v in ns.__dict__.items()
-            if not re.search(r'\b__', k)}
-
-        # create nested namespaces
-        def nsnest(ns):
-            ndict = {}
-            nested = {}
-            for k, v in ns.__dict__.items():
-                if '.' in k:
-                    scope, name = k.split('.', 1)
-                    nested.setdefault(scope, {})[name] = v
-                else:
-                    ndict[k] = v
-            for k, v in nested.items():
-                ndict[k] = nsnest(Namespace(**v))
-            return Namespace(**ndict)
+            if k and not re.search(r'(\b__)', k)}
 
         ns = nsnest(ns)
 
@@ -369,7 +381,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         return ns, args
 
-    def parse_dict(self, dict_):
+    def parse_dict(self, dict_, prefix=None):
         """
         Apply the argument parser to a dictionary or namespace, sanitizing and
         applying the same type rules that would be applied on the command line.
@@ -382,22 +394,47 @@ class ArgumentParser(argparse.ArgumentParser):
             for k, v in dict_.items():
                 if isinstance(v, dict) or isinstance(v, Namespace):
                     args.extend(buildargs(prefix + [k], v))
+                elif v is None:
+                    pass
+                elif v is True:
+                    args.append('--%s' % '.'.join(prefix + [k]))
                 else:
                     args.append('--%s=%s' % ('.'.join(prefix + [k]), v))
 
             return args
 
+        # build arguments
         args = buildargs([], dict_)
-        return self.parse_args(args)
 
-    def parse_toml(self, path):
+        stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            # parse the arguments
+            return self.parse_args(args)
+        except SystemExit:
+            if prefix:
+                lines = sys.stderr.getvalue().splitlines()
+                for line in lines[:-1]:
+                    print(line, file=stderr)
+                print("%s: error: in %s:" % (
+                    os.path.basename(sys.argv[0]), prefix.rstrip('.')),
+                    file=stderr)
+                print(lines[-1], file=stderr)
+            else:
+                stderr.write(sys.stderr.getvalue())
+            raise
+        finally:
+            sys.stderr = stderr
+
+    def parse_toml(self, path, prefix=None):
         """
         Convenience method for applying parse_dict to a toml file.
         """
         try:
-            return self.parse_dict(toml.load(path))
+            return self.parse_dict(toml.load(path), prefix=prefix)
         except SystemExit:
             print("%s: error: while parsing %r" % (
-                os.path.basename(sys.argv[0]), path), file=sys.stderr)
+                os.path.basename(sys.argv[0]), path),
+                file=sys.stderr)
             raise
 
