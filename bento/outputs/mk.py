@@ -348,13 +348,13 @@ class MKOutput(outputs.Output):
         if self.decls:
             for decl in self.decls:
                 if 'doc' in decl:
-                    for line in textwrap.wrap(decl['doc'], width=78):
+                    for line in textwrap.wrap(decl['doc'], width=77):
                         self.write('# %s\n' % line)
                 self.write(decl.getvalue().strip())
                 self.write('\n')
         for rule in self.rules:
             if 'doc' in rule:
-                for line in textwrap.wrap(rule['doc'], width=78):
+                for line in textwrap.wrap(rule['doc'], width=77):
                     self.write('# %s\n' % line)
             value = rule.getvalue().strip()
             value = re.sub('^    ', '\t', value, flags=re.M)

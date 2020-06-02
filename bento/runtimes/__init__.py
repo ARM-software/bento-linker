@@ -72,6 +72,39 @@ class Runtime(outputs.OutputBlob):
                     getattr(self, 'box_%s_epilogue' % level),
                     lbox)
 
+    def link(self, box):
+        for level, lbox in [
+                ('root', box.getroot()),
+                ('muxer', box.getmuxer()),
+                ('parent', box.getparent()),
+                ('box', box)]:
+            if not lbox:
+                continue
+
+            if ('runtime', level) not in lbox.link_prologues:
+                def prologue(f, lbox):
+                    def prologue():
+                        f(lbox)
+                    return prologue
+                lbox.link_prologues[('runtime', level)] = prologue(
+                    getattr(self, 'link_%s_prologue' % level),
+                    lbox)
+                lbox.link_prologues[('runtime', level)]()
+
+            if level != 'box':
+                getattr(self, 'link_%s' % level)(lbox, box)
+            else:
+                getattr(self, 'link_%s' % level)(box)
+
+            if ('runtime', level) not in lbox.link_epilogues:
+                def epilogue(f, lbox):
+                    def epilogue():
+                        f(lbox)
+                    return epilogue
+                lbox.link_epilogues[('runtime', level)] = epilogue(
+                    getattr(self, 'link_%s_epilogue' % level),
+                    lbox)
+
     def build(self, box):
         attrs = self.attrs()
         for level, lbox in [
@@ -91,7 +124,7 @@ class Runtime(outputs.OutputBlob):
                                 f(output, lbox)
                         return prologue
                     lbox.build_prologues[('runtime', level, output.name)] = (
-                        prologue(getattr(self, 'build_%s_prologue_%s'
+                        prologue(getattr(self, 'build_%s_%s_prologue'
                             % (level, output.name)), output, lbox))
                     lbox.build_prologues[('runtime', level, output.name)]()
 
@@ -113,7 +146,7 @@ class Runtime(outputs.OutputBlob):
                                 f(output, lbox)
                         return epilogue
                     lbox.build_epilogues[('runtime', level, output.name)] = (
-                        epilogue(getattr(self, 'build_%s_epilogue_%s'
+                        epilogue(getattr(self, 'build_%s_%s_epilogue'
                             % (level, output.name)), output, lbox))
 
 
@@ -126,6 +159,14 @@ for level, order in it.product(
         setattr(Runtime, method,
             lambda self, *args, **kwargs: None)
 
+for level, order in it.product(
+        ['root', 'muxer', 'parent', 'box'],
+        ['_prologue', '', '_epilogue']):
+    method = 'link_%s%s' % (level, order)
+    if not hasattr(Runtime, method):
+        setattr(Runtime, method,
+            lambda self, *args, **kwargs: None)
+
 # if build rule doesn't exist, fall back to output defaults, or noop
 from ..outputs import OUTPUTS
 for Output in OUTPUTS.values():
@@ -133,7 +174,7 @@ for Output in OUTPUTS.values():
             ['root', 'muxer', 'parent', 'box'],
             ['_prologue', '', '_epilogue']):
         default = 'default_build_%s%s' % (level, order)
-        method  = 'build_%s%s_%s' % (level, order, Output.__argname__)
+        method  = 'build_%s_%s%s' % (level, Output.__argname__, order)
         if not hasattr(Runtime, method):
             if hasattr(Output, default):
                 setattr(Runtime, method, (lambda f:

@@ -189,6 +189,9 @@ class Output(OutputBlob):
             path=self.path,
             box=box.name)
 
+    def link(self, box):
+        pass
+
     def build(self, box):
         pass
 

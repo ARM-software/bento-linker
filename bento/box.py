@@ -1,4 +1,3 @@
-
 import re
 import collections as co
 import itertools as it
@@ -303,9 +302,9 @@ class Type:
     Type of function argument or return value.
     """
     PRIMITIVE_TYPES = [
-        'err32', 'err64',
         'u8', 'u16', 'u32', 'u64', 'usize',
         'i8', 'i16', 'i32', 'i64', 'isize',
+        'err32', 'err64', 'errsize',
         'f32', 'f64']
     PRIMITIVE_ALIASES = [
         (r'\berr\b',            r'err32'),
@@ -339,6 +338,10 @@ class Type:
     def iserr(self):
         return self._primitive.startswith('err')
 
+    def __eq__(self, other):
+        return ((self._primitive, self._ptr)
+            == (other._primitive, other._ptr))
+
     def __str__(self, argname=None):
         if argname:
             return '%s %s%s' % (self._primitive, self._ptr, argname)
@@ -348,7 +351,11 @@ class Type:
     def repr_c(self, name=None):
         if self._primitive == 'u8' and self._ptr:
             primitive = 'void'
-        if self._primitive.startswith('err'):
+        elif self._primitive == 'err32':
+            primitive = 'int'
+        elif self._primitive == 'errsize':
+            primitive = 'ssize_t'
+        elif self._primitive.startswith('err'):
             primitive = 'int%s_t' % self._primitive[3:]
         elif self._primitive == 'usize':
             primitive = 'size_t'
@@ -380,8 +387,10 @@ class Fn:
             help=cls.__arghelp__)
         parser.add_argument("--type", pred=cls.parsetype,
             help="Type of the function.")
+        parser.add_argument("--alias",
+            help="Name used in the box for the function.")
         parser.add_argument("--doc",
-            help="Docstring for the function.")
+            help="Documentation for the function.")
 
     @staticmethod
     def parsetype(s):
@@ -438,9 +447,11 @@ class Fn:
 
         return args, argnames, rets, retnames
 
-    def __init__(self, name, type, doc=None):
+    def __init__(self, name, type, alias=None, doc=None, source=None):
         self.name = name
+        self.alias = alias or name.replace('.', '_')
         self.doc = doc
+        self.source = source
 
         argtypes, argnames, rettypes, retnames = Fn.parsetype(type)
         self.args = [Type(arg) for arg in argtypes]
@@ -459,18 +470,21 @@ class Fn:
 
     def repr_c(self, name=None):
         return "%(rets)s %(name)s(%(args)s)" % dict(
-            name=name or self.name,
+            name=name or self.alias,
             args='void' if len(self.args) == 0 else
                 ', '.join(arg.repr_c(name) for arg, name in
                     zip(self.args, self.argnames)),
             rets='void' if len(self.rets) == 0 else
                 ', '.join(ret.repr_c() for ret in self.rets))
 
-    def repr_c_ptr(self):
-        return self.repr_c(name='(*%s)' % self.name)
+    def repr_c_ptr(self, name=None):
+        return self.repr_c(name='(*%s)' % (name or self.alias))
 
     def isfalible(self):
         return any(ret.iserr() for ret in self.rets)
+
+    def iscompatible(self, other):
+        return (self.args == other.args and self.rets == other.rets)
 
 class Import(Fn):
     """
@@ -478,6 +492,13 @@ class Import(Fn):
     """
     __argname__ = "import"
     __arghelp__ = __doc__
+    def __init__(self, name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)
+
+        if '.' in self.name:
+            self.boxname, self.exportname = self.name.split('.', 1)
+        else:
+            self.boxname, self.exportname = None, self.name
 
 class Export(Fn):
     """
@@ -485,6 +506,28 @@ class Export(Fn):
     """
     __argname__ = "export"
     __arghelp__ = __doc__
+    def __init__(self, name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)
+        self._box = None
+        self._imports = []
+
+    def link(self, box=None, import_=None):
+        if import_ is None:
+            # just setting up box
+            self._box = box
+        else:
+            self._imports.append((box, import_))
+
+    def n(self, box=None):
+        if isinstance(box, Box):
+            box = box.name
+
+        for n, export in enumerate(
+                export for export in self._box.exports
+                if not box or any(
+                    b.name == box for b, _ in export._imports)):
+            if export.name == self.name:
+                return n
 
 class Box:
     """
@@ -528,13 +571,13 @@ class Box:
         parser.add_nestedparser('--data', Section)
         parser.add_nestedparser('--bss', Section)
 
-        parser.add_set(Import, dest='import_')
+        parser.add_set('--import', cls=Import, metavar='BOX.IMPORT', depth=2)
         parser.add_set(Export)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
             runtime=None, output=None, memory=None,
             stack=None, heap=None, text=None, data=None, bss=None,
-            import_=None, export=None, box=None):
+            export=None, box=None, **kwargs):
         self.name = name or 'system'
         self.parent = parent
         self.path = path
@@ -543,7 +586,7 @@ class Box:
         from .runtimes import RUNTIMES
         selected = runtime.select or 'noop'
         self.runtime = RUNTIMES[selected](**getattr(
-            runtime, selected).__dict__)
+            runtime, selected, argstuff.Namespace()).__dict__)
 
         from .outputs import OUTPUTS
         self.outputs = sorted(
@@ -565,21 +608,27 @@ class Box:
         self.bss = Section(**bss.__dict__)
 
         self.imports = sorted(
-            Import(name, **importargs.__dict__)
-            for name, importargs in import_.items())
+            Import('%s.%s' % (box, name), source=self, **importargs.__dict__)
+            for box, imports in kwargs['import'].items()
+            for name, importargs in imports.items())
         self.exports = sorted(
-            Import(name, **exportargs.__dict__)
+            Export(name, source=self, **exportargs.__dict__)
             for name, exportargs in export.items())
         self.boxes = [] 
 
         # prepare build/box commands for prologue/epilogue handling
         self.box_prologues = co.OrderedDict()
         self.box_epilogues = co.OrderedDict()
+        self.link_prologues = co.OrderedDict()
+        self.link_epilogues = co.OrderedDict()
         self.build_prologues = co.OrderedDict()
         self.build_epilogues = co.OrderedDict()
 
     def __eq__(self, other):
-        return self.name == other.name
+        if isinstance(other, Box):
+            return self.name == other.name
+        else:
+            return self.name == other
 
     def __lt__(self, other):
         return self.name < other.name
@@ -604,7 +653,8 @@ class Box:
         best = self.bestmemory(mode=mode, size=size, align=align,
             section=section, memory=memory, reverse=reverse)
         assert best, ("No memory found that satisfies "
-            "mode=%s size=%#010x" % (mode, section.size if section else size))
+            "mode=%s size=%#010x" % (mode,
+                (section.size if section else size) or 0))
         return best.consume(size=size, align=align,
             section=section, reverse=reverse)
 
@@ -638,6 +688,99 @@ class Box:
                 return None
             parent = self.parent
         return parent if parent != self else None
+
+    def addexport(self, export, *args, weak=False, **kwargs):
+        if not isinstance(export, Export):
+            export = Export(export, *args, **kwargs)
+
+        for e in self.exports:
+            if e.name == export.name:
+                assert weak, (
+                    "Conflicting exports for %r in %s:\n"
+                    "export.%s = %s in %s\n"
+                    "export.%s = %s in %s" % (
+                    export.name, self.name,
+                    e.name, e, e.source.name,
+                    export.name, export, export.source.name))
+                return
+        self.exports = sorted(self.exports + [export])
+
+    def addimport(self, import_, *args, **kwargs):
+        if not isinstance(import_, Import):
+            import_ = Import(import_, *args, **kwargs)
+
+        for i in self.imports:
+            if i.name == import_.name:
+                assert i.iscompatible(import_), (
+                    "Incompatible imports for %r in %s:\n"
+                    "import.%s.%s = %s in %s\n"
+                    "import.%s.%s = %s in %s" % (
+                    import_.exportname, import_.boxname,
+                    i.boxname, i.exportname, i,
+                    import_.boxname, import_.exportname, import_))
+                return
+
+        self.imports = sorted(self.imports + [import_])
+
+    def hasexport(self, import_, source=None, notsource=None):
+        """
+        Tries to find another box's import in ourself.
+        """
+        name = import_.exportname if isinstance(import_, Import) else import_
+        return any(
+            export.name == name and
+            (source is None or export.source == source) and
+            (notsource is None or export.source != notsource)
+            for export in self.exports)
+
+    def checkexport(self, import_, *args, **kwargs):
+        """
+        Looks up another box's import in ourself and typechecks against it.
+        """
+        if not isinstance(import_, Import):
+            import_ = Import(import_, *args, **kwargs)
+
+        for export in self.exports:
+            if export.name == import_.exportname:
+                assert export.iscompatible(import_), (
+                    "Incompatible import/export for %r in %s:\n"
+                    "export.%s %s = %s in %s\n"
+                    "import.%s.%s = %s in %s" % (
+                    import_.exportname, self.name,
+                    export.name, ' '*len(self.name), export,
+                    export.source.name,
+                    self.name, import_.exportname, import_,
+                    import_.source.name))
+                return export
+        else:
+            assert False, (
+                "No export for %r in %s:\n"
+                "import.%s.%s = %s in %s" % (
+                import_.exportname, self.name,
+                self.name, import_.exportname, import_,
+                import_.source.name))
+
+    def getexport(self, import_, *args, default=None, **kwargs):
+        """
+        Try to lookup another box's import, return default if not found.
+        Note this may still error if type does not match.
+        """
+        if not isinstance(import_, Import):
+            import_ = Import(import_, *args, **kwargs)
+
+        if not self.hasexport(import_):
+            return default
+        else:
+            return self.checkexport(import_)
+
+    def n(self):
+        if not self.parent:
+            return 0
+        for n, box in enumerate(
+                box for box in self.parent.boxes
+                if box.runtime == self.runtime):
+            if box.name == self.name:
+                return n
 
     @staticmethod
     def _scan_argparse(parser):
@@ -730,6 +873,12 @@ class Box:
                     parentallargs=allargs)}))
             box.boxes = sorted(boxes)
 
+            if box.parent:
+                assert all(child.name != box.parent.name
+                    for child in box.boxes), (
+                    "Conflicting names between box's parent/child %r" %
+                    box.parent.name)
+
             return box
 
         box = recurse(name, **args)
@@ -750,6 +899,7 @@ class Box:
         Needs to:
         - Allocate box memory
         - Allocate sections
+        - Create implicit exports?
         """
         if not stage or stage == 'boxes':
             # create memory slices for children
@@ -796,8 +946,50 @@ class Box:
 
         if not stage or stage == 'epilogues':
             for child in self.boxes:
-                child.build(stage='epilogues')
-            for epilogue in self.build_epilogues.values():
+                child.box(stage='epilogues')
+            for epilogue in self.box_epilogues.values():
+                epilogue()
+
+    def link(self, stage=None):
+        """
+        Link together import/exports from boxes.
+        """
+        if not stage or stage == 'boxes':
+            # set up all the wiring for export.n() to work
+            for export in self.exports:
+                export.link(self)
+
+            # link imports to exports, getexport takes care of typechecking
+            for import_ in self.imports:
+                for box in it.chain(
+                        [self.parent] if self.parent else [],
+                        self.boxes):
+                    if box.name == import_.boxname:
+                        import_.export = box.checkexport(import_)
+                        import_.box = box
+                        import_.export.link(self, import_)
+                        break
+                else:   
+                    assert False, "No box provides %r?" % import_.name
+
+            for child in self.boxes:
+                child.link(stage='boxes')
+
+        if not stage or stage == 'runtimes':
+            self.runtime.link(self)
+            for child in self.boxes:
+                child.link(stage='runtimes')
+
+        if not stage or stage == 'outputs':
+            for output in self.outputs:
+                output.link(self)
+            for child in self.boxes:
+                child.link(stage='outputs')
+
+        if not stage or stage == 'epilogues':
+            for child in self.boxes:
+                child.link(stage='epilogues')
+            for epilogue in self.link_epilogues.values():
                 epilogue()
 
     def build(self, stage=None):

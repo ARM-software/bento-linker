@@ -224,6 +224,7 @@ class ArgumentParser(argparse.ArgumentParser):
         name = arg[2:]
         dest = kwargs.get('dest', name)
         metavar = kwargs.get('metavar', name.upper())
+        depth = kwargs.get('depth', 1)
 
         class SetParser(ArgumentParser):
             def add_argument(self, *args, **kwargs):
@@ -239,11 +240,15 @@ class ArgumentParser(argparse.ArgumentParser):
                             if arg.startswith('--')]
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
-                            nkwargs['dest'] = '%s.__SET.%s' % (
-                                self._dest, nkwargs.get('dest', args[-1][2:]))
+                            nkwargs['dest'] = '%s.%s.%s' % (
+                                self._dest,
+                                '.'.join(it.repeat('__SET', depth)),
+                                nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
-                            nkwargs.setdefault('metavar', metavar)
+                            nkwargs.setdefault('metavar',
+                                nkwargs.get('dest', args[-1][2:])
+                                    .split('.')[-1].upper())
                         self._parent.add_argument(*nargs, **nkwargs)
                     self._optional.append((args, kwargs))
                 else:
@@ -254,11 +259,15 @@ class ArgumentParser(argparse.ArgumentParser):
                             metavar)]
                         nkwargs = kwargs.copy()
                         if nkwargs.get('dest', True):
-                            nkwargs['dest'] = '%s.__SET.%s' % (
-                                self._dest, nkwargs.get('dest', args[-1]))
+                            nkwargs['dest'] = '%s.%s.%s' % (
+                                self._dest,
+                                '.'.join(it.repeat('__SET', depth)),
+                                nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
-                            nkwargs.setdefault('metavar', metavar)
+                            nkwargs.setdefault('metavar',
+                                nkwargs.get('dest', args[-1][2:])
+                                    .split('.')[-1].upper())
                         self._parent.add_argument(*nargs, **nkwargs)
                     self._positional.append((args, kwargs))
 
@@ -295,6 +304,7 @@ class ArgumentParser(argparse.ArgumentParser):
             nkwargs['action'] = 'store_true'
             nkwargs.pop('glob', None)
             nkwargs.pop('metavar', None)
+            nkwargs.pop('depth', None)
             nested.add_argument('__STORE', **nkwargs)
 
         if hasattr(cls, '__argparse__'):
@@ -378,7 +388,8 @@ class ArgumentParser(argparse.ArgumentParser):
         # delete fake args and merge sets
         ns.__dict__ = {
             k: v for k, v in ns.__dict__.items()
-            if k and not re.search(r'(\b__)', k)}
+            # TODO uh, don't use __s?
+            if k and not re.search(r'(\b__(?=[A-Z]))', k)}
 
         ns = nsnest(ns)
 

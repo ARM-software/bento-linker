@@ -185,7 +185,7 @@ class LDOutput(outputs.Output):
         if self.decls:
             for decl in self.decls:
                 if 'doc' in decl:
-                    for line in textwrap.wrap(decl['doc'], width=72):
+                    for line in textwrap.wrap(decl['doc'], width=71):
                         self.write('/* %s */\n' % line)
                 self.write(decl.getvalue().strip())
                 self.write('\n\n')
@@ -195,7 +195,7 @@ class LDOutput(outputs.Output):
             for memory in sorted(self.memories, key=lambda m: m['addr']):
                 if memory['mode']:
                     if 'doc' in memory:
-                        for line in textwrap.wrap(memory['doc'], width=68):
+                        for line in textwrap.wrap(memory['doc'], width=67):
                             self.write(4*' '+'/* %s */\n' % line)
                     self.write(4*' ')
                     self.write(memory.getvalue().strip())
@@ -217,7 +217,7 @@ class LDOutput(outputs.Output):
                     if section['memory'] == memory['memory']:
                         if 'doc' in section:
                             for line in textwrap.wrap(section['doc'],
-                                    width=68):
+                                    width=67):
                                 self.write(4*' '+'/* %s */\n' % line)
                         self.write(4*' ')
                         self.write(section.getvalue().strip())
@@ -234,7 +234,7 @@ class LDOutput(outputs.Output):
                 for section in sections:
                     if 'doc' in section:
                         for line in textwrap.wrap(section['doc'],
-                                width=68):
+                                width=67):
                             self.write(4*' '+'/* %s */\n' % line)
                     self.write(4*' ')
                     self.write(section.getvalue().strip())

@@ -21,10 +21,19 @@ class ListCommand:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
+        parser.add_argument('-a', action='store_true',
+            help='Also show implicit exports/imports used for runtime '
+                'plumbing.')
+        parser.add_argument('-n', '--no_check', action='store_true',
+            help='Don\'t perform memory allocation and linking. This '
+                'shows less info, but may be helpful for debugging bad '
+                'configuration.')
         Box.scan.__argparse__(parser)
-    def __init__(self, **args):
+    def __init__(self, a=False, no_check=False, **args):
         box = Box.scan(**args)
-        box.box()
+        if not no_check:
+            box.box()
+            box.link()
 
         def ls(box):
             print('box %s' % box.name)
@@ -35,16 +44,20 @@ class ListCommand:
             for memory in box.memories:
                 print('  %(name)-34s %(memory)s' % dict(
                     name='memories.%s' % memory.name, memory=memory))
-            if box.imports:
-                print('  imports')
-                for import_ in box.imports:
-                    print('    %(name)-32s %(import_)s' % dict(
-                        name=import_.name, import_=import_))
-            if box.exports:
-                print('  exports')
-                for export in box.exports:
-                    print('    %(name)-32s %(export)s' % dict(
-                        name=export.name, export=export))
+            for i, import_ in enumerate(
+                    import_ for import_ in box.imports
+                    if a or getattr(import_, 'source', box) == box) :
+                if i == 0:
+                    print('  imports')
+                print('    %(name)-32s %(import_)s' % dict(
+                    name=import_.name, import_=import_))
+            for i, export in enumerate(
+                    export for export in box.exports
+                    if a or getattr(export, 'source', box) == box):
+                if i == 0:
+                    print('  exports')
+                print('    %(name)-32s %(export)s' % dict(
+                    name=export.name, export=export))
 
             for box in box.boxes:
                 ls(box)
@@ -66,6 +79,7 @@ class BuildCommand:
         print("scanning...")
         box = Box.scan(**args)
         box.box()
+        box.link()
 
         def stackwarn(box):
             if not box.stack.size:

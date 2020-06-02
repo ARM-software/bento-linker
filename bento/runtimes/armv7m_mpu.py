@@ -3,11 +3,11 @@ import itertools as it
 import math
 from .. import argstuff
 from .. import runtimes
-from ..box import Fn, Section, Region
+from ..box import Fn, Section, Region, Export, Import
 
 # utility functions in C
 BOX_INIT = """
-static void __box_%(box)s_init() {
+int32_t __box_init(void) {
     // zero bss
     extern uint32_t __bss;
     extern uint32_t __bss_end;
@@ -23,15 +23,17 @@ static void __box_%(box)s_init() {
     for (uint32_t *d = &__data; d < &__data_end; d++) {
         *d = *s++;
     }
+
+    return 0;
 }
 """
 
 BOX_WRITE = """
 //__attribute__((alias("__box_write")))
 int _write(int handle, char *buffer, int size) {
-    extern int __box_write(int handle, char *buffer, int size);
+    extern ssize_t __box_write(int32_t handle, void *buffer, size_t size);
     // TODO hmm, why can't this alias?
-    return __box_write(handle, buffer, size);
+    return __box_write(handle, (uint8_t*)buffer, size);
 }
 """
 
@@ -327,11 +329,11 @@ void __box_faulthandler(int32_t err) {
 }
 
 __attribute__((alias("__box_mpu_handler")))
-void UsageFault_Handler(void);
+void __box_usagefault_handler(void);
 __attribute__((alias("__box_mpu_handler")))
-void BusFault_Handler(void);
+void __box_busfault_handler(void);
 __attribute__((alias("__box_mpu_handler")))
-void MemManage_Handler(void);
+void __box_memmanage_handler(void);
 __attribute__((naked))
 void __box_mpu_handler(void) {
     __asm__ volatile (
@@ -367,8 +369,7 @@ void __box_mpu_handler(void) {
 """
 
 BOX_SYS_INIT = """
-extern int32_t __box_%(box)s_rawinit(void);
-int32_t __box_%(box)s_init(void) {
+int __box_%(box)s_init(void) {
     int32_t err = __box_mpu_init();
     if (err) {
         return err;
@@ -380,6 +381,7 @@ int32_t __box_%(box)s_init(void) {
     __box_%(box)s_state.sp = (uint32_t*)__box_%(box)s_jumptable[0];
 
     // call box's init
+    extern int __box_%(box)s_rawinit(void);
     return __box_%(box)s_rawinit();
 }
 """
@@ -403,13 +405,20 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
     def __init__(self, mpu_regions=None, jumptable=None, call_region=None):
         super().__init__()
-        self.ids = {}
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
         self._jumptable = Section(**jumptable.__dict__)
         self._call_region = (
             Region(**call_region.__dict__)
             if call_region.addr is not None else
             Region('0x1e000000-0x1fffffff'))
+
+    def box_parent_prologue(self, parent):
+        parent.addexport('__box_memmanage_handler', 
+            'fn() -> void', source=self)
+        parent.addexport('__box_busfault_handler',
+            'fn() -> void', source=self)
+        parent.addexport('__box_usagefault_handler',
+            'fn() -> void', source=self)
 
     def box_parent(self, parent, box):
         assert math.log2(self._call_region.size) % 1 == 0, (
@@ -441,20 +450,42 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                         "Memory region %s too small (< 32 bytes)"
                             % memory.name)
 
-        self.ids = {}
+        parent.addimport(
+            '%s.__box_init' % box.name,
+            'fn() -> err32',
+            alias='__box_%s_rawinit' % box.name,
+            source=self)
 
-        for j, export in enumerate(it.chain(
-                ['__box_write'],
-                (export.name for export in parent.exports))):
-            self.ids[export] = j*(len(parent.boxes)+1)
+    def box_box(self, box):
+        box.addexport('__box_init', 'fn() -> err32',
+            source=self)
+        box.addimport('%s.__box_%s_write' % (
+            box.parent.name if box.parent else 'system', box.name),
+            'fn(i32, u8*, usize) -> errsize',
+            alias='__box_write',
+            source=self)
+        self._jumptable.memory = box.consume('rx', section=self._jumptable)
+        super().box_box(box)
 
-        for i, box in enumerate(parent.boxes):
-            # TODO make unique name?
-            self.ids['box ' + box.name] = i+1
-            for j, export in enumerate(it.chain(
-                    ['__box_%s_rawinit' % box.name],
-                    (export.name for export in box.exports))):
-                self.ids[export] = j*(len(parent.boxes)+1) + i+1
+    def link_parent_prologue(self, parent):
+        self._parent_fault_hook = parent.getexport(
+            '__box_fault',
+            'fn(err32) -> void',
+            source=self)
+        self._parent_write_hook = parent.getexport(
+            '__box_write',
+            'fn(i32, u8*, usize) -> errsize',
+            source=self)
+
+    def link_parent(self, parent, box):
+        self._parent_box_fault_hook = parent.getexport(
+            '__box_%s_fault' % box.name,
+            'fn(err32) -> void',
+            source=self)
+        self._parent_box_write_hook = parent.getexport(
+            '__box_%s_write' % box.name,
+            'fn(i32, u8*, usize) -> errsize',
+            source=self)
 
     # overridable
     def build_mpu_dispatch(self, output, sys):
@@ -488,12 +519,21 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             out.printf('},')
         out.printf('};')
 
-    def build_parent_prologue_c(self, output, sys):
-        output.decls.append('//// jumptable implementation ////')
-        output.decls.append(
-            'extern int _write(int handle, char *buffer, int size);',
-            doc='GCC stdlib hook')
+    def build_parent_ld_prologue(self, output, sys):
+        super().build_parent_ld_prologue(output, sys)
 
+        out = output.decls.append(doc='box calls')
+        for import_ in sys.imports:
+            out.printf(
+                '%(import_)-16s = %(callprefix)#010x + '
+                    '%(id)d*4 + %(falible)d*2 + 1;',
+                import_=import_.alias,
+                id=import_.export.n()*(len(sys.boxes)+1) +
+                    import_.box.n()+1,
+                falible=import_.isfalible())
+
+    def build_parent_c_prologue(self, output, sys):
+        output.decls.append('//// jumptable implementation ////')
         self.build_mpu_dispatch(output, sys)
 
         out = output.decls.append(doc='System state')
@@ -504,9 +544,9 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out.printf('const uint32_t __box_sys_jumptable[] = {')
         with out.pushindent():
             out.printf('(uint32_t)NULL, // no stack for sys')
-            out.printf('(uint32_t)&_write,')
+            #out.printf('(uint32_t)&_write,')
             for export in sys.exports:
-                out.printf('(uint32_t)%(export)s,', export=export.name)
+                out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.write('};')
 
         out = output.decls.append()
@@ -554,26 +594,15 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         # fault handlers
         out = output.decls.append()
-        out.printf('void __box_sys_fault(int32_t err) {')
+        out.printf('void __box_sys_fault(int err) {')
         with out.indent():
-            # TODO print if write is hooked up?
             out.printf('// system must halt, no way to recover')
             out.printf('while (1) {}')
         out.printf('}')
 
-        for box in sys.boxes:
-            if box.runtime == self:
-                out = output.decls.append(box=box.name)
-                out.printf('__attribute__((weak))')
-                out.printf('void __box_%(box)s_fault(int32_t err) {')
-                with out.indent():
-                    # TODO print if write is hooked up?
-                    out.printf('// overridable by user')
-                out.printf('}')
-
         out = output.decls.append()
         out.printf('void (*const '
-            '__box_faults[__BOX_COUNT+1])(int32_t err) = {')
+            '__box_faults[__BOX_COUNT+1])(int err) = {')
         with out.indent():
             out.printf('&__box_sys_fault,', box=box.name)
             for box in sys.boxes:
@@ -603,59 +632,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         output.includes.append('<assert.h>') # TODO need this?
         output.decls.append(BOX_SYS_DISPATCH, doc='Dispach logic')
 
-    def build_parent_c(self, output, sys, box):
-        output.decls.append(BOX_SYS_INIT)
-
-    def build_box_c(self, output, box):
-        super().build_box_c(output, box)
-        output.decls.append('//// jumptable declarations ////')
-
-        out = output.decls.append()
-        out.printf('struct %(box)s_exportjumptable {')
-        with out.pushindent():
-            # special entries for the sp and __box_init
-            out.printf('uint32_t *__box_%(box)s_stack_end;')
-            out.printf('void (*__box_%(box)s_init)(void);')
-            for export in box.exports:
-                out.printf('%(fn)s;', fn=export.repr_c_ptr())
-        out.printf('};')
-
-        output.decls.append('//// jumptable implementation ////')
-        output.decls.append(BOX_INIT)
-        output.decls.append(BOX_WRITE)
-
-        output.decls.append('extern uint32_t __stack_end;')
-        out = output.decls.append(doc='box-side jumptable')
-        out.printf('__attribute__((section(".jumptable")))')
-        out.printf('__attribute__((used))')
-        out.printf('const struct %(box)s_exportjumptable '
-            '__box_%(box)s_jumptable = {')
-        with out.pushindent():
-            # special entries for the sp and __box_init
-            out.printf('&__stack_end,')
-            out.printf('__box_%(box)s_init,')
-            for export in box.exports:
-                out.printf('%(export)s,', export=export.name)
-        out.printf('};')
-
-    def box_box(self, box):
-        self._jumptable.memory = box.consume('rx', section=self._jumptable)
-        super().box_box(box)
-
     def build_parent_ld(self, output, sys, box):
-        # create box calls for imports
-        out = output.decls.append(doc='box calls')
-        for import_ in it.chain(
-                # TODO rename this
-                [Fn('__box_%s_rawinit' % box.name, 'fn() -> err32')],
-                (import_ for import_ in box.exports)):
-            out.printf(
-                '%(import_)-16s = %(callprefix)#010x + '
-                    '%(id)d*4 + %(falible)d*2 + 1;',
-                import_=import_.name,
-                id=self.ids[import_.name],
-                falible=import_.isfalible())
-
         super().build_parent_ld(output, sys, box)
 
         if not output.no_sections:
@@ -665,24 +642,26 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 memory='box_%(box)s_%(box_memory)s')
             out.printf('__box_%(box)s_jumptable = __%(memory)s;')
 
+    def build_parent_c(self, output, sys, box):
+        output.decls.append('//// %(box)s init ////')
+        output.decls.append(BOX_SYS_INIT)
+
     def build_box_ld(self, output, box):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
-        for import_ in it.chain(
-                [Fn('__box_write', 'fn(i32, u8*, usize) -> err32')],
-                (import_ for import_ in box.imports)):
+        for import_ in box.imports:
             out.printf(
                 '%(import_)-16s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
-                import_=import_.name,
-                id=self.ids[import_.name],
+                import_=import_.alias,
+                id=import_.export.n()*(len(box.parent.boxes)+1),
                 falible=import_.isfalible())
 
         out = output.decls.append(doc='special box triggers')
         out.printf('%(name)-16s = %(retprefix)#010x + 1;',
             name='__box_ret')
         out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
-            name='__box_fault',
+            name='__box_abort',
             id=1)
 
         if not output.no_sections:
@@ -699,3 +678,23 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             out.printf('} > %(MEMORY)s')
 
         super().build_box_ld(output, box)
+
+    def build_box_c(self, output, box):
+        super().build_box_c(output, box)
+
+        output.decls.append('//// jumptable implementation ////')
+        output.decls.append(BOX_INIT)
+        output.decls.append(BOX_WRITE)
+
+        output.decls.append('extern uint32_t __stack_end;')
+        out = output.decls.append(doc='box-side jumptable')
+        out.printf('__attribute__((section(".jumptable")))')
+        out.printf('__attribute__((used))')
+        out.printf('const uint32_t __box_%(box)s_jumptable[] = {')
+        with out.pushindent():
+            # special entries for the sp and __box_init
+            out.printf('(uint32_t)&__stack_end,')
+            for export in box.exports:
+                out.printf('(uint32_t)%(export)s,', export=export.alias)
+        out.printf('};')
+
