@@ -96,13 +96,28 @@ class ARMv7MSysRuntime(runtimes.Runtime):
         self._isr_vector.memory = box.consume('rx', section=self._isr_vector)
 
         self._abort_hook = box.addimport('%s.__box_abort' % box.name,
-            'fn(err32) -> void', source=self, weak=True)
+            'fn(err32) -> void', source=self, weak=True,
+            doc="May be called by a well-behaved code to terminate the box "
+                "if execution can not continue. Notably used for asserts. "
+                "Note that __box_abort may be skipped if the box is killed "
+                "because of an illegal operation. Must not return.")
         self._write_hook = box.addimport('%s.__box_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize', source=self, weak=True)
+            'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
+            doc="Provides a minimal implementation of stdout to the box. "
+                "The exact behavior depends on the superbox's implementation "
+                "of __box_write. If none is provided, __box_write links but "
+                "does nothing.")
+        self._child_write_hooks = []
+        for child in box.boxes:
+            self._child_write_hooks.append(box.addimport(
+                '%s.__box_%s_write' % (box.name, child.name),
+                'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
+                doc="Override __box_write for a specific box."))
 
         if not self._no_startup:
             self._main_hook = box.addimport('%s.__box_main' % box.name,
-                'fn() -> void', source=self)
+                'fn() -> void', source=self,
+                doc="Entry point to the program.")
 
             # link isr vector entries
             self._esr_hooks = [
@@ -179,6 +194,11 @@ class ARMv7MSysRuntime(runtimes.Runtime):
             with out.indent():
                 out.printf('return size;')
             out.printf('}')
+
+        for hook, child in zip(self._child_write_hooks, box.boxes):
+            if not hook.link:
+                out.printf('#define __box_%(box)s_write __box_write',
+                    box=child.name)
 
         output.decls.append(BOX_WRITE)
 

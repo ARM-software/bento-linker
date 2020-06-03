@@ -539,14 +539,14 @@ class Box:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, recursive=False, fake=False, **kwargs):
-        parser.add_argument('--name',
-            help='Name of the box.')
         parser.add_argument('--path',
             help='Working directory for the box. Defaults to the '
                 'name of the box.')
         parser.add_argument('--recipe',
-            help='Path to reciple.toml file for box-specific configuration.'
+            help='Path to reciple.toml file for box-specific configuration. '
                 'Defaults to <path>/recipe.toml.')
+        parser.add_argument('--name',
+            help='Name of the box. Only valid for the top-level box.')
 
         from .runtimes import RUNTIMES
         runtimeparser = parser.add_nestedparser('--runtime')

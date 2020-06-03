@@ -3,6 +3,7 @@ import sys
 import os.path
 import collections as co
 import itertools as it
+import textwrap
 from .box import Box
 from .argstuff import ArgumentParser
 
@@ -11,6 +12,20 @@ def command(cls):
     assert cls.__argname__ not in COMMANDS
     COMMANDS[cls.__argname__] = cls
     return cls
+
+def box_argparse(cls, parser):
+    # Show the most useful options, but omit most of these as the
+    # help text becomes unwieldy
+    parser.add_argument('--path PATH', fake=True,
+        help="Working directory for the box. Defaults to the current "
+            "directory.")
+    parser.add_argument('--recipe RECIPE', fake=True,
+        help="Path to reciple.toml file for box-specific configuration. "
+            "Defaults to <path>/recipe.toml.")
+    parser.add_glob(Box,
+        help="This command also accepts all box configuration options. "
+            "Run '%s options' for a full list."
+            % os.path.basename(sys.argv[0]))
 
 @command
 class ListCommand:
@@ -21,18 +36,22 @@ class ListCommand:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
-        parser.add_argument('-a', action='store_true',
-            help='Also show implicit exports/imports used for runtime '
-                'plumbing.')
-        parser.add_argument('-n', '--no_check', action='store_true',
-            help='Don\'t perform memory allocation and linking. This '
-                'shows less info, but may be helpful for debugging bad '
-                'configuration.')
-        Box.scan.__argparse__(parser)
-    def __init__(self, a=False, no_check=False, **args):
+        parser.add_argument('-p', action='store_true',
+            help="Also show implicit plumbing exports/imports.")
+        parser.add_argument('-B', '--no_box', action='store_true',
+            help="Don't perform memory/section allocation or linking. This"
+                "shows less info, but may be helpful for debugging "
+                "configurations that fail during boxing.")
+        parser.add_argument('-L', '--no_link', action='store_true',
+            help="Don't perform the box-level linking. This"
+                "shows less info, but may be helpful for debugging "
+                "configurations that fail during linking.")
+        box_argparse(cls, parser)
+    def __init__(self, p=False, no_box=False, no_link=False, **args):
         box = Box.scan(**args)
-        if not no_check:
+        if not no_box:
             box.box()
+        if not no_box and not no_link:
             box.link()
 
         def ls(box):
@@ -46,7 +65,7 @@ class ListCommand:
                     name='memories.%s' % memory.name, memory=memory))
             for i, import_ in enumerate(
                     import_ for import_ in box.imports
-                    if a or import_.source == box
+                    if p or import_.source == box
                     if import_.link):
                 if i == 0:
                     print('  imports')
@@ -54,7 +73,7 @@ class ListCommand:
                     name=import_.name, import_=import_))
             for i, export in enumerate(
                     export for export in box.exports
-                    if a or export.source == box):
+                    if p or export.source == box):
                 if i == 0:
                     print('  exports')
                 print('    %(name)-32s %(export)s' % dict(
@@ -75,7 +94,7 @@ class BuildCommand:
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
-        Box.scan.__argparse__(parser)
+        box_argparse(cls, parser)
     def __init__(self, **args):
         print("scanning...")
         box = Box.scan(**args)
@@ -89,7 +108,6 @@ class BuildCommand:
             for child in box.boxes:
                 stackwarn(child)
         stackwarn(box)
-        sys_ = box
 
         print("building...")
         box.build()
@@ -106,6 +124,63 @@ class BuildCommand:
         outputwrite(box)
         print("done!")
 
+@command
+class OptionsCommand:
+    """
+    List the configuration options available for boxes. These can be
+    provided on the command-line or specified in a recipe.toml file.
+    """
+    __argname__ = "options"
+    __arghelp__ = __doc__
+    def __init__(self):
+        parser = ArgumentParser()
+        Box.scan.__argparse__(parser)
+        parser.parse_args(['-h'])
+
+@command
+class HooksCommand:
+    """
+    List the hooks available for boxes. These are implicit runtime-specific
+    imports that boxes can connect with box-specific exports.
+    """
+    __argname__ = "hooks"
+    __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser):
+        box_argparse(cls, parser)
+    def __init__(self, **args):
+        box = Box.scan(**args)
+        box.box()
+        first = True
+
+        def hooks(box):
+            runtimes = {}
+            for import_ in box.imports:
+                if import_.targetname == box.name and import_.source != box:
+                    if import_.source.name not in runtimes:
+                        runtimes[import_.source.name] = []
+                    runtimes[import_.source.name].append(import_)
+
+            for runtime, imports in sorted(runtimes.items(),
+                    key=lambda r: '' if r[0] == box.runtime else r[0]):
+                nonlocal first
+                if not first:
+                    print()
+                first = False
+                print('available hooks in %r for %r:' % (box.name, runtime))
+                for import_ in imports:
+                    print('  %(name)-32s %(import_)s' % dict(
+                        name=import_.linkname,
+                        import_=import_))
+                    if import_.doc:
+                        for line in textwrap.wrap(import_.doc, width=54):
+                            print(24*' ' + line)
+
+            for child in box.boxes:
+                hooks(child)
+
+        hooks(box)
+
 def main():
     parser = ArgumentParser(
         description="A tool for building compile time files for "
@@ -115,7 +190,8 @@ def main():
     for name, command in COMMANDS.items():
         subparser = subparsers.add_parser(name, help=command.__arghelp__)
         subparser.set_defaults(command=command)
-        command.__argparse__(subparser)
+        if hasattr(command, '__argparse__'):
+            command.__argparse__(subparser)
 
     args = parser.parse_args()
     if not args.command:

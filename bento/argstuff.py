@@ -165,6 +165,24 @@ class ArgumentParser(argparse.ArgumentParser):
             self._positional.append((args, kwargs))
         return super().add_argument(*args, **kwargs)
 
+    def add_glob(self, cls=None, **kwargs):
+        """
+        Make all following arguments hidden, instead show a glob (*) with
+        summarizing help text. Useful when the number of arguments is long.
+        """
+        if hasattr(cls, '__arghelp__'):
+            kwargs.setdefault('help', cls.__arghelp__)
+
+        self.add_argument('--*', **{**kwargs, 'fake': True})
+
+        self._hidden = True
+
+        if hasattr(cls, '__argparse__'):
+            cls.__argparse__(self, **kwargs)
+
+        return self
+        
+
     def add_nestedparser(self, arg, cls=None, **kwargs):
         """
         Add a nested parser, this is different than a subparser in that the

@@ -422,7 +422,10 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         self._parent_fault_hook = parent.addimport(
             '%s.__box_fault' % parent.name,
-            'fn(err32) -> void', source=self, weak=True)
+            'fn(err32) -> void', source=self, weak=True,
+            doc="Called when a box faults, either due to an illegal "
+                "memory access or other failure. the error code is "
+                "provided as an argument.")
 
     def box_parent(self, parent, box):
         assert math.log2(self._call_region.size) % 1 == 0, (
@@ -460,10 +463,8 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             source=self)
         self._parent_child_fault_hook = parent.addimport(
             '%s.__box_%s_fault' % (parent.name, box.name),
-            'fn(err32) -> void', source=self, weak=True)
-        self._parent_child_write_hook = parent.addimport(
-            '%s.__box_%s_write' % (parent.name, box.name),
-            'fn(i32, u8*, usize) -> errsize', source=self, weak=True)
+            'fn(err32) -> void', source=self, weak=True,
+            doc="Override fault handling for a specific box.")
         parent.addexport(
             '%s.__box_%s_write' % (box.name, box.name),
             'fn(i32, u8*, usize) -> errsize',
@@ -473,9 +474,17 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         self._jumptable.memory = box.consume('rx', section=self._jumptable)
         # local hooks
         self._abort_hook = box.addimport('%s.__box_abort' % box.name,
-            'fn(err32) -> void', source=self, weak=True)
+            'fn(err32) -> void', source=self, weak=True,
+            doc="May be called by a well-behaved code to terminate the box "
+                "if execution can not continue. Notably used for asserts. "
+                "Note that __box_abort may be skipped if the box is killed "
+                "because of an illegal operation. Must not return.")
         self._write_hook = box.addimport('%s.__box_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize', source=self, weak=True)
+            'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
+            doc="Provides a minimal implementation of stdout to the box. "
+                "The exact behavior depends on the superbox's implementation "
+                "of __box_write. If none is provided, __box_write links but "
+                "does nothing.")
         # plumbing
         box.addexport('__box_init',
             'fn() -> err32', source=self)
@@ -536,23 +545,6 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out = output.decls.append(doc='System state')
         out.printf('uint32_t __box_active = 0;')
 
-        # write/fault shortcuts
-        out = output.decls.append()
-        if not self._parent_fault_hook.link:
-            out.printf('void __box_fault(int err) {}')
-
-        for box in sys.boxes:
-            if box.runtime == self:
-                if not box.runtime._parent_child_fault_hook.link:
-                    out.printf('#define __box_%(box)s_fault __box_fault',
-                        box=box.name)
-
-        for box in sys.boxes:
-            if box.runtime == self:
-                if not box.runtime._parent_child_write_hook.link:
-                    out.printf('#define __box_%(box)s_write __box_write',
-                        box=box.name)
-
         # jumptables
         out = output.decls.append(doc='Jumptables')
         out.printf('const uint32_t __box_sys_jumptable[] = {')
@@ -612,6 +604,16 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             out.printf('// system must halt, no way to recover')
             out.printf('while (1) {}')
         out.printf('}')
+
+        out = output.decls.append()
+        if not self._parent_fault_hook.link:
+            out.printf('void __box_fault(int err) {}')
+
+        for box in sys.boxes:
+            if box.runtime == self:
+                if not box.runtime._parent_child_fault_hook.link:
+                    out.printf('#define __box_%(box)s_fault __box_fault',
+                        box=box.name)
 
         out = output.decls.append()
         out.printf('void (*const '
