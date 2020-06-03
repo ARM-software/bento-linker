@@ -196,7 +196,7 @@ class ArgumentParser(argparse.ArgumentParser):
         if kwargs.get('glob', False):
             # real arg to parse glob
             self.add_argument('--%s.GLOB' % name,
-                dest='%s.__GLOB' % dest,
+                dest='%s.!GLOB' % dest,
                 nargs='?', const=True, hidden=True)
             # fake arg to show in help
             self.add_argument('--%s.*' % name,
@@ -243,7 +243,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         if nkwargs.get('dest', True):
                             nkwargs['dest'] = '%s.%s.%s' % (
                                 self._dest,
-                                '.'.join(it.repeat('__SET', depth)),
+                                '.'.join(it.repeat('!SET', depth)),
                                 nkwargs.get('dest', args[-1][2:]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
@@ -262,7 +262,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         if nkwargs.get('dest', True):
                             nkwargs['dest'] = '%s.%s.%s' % (
                                 self._dest,
-                                '.'.join(it.repeat('__SET', depth)),
+                                '.'.join(it.repeat('!SET', depth)),
                                 nkwargs.get('dest', args[-1]))
                         if not (kwargs.get('action', 'store')
                                 .startswith('store_')):
@@ -286,12 +286,12 @@ class ArgumentParser(argparse.ArgumentParser):
         if kwargs.get('glob', False):
             # real arg to parse glob
             self.add_argument('--%s.%s.GLOB' % (name, metavar),
-                dest='%s.__SET.__GLOB' % dest,
+                dest='%s.!SET.!GLOB' % dest,
                 nargs='?', const=True, hidden=True)
             if kwargs.get('action', None) == 'append':
                 # enable appending?
                 self.add_argument('--%s.%s' % (name, metavar),
-                    dest='%s.__SET.__STORE' % dest,
+                    dest='%s.!SET.!STORE' % dest,
                     action='store_true', hidden=True)
 
             # fake arg to show in help
@@ -306,7 +306,7 @@ class ArgumentParser(argparse.ArgumentParser):
             nkwargs.pop('glob', None)
             nkwargs.pop('metavar', None)
             nkwargs.pop('depth', None)
-            nested.add_argument('__STORE', **nkwargs)
+            nested.add_argument('!STORE', **nkwargs)
 
         if hasattr(cls, '__argparse__'):
             cls.__argparse__(nested, name=name, **kwargs)
@@ -326,15 +326,15 @@ class ArgumentParser(argparse.ArgumentParser):
         for oargs, okwargs in self._optional:
             if not okwargs.get('dest', False):
                 continue
-            om = re.search(r'\b(__GLOB|__SET)([\w-]*)\b', okwargs['dest'])
+            om = re.search(r'(!GLOB|!SET)([\w-]*)\b', okwargs['dest'])
             if om:
                 dest = okwargs['dest'][:om.start()-1]
                 for oarg in oargs:
                     pattern = '\.'.join(
                         r'([\.\w-]+)'
-                        if rule.startswith('__GLOB') else
+                        if rule.startswith('!GLOB') else
                         r'([\w-]+)'
-                        if rule == '__SET' else
+                        if rule == '!SET' else
                         part
                         for part, rule in zip(
                             oarg.split('.'),
@@ -357,14 +357,12 @@ class ArgumentParser(argparse.ArgumentParser):
                                 k: v for k, v in ns.__dict__.items()
                                 if not k.startswith(dest)}
                 ns.__dict__.setdefault(dest,
-                    {} if om.group(1) == '__SET' else Namespace())
+                    {} if om.group(1) == '!SET' else Namespace())
 
         # delete fake args and merge sets
         ns.__dict__ = {
             k: v for k, v in ns.__dict__.items()
-            # TODO uh, don't use __s?
-            if k and not re.search(r'(\b__(?=[A-Z]))', k)
-            if k }
+            if k and '!' not in k}
 
         ns = nsnest(ns)
 
@@ -372,14 +370,14 @@ class ArgumentParser(argparse.ArgumentParser):
         for prefix, m, dest in set_prefixes:
             tempparser = ArgumentParser(allow_abbrev=False, add_help=False)
             for oargs, okwargs in self._optional:
-                if okwargs.get('dest', '').startswith(prefix[2:]+'__'):
+                if okwargs.get('dest', '').startswith(prefix[2:]+'!'):
                     nargs = [re.sub(
                         r'(?<=^%s)(?:[\w-]+\b)' % re.escape(prefix),
                         m, oarg, 1)
                         for oarg in oargs]
                     nkwargs = okwargs.copy()
                     nkwargs['dest'] = re.sub(
-                        r'\b__[\w-]+\b',
+                        r'![\w-]+\b',
                         m, nkwargs['dest'], 1)
 
                     try:
@@ -394,9 +392,9 @@ class ArgumentParser(argparse.ArgumentParser):
             def nsdict(ns, path):
                 if not path:
                     return ns
-                elif path[0] == '__SET':
+                elif path[0] == '!SET':
                     return ns.__dict__ if isinstance(ns, Namespace) else ns
-                elif path[0] == '__GLOB':
+                elif path[0] == '!GLOB':
                     return ns
                 else:
                     return Namespace(**{k: nsdict(v, path[1:])
