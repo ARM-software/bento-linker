@@ -80,7 +80,7 @@ class HOutput(outputs.Output):
                 'error. The box can not be called again after this without '
                 'a new init. Does not return.')
         self.decls.append(
-            'int __box_write(int32_t fd, void *buffer, size_t size);',
+            'ssize_t __box_write(int32_t fd, void *buffer, size_t size);',
             doc='Write to stdout if provided by superbox. If not provided, '
                 'this function is still available for linking, but does '
                 'nothing. Returns 0 on success, negative error code on '

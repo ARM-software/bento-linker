@@ -225,6 +225,7 @@ class ArgumentParser(argparse.ArgumentParser):
         dest = kwargs.get('dest', name)
         metavar = kwargs.get('metavar', name.upper())
         depth = kwargs.get('depth', 1)
+        assert metavar.count('.') == depth-1
 
         class SetParser(ArgumentParser):
             def add_argument(self, *args, **kwargs):
@@ -316,13 +317,18 @@ class ArgumentParser(argparse.ArgumentParser):
         if args is None:
             args = sys.argv[1:]
 
-        # first parse out sets, this is a bit complicated
-        set_prefixes = set()
+        # parse explicit args first
+        ns, args = super().parse_known_args(args, ns)
+
+        # parse out sets, this is a bit complicated
+        set_prefixes = []
+        nns = Namespace()
         for oargs, okwargs in self._optional:
             if not okwargs.get('dest', False):
                 continue
             om = re.search(r'\b(__GLOB|__SET)([\w-]*)\b', okwargs['dest'])
             if om:
+                dest = okwargs['dest'][:om.start()-1]
                 for oarg in oargs:
                     pattern = '\.'.join(
                         r'([\.\w-]+)'
@@ -337,25 +343,36 @@ class ArgumentParser(argparse.ArgumentParser):
                                 it.repeat(''))))
 
                     for arg in args:
-                        m = re.match(pattern, arg)
+                        m = re.match('^%s(?:=|$)' % pattern, arg)
                         if m:
-                            set_prefixes.add((
+                            # ugh, is an ordered set too much to ask for?
+                            set_prefixes.append((
                                 arg[:m.start(1)],
                                 m.group(1),
                                 okwargs['dest']))
 
-                # add default empty set
-                ns = ns or Namespace()
-                ns.__dict__[okwargs['dest'][:om.start()-1]] = (
+                            # add default empty set
+                            #ns = ns or Namespace()
+                            ns.__dict__ = {
+                                k: v for k, v in ns.__dict__.items()
+                                if not k.startswith(dest)}
+                ns.__dict__.setdefault(dest,
                     {} if om.group(1) == '__SET' else Namespace())
 
+        # delete fake args and merge sets
+        ns.__dict__ = {
+            k: v for k, v in ns.__dict__.items()
+            # TODO uh, don't use __s?
+            if k and not re.search(r'(\b__(?=[A-Z]))', k)
+            if k }
+
+        ns = nsnest(ns)
+
         # create temporary parsers to extract known args
-        sets = []
         for prefix, m, dest in set_prefixes:
             tempparser = ArgumentParser(allow_abbrev=False, add_help=False)
             for oargs, okwargs in self._optional:
-                if (okwargs.get('dest', False) and 
-                        any(oarg.startswith(prefix) for oarg in oargs)):
+                if okwargs.get('dest', '').startswith(prefix[2:]+'__'):
                     nargs = [re.sub(
                         r'(?<=^%s)(?:[\w-]+\b)' % re.escape(prefix),
                         m, oarg, 1)
@@ -364,7 +381,11 @@ class ArgumentParser(argparse.ArgumentParser):
                     nkwargs['dest'] = re.sub(
                         r'\b__[\w-]+\b',
                         m, nkwargs['dest'], 1)
-                    tempparser.add_argument(*nargs, **nkwargs)
+
+                    try:
+                        tempparser.add_argument(*nargs, **nkwargs)
+                    except argparse.ArgumentError:
+                        pass
 
             nns, args = tempparser.parse_known_args(args, Namespace())
 
@@ -374,26 +395,14 @@ class ArgumentParser(argparse.ArgumentParser):
                 if not path:
                     return ns
                 elif path[0] == '__SET':
-                    return ns.__dict__
+                    return ns.__dict__ if isinstance(ns, Namespace) else ns
                 elif path[0] == '__GLOB':
                     return ns
                 else:
                     return Namespace(**{k: nsdict(v, path[1:])
                         for k, v in ns.__dict__.items()})
-            sets.append(nsdict(nns, dest.split('.')))
+            nns = nsdict(nns, dest.split('.'))
 
-        # parse!
-        ns, args = super().parse_known_args(args, ns)
-
-        # delete fake args and merge sets
-        ns.__dict__ = {
-            k: v for k, v in ns.__dict__.items()
-            # TODO uh, don't use __s?
-            if k and not re.search(r'(\b__(?=[A-Z]))', k)}
-
-        ns = nsnest(ns)
-
-        for nns in sets:
             ns = nsmerge(ns, nns)
 
         return ns, args

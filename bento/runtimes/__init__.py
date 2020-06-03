@@ -72,39 +72,6 @@ class Runtime(outputs.OutputBlob):
                     getattr(self, 'box_%s_epilogue' % level),
                     lbox)
 
-    def link(self, box):
-        for level, lbox in [
-                ('root', box.getroot()),
-                ('muxer', box.getmuxer()),
-                ('parent', box.getparent()),
-                ('box', box)]:
-            if not lbox:
-                continue
-
-            if ('runtime', level) not in lbox.link_prologues:
-                def prologue(f, lbox):
-                    def prologue():
-                        f(lbox)
-                    return prologue
-                lbox.link_prologues[('runtime', level)] = prologue(
-                    getattr(self, 'link_%s_prologue' % level),
-                    lbox)
-                lbox.link_prologues[('runtime', level)]()
-
-            if level != 'box':
-                getattr(self, 'link_%s' % level)(lbox, box)
-            else:
-                getattr(self, 'link_%s' % level)(box)
-
-            if ('runtime', level) not in lbox.link_epilogues:
-                def epilogue(f, lbox):
-                    def epilogue():
-                        f(lbox)
-                    return epilogue
-                lbox.link_epilogues[('runtime', level)] = epilogue(
-                    getattr(self, 'link_%s_epilogue' % level),
-                    lbox)
-
     def build(self, box):
         attrs = self.attrs()
         for level, lbox in [
@@ -155,14 +122,6 @@ for level, order in it.product(
         ['root', 'muxer', 'parent', 'box'],
         ['_prologue', '', '_epilogue']):
     method = 'box_%s%s' % (level, order)
-    if not hasattr(Runtime, method):
-        setattr(Runtime, method,
-            lambda self, *args, **kwargs: None)
-
-for level, order in it.product(
-        ['root', 'muxer', 'parent', 'box'],
-        ['_prologue', '', '_epilogue']):
-    method = 'link_%s%s' % (level, order)
     if not hasattr(Runtime, method):
         setattr(Runtime, method,
             lambda self, *args, **kwargs: None)

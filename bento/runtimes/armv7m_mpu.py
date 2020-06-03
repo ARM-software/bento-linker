@@ -3,7 +3,7 @@ import itertools as it
 import math
 from .. import argstuff
 from .. import runtimes
-from ..box import Fn, Section, Region, Export, Import
+from ..box import Fn, Section, Region
 
 # utility functions in C
 BOX_INIT = """
@@ -413,12 +413,16 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             Region('0x1e000000-0x1fffffff'))
 
     def box_parent_prologue(self, parent):
-        parent.addexport('__box_memmanage_handler', 
+        parent.addexport('%s.__box_memmanage_handler' % parent.name,
             'fn() -> void', source=self)
-        parent.addexport('__box_busfault_handler',
+        parent.addexport('%s.__box_busfault_handler' % parent.name,
             'fn() -> void', source=self)
-        parent.addexport('__box_usagefault_handler',
+        parent.addexport('%s.__box_usagefault_handler' % parent.name,
             'fn() -> void', source=self)
+
+        self._parent_fault_hook = parent.addimport(
+            '%s.__box_fault' % parent.name,
+            'fn(err32) -> void', source=self, weak=True)
 
     def box_parent(self, parent, box):
         assert math.log2(self._call_region.size) % 1 == 0, (
@@ -450,42 +454,34 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                         "Memory region %s too small (< 32 bytes)"
                             % memory.name)
 
-        parent.addimport(
-            '%s.__box_init' % box.name,
+        parent.addimport('%s.__box_init' % box.name,
             'fn() -> err32',
             alias='__box_%s_rawinit' % box.name,
             source=self)
+        self._parent_child_fault_hook = parent.addimport(
+            '%s.__box_%s_fault' % (parent.name, box.name),
+            'fn(err32) -> void', source=self, weak=True)
+        self._parent_child_write_hook = parent.addimport(
+            '%s.__box_%s_write' % (parent.name, box.name),
+            'fn(i32, u8*, usize) -> errsize', source=self, weak=True)
+        parent.addexport(
+            '%s.__box_%s_write' % (box.name, box.name),
+            'fn(i32, u8*, usize) -> errsize',
+            source=self, weak=True)
 
     def box_box(self, box):
-        box.addexport('__box_init', 'fn() -> err32',
-            source=self)
-        box.addimport('%s.__box_%s_write' % (
-            box.parent.name if box.parent else 'system', box.name),
-            'fn(i32, u8*, usize) -> errsize',
-            alias='__box_write',
-            source=self)
         self._jumptable.memory = box.consume('rx', section=self._jumptable)
+        # local hooks
+        self._abort_hook = box.addimport('%s.__box_abort' % box.name,
+            'fn(err32) -> void', source=self, weak=True)
+        self._write_hook = box.addimport('%s.__box_write' % box.name,
+            'fn(i32, u8*, usize) -> errsize', source=self, weak=True)
+        # plumbing
+        box.addexport('__box_init',
+            'fn() -> err32', source=self)
+        self._child_write_hook = box.addimport('__box_%s_write' % box.name,
+            'fn(i32, u8*, usize) -> errsize', source=self)
         super().box_box(box)
-
-    def link_parent_prologue(self, parent):
-        self._parent_fault_hook = parent.getexport(
-            '__box_fault',
-            'fn(err32) -> void',
-            source=self)
-        self._parent_write_hook = parent.getexport(
-            '__box_write',
-            'fn(i32, u8*, usize) -> errsize',
-            source=self)
-
-    def link_parent(self, parent, box):
-        self._parent_box_fault_hook = parent.getexport(
-            '__box_%s_fault' % box.name,
-            'fn(err32) -> void',
-            source=self)
-        self._parent_box_write_hook = parent.getexport(
-            '__box_%s_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize',
-            source=self)
 
     # overridable
     def build_mpu_dispatch(self, output, sys):
@@ -524,13 +520,14 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         out = output.decls.append(doc='box calls')
         for import_ in sys.imports:
-            out.printf(
-                '%(import_)-16s = %(callprefix)#010x + '
-                    '%(id)d*4 + %(falible)d*2 + 1;',
-                import_=import_.alias,
-                id=import_.export.n()*(len(sys.boxes)+1) +
-                    import_.box.n()+1,
-                falible=import_.isfalible())
+            if import_.link and import_.link.export.box != sys:
+                out.printf(
+                    '%(import_)-16s = %(callprefix)#010x + '
+                        '%(id)d*4 + %(falible)d*2 + 1;',
+                    import_=import_.alias,
+                    id=import_.link.export.n()*(len(sys.boxes)+1) +
+                        import_.link.export.box.n()+1,
+                    falible=import_.isfalible())
 
     def build_parent_c_prologue(self, output, sys):
         output.decls.append('//// jumptable implementation ////')
@@ -539,12 +536,28 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out = output.decls.append(doc='System state')
         out.printf('uint32_t __box_active = 0;')
 
+        # write/fault shortcuts
+        out = output.decls.append()
+        if not self._parent_fault_hook.link:
+            out.printf('void __box_fault(int err) {}')
+
+        for box in sys.boxes:
+            if box.runtime == self:
+                if not box.runtime._parent_child_fault_hook.link:
+                    out.printf('#define __box_%(box)s_fault __box_fault',
+                        box=box.name)
+
+        for box in sys.boxes:
+            if box.runtime == self:
+                if not box.runtime._parent_child_write_hook.link:
+                    out.printf('#define __box_%(box)s_write __box_write',
+                        box=box.name)
+
         # jumptables
         out = output.decls.append(doc='Jumptables')
         out.printf('const uint32_t __box_sys_jumptable[] = {')
         with out.pushindent():
             out.printf('(uint32_t)NULL, // no stack for sys')
-            #out.printf('(uint32_t)&_write,')
             for export in sys.exports:
                 out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.write('};')
@@ -650,19 +663,28 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
         for import_ in box.imports:
-            out.printf(
-                '%(import_)-16s = %(callprefix)#010x + '
-                    '%(id)d*4 + %(falible)d*2 + 1;',
-                import_=import_.alias,
-                id=import_.export.n()*(len(box.parent.boxes)+1),
-                falible=import_.isfalible())
+            if import_.link and import_.link.export.box != box:
+                out.printf(
+                    '%(import_)-16s = %(callprefix)#010x + '
+                        '%(id)d*4 + %(falible)d*2 + 1;',
+                    import_=import_.alias,
+                    id=import_.link.export.n()*(len(box.parent.boxes)+1),
+                    falible=import_.isfalible())
 
         out = output.decls.append(doc='special box triggers')
         out.printf('%(name)-16s = %(retprefix)#010x + 1;',
             name='__box_ret')
-        out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
-            name='__box_abort',
-            id=1)
+        if not self._abort_hook.link:
+            out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
+                name='__box_abort',
+                id=1)
+        if not self._write_hook.link:
+            out.printf('%(name)-16s = %(callprefix)#010x + '
+                    '%(id)d*4 + %(falible)d*2 + 1;',
+                name='__box_write',
+                id=self._child_write_hook.link.export.n()
+                    *(len(box.parent.boxes)+1),
+                falible=self._child_write_hook.isfalible())
 
         if not output.no_sections:
             out = output.sections.append(

@@ -377,6 +377,14 @@ class Type:
         else:
             return '%s%s' % (primitive, self._ptr)
 
+class Link:
+    """
+    Simple tuple for connecting functions.
+    """
+    def __init__(self, export, import_):
+        self.export = export
+        self.import_ = import_
+
 class Fn:
     """
     Function type.
@@ -447,11 +455,15 @@ class Fn:
 
         return args, argnames, rets, retnames
 
-    def __init__(self, name, type, alias=None, doc=None, source=None):
+    def __init__(self, name, type, alias=None, doc=None,
+            source=None, weak=False):
         self.name = name
-        self.alias = alias or name.replace('.', '_')
+        self.targetname = name.split('.', 1)[0] if '.' in name else None
+        self.linkname = name.split('.', 1)[-1]
+        self.alias = alias or self.linkname
         self.doc = doc
         self.source = source
+        self.weak = weak
 
         argtypes, argnames, rettypes, retnames = Fn.parsetype(type)
         self.args = [Type(arg) for arg in argtypes]
@@ -486,6 +498,15 @@ class Fn:
     def iscompatible(self, other):
         return (self.args == other.args and self.rets == other.rets)
 
+    def islinkable(self, other, exportbox=None, importbox=None):
+        return (self.linkname == other.linkname and 
+            (self.targetname is None or
+                exportbox is None or
+                self.targetname == exportbox) and
+            (other.targetname is None or
+                importbox is None or
+                other.targetname == importbox))
+
 class Import(Fn):
     """
     Description of an imported function for a box.
@@ -494,11 +515,9 @@ class Import(Fn):
     __arghelp__ = __doc__
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-
-        if '.' in self.name:
-            self.boxname, self.exportname = self.name.split('.', 1)
-        else:
-            self.boxname, self.exportname = None, self.name
+        # these get populated later
+        self.box = None
+        self.link = None
 
 class Export(Fn):
     """
@@ -508,26 +527,9 @@ class Export(Fn):
     __arghelp__ = __doc__
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        self._box = None
-        self._imports = []
-
-    def link(self, box=None, import_=None):
-        if import_ is None:
-            # just setting up box
-            self._box = box
-        else:
-            self._imports.append((box, import_))
-
-    def n(self, box=None):
-        if isinstance(box, Box):
-            box = box.name
-
-        for n, export in enumerate(
-                export for export in self._box.exports
-                if not box or any(
-                    b.name == box for b, _ in export._imports)):
-            if export.name == self.name:
-                return n
+        # these get populated later
+        self.box = None
+        self.links = []
 
 class Box:
     """
@@ -571,8 +573,10 @@ class Box:
         parser.add_nestedparser('--data', Section)
         parser.add_nestedparser('--bss', Section)
 
-        parser.add_set('--import', cls=Import, metavar='BOX.IMPORT', depth=2)
+        parser.add_set(Import)
+        parser.add_set(Import, metavar='BOX.IMPORT', depth=2)
         parser.add_set(Export)
+        parser.add_set(Export, metavar='BOX.EXPORT', depth=2)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
             runtime=None, output=None, memory=None,
@@ -608,12 +612,21 @@ class Box:
         self.bss = Section(**bss.__dict__)
 
         self.imports = sorted(
-            Import('%s.%s' % (box, name), source=self, **importargs.__dict__)
-            for box, imports in kwargs['import'].items()
-            for name, importargs in imports.items())
+            Import(name, source=self, **importargs.__dict__)
+            for name, importargs in it.chain.from_iterable(
+                [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
+                if isinstance(v, dict) else
+                [(k, v)]
+                for k, v in kwargs['import'].items()))
+
         self.exports = sorted(
             Export(name, source=self, **exportargs.__dict__)
-            for name, exportargs in export.items())
+            for name, exportargs in it.chain.from_iterable(
+                [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
+                if isinstance(v, dict) else
+                [(k, v)]
+                for k, v in export.items()))
+
         self.boxes = [] 
 
         # prepare build/box commands for prologue/epilogue handling
@@ -689,98 +702,19 @@ class Box:
             parent = self.parent
         return parent if parent != self else None
 
-    def addexport(self, export, *args, weak=False, **kwargs):
+    def addimport(self, import_, *args, **kwargs):
+        kwargs.setdefault('source', self)
+        if not isinstance(import_, Export):
+            import_ = Import(import_, *args, **kwargs)
+        self.imports.append(import_)
+        return import_
+
+    def addexport(self, export, *args, **kwargs):
+        kwargs.setdefault('source', self)
         if not isinstance(export, Export):
             export = Export(export, *args, **kwargs)
-
-        for e in self.exports:
-            if e.name == export.name:
-                assert weak, (
-                    "Conflicting exports for %r in %s:\n"
-                    "export.%s = %s in %s\n"
-                    "export.%s = %s in %s" % (
-                    export.name, self.name,
-                    e.name, e, e.source.name,
-                    export.name, export, export.source.name))
-                return
-        self.exports = sorted(self.exports + [export])
-
-    def addimport(self, import_, *args, **kwargs):
-        if not isinstance(import_, Import):
-            import_ = Import(import_, *args, **kwargs)
-
-        for i in self.imports:
-            if i.name == import_.name:
-                assert i.iscompatible(import_), (
-                    "Incompatible imports for %r in %s:\n"
-                    "import.%s.%s = %s in %s\n"
-                    "import.%s.%s = %s in %s" % (
-                    import_.exportname, import_.boxname,
-                    i.boxname, i.exportname, i,
-                    import_.boxname, import_.exportname, import_))
-                return
-
-        self.imports = sorted(self.imports + [import_])
-
-    def hasexport(self, import_, source=None, notsource=None):
-        """
-        Tries to find another box's import in ourself.
-        """
-        name = import_.exportname if isinstance(import_, Import) else import_
-        return any(
-            export.name == name and
-            (source is None or export.source == source) and
-            (notsource is None or export.source != notsource)
-            for export in self.exports)
-
-    def checkexport(self, import_, *args, **kwargs):
-        """
-        Looks up another box's import in ourself and typechecks against it.
-        """
-        if not isinstance(import_, Import):
-            import_ = Import(import_, *args, **kwargs)
-
-        for export in self.exports:
-            if export.name == import_.exportname:
-                assert export.iscompatible(import_), (
-                    "Incompatible import/export for %r in %s:\n"
-                    "export.%s %s = %s in %s\n"
-                    "import.%s.%s = %s in %s" % (
-                    import_.exportname, self.name,
-                    export.name, ' '*len(self.name), export,
-                    export.source.name,
-                    self.name, import_.exportname, import_,
-                    import_.source.name))
-                return export
-        else:
-            assert False, (
-                "No export for %r in %s:\n"
-                "import.%s.%s = %s in %s" % (
-                import_.exportname, self.name,
-                self.name, import_.exportname, import_,
-                import_.source.name))
-
-    def getexport(self, import_, *args, default=None, **kwargs):
-        """
-        Try to lookup another box's import, return default if not found.
-        Note this may still error if type does not match.
-        """
-        if not isinstance(import_, Import):
-            import_ = Import(import_, *args, **kwargs)
-
-        if not self.hasexport(import_):
-            return default
-        else:
-            return self.checkexport(import_)
-
-    def n(self):
-        if not self.parent:
-            return 0
-        for n, box in enumerate(
-                box for box in self.parent.boxes
-                if box.runtime == self.runtime):
-            if box.name == self.name:
-                return n
+        self.exports.append(export)
+        return export
 
     @staticmethod
     def _scan_argparse(parser):
@@ -950,47 +884,160 @@ class Box:
             for epilogue in self.box_epilogues.values():
                 epilogue()
 
-    def link(self, stage=None):
+    def link(self):
         """
         Link together import/exports from boxes.
         """
-        if not stage or stage == 'boxes':
-            # set up all the wiring for export.n() to work
-            for export in self.exports:
-                export.link(self)
+        # first deduplicate exports and imports (may have been created
+        # during boxing)
+        importset = {}
+        for import_ in self.imports:
+            if import_.name in importset:
+                assert importset[import_.name].iscompatible(import_), (
+                    "Incompatible imports for %r:\n"
+                    "import.%s = %s in %s\n"
+                    "import.%s = %s in %s" % (
+                    import_.name,
+                    importset[import_.name].name,
+                    importset[import_.name],
+                    importset[import_.name].source.name,
+                    import_.name,
+                    import_,
+                    import_.source.name))
+            # prioritize our own imports
+            if import_ not in importset or import_.source == self:
+                importset[import_.name] = import_
+        # actually don't make this unique, 
+        self.imports = sorted(self.imports)
 
-            # link imports to exports, getexport takes care of typechecking
-            for import_ in self.imports:
-                for box in it.chain(
-                        [self.parent] if self.parent else [],
-                        self.boxes):
-                    if box.name == import_.boxname:
-                        import_.export = box.checkexport(import_)
-                        import_.box = box
-                        import_.export.link(self, import_)
-                        break
-                else:   
-                    assert False, "No box provides %r?" % import_.name
+        exportset = {}
+        for export in self.exports:
+            if export.name in exportset:
+                assert export.weak or exportset[export.name].weak, (
+                    "Conflicting exports for %r:\n"
+                    "export.%s = %s in %s\n"
+                    "export.%s = %s in %s" % (
+                    export.name,
+                    exportset[export.name].name,
+                    exportset[export.name],
+                    exportset[export.name].source.name,
+                    export.name,
+                    export,
+                    export.source.name))
+                assert exportset[export.name].iscompatible(export), (
+                    "Incompatible exports for %r:\n"
+                    "export.%s = %s in %s\n"
+                    "export.%s = %s in %s" % (
+                    export.name,
+                    exportset[export.name].name,
+                    exportset[export.name],
+                    exportset[export.name].source.name,
+                    export.name,
+                    export,
+                    export.source.name))
+            if export not in exportset or exportset[export.name].weak:
+                exportset[export.name] = export
+        self.exports = sorted(exportset.values())
 
-            for child in self.boxes:
-                child.link(stage='boxes')
+        # now create linkages
+        for export in self.exports:
+            assert (export.targetname is None or any(
+                target.name == export.targetname
+                for target in it.chain(
+                    [self],
+                    [self.parent] if self.parent else [],
+                    self.boxes))), (
+                "No target %r found for export %r:\n"
+                "export.%s = %s in %s" % (
+                export.targetname, export.name,
+                export.name, export, export.source.name))
 
-        if not stage or stage == 'runtimes':
-            self.runtime.link(self)
-            for child in self.boxes:
-                child.link(stage='runtimes')
+        for import_ in self.imports:
+            targets = []
+            for target in it.chain(
+                    [self],
+                    [self.parent] if self.parent else [],
+                    self.boxes):
+                for export in target.exports:
+                    if import_.islinkable(export, target, self):
+                        targets.append(export)
 
-        if not stage or stage == 'outputs':
-            for output in self.outputs:
-                output.link(self)
-            for child in self.boxes:
-                child.link(stage='outputs')
+            assert targets or import_.weak, (
+                "No export found for %r:\n"
+                "import.%s = %s in %s" % (
+                import_.name,
+                import_.name, import_, import_.source.name))
+            assert len(targets) <= 1, (
+                "Ambiguous import/export for %r:\n"
+                "import.%s = %s in %s\n%s" % (
+                import_.name,
+                import_.name, import_, import_.source.name,
+                '\n'.join("export.%s = %s in %s" % (
+                    export.name, export, export.source.name)
+                    for export in targets)))
 
-        if not stage or stage == 'epilogues':
-            for child in self.boxes:
-                child.link(stage='epilogues')
-            for epilogue in self.link_epilogues.values():
-                epilogue()
+            if targets:
+                export = targets[0]
+                assert export.iscompatible(import_), (
+                    "Incompatible import/export for %r:\n"
+                    "export.%s = %s in %s\n"
+                    "import.%s = %s in %s" % (
+                    export.name,
+                    export.name,
+                    export,
+                    export.source.name,
+                    import_.name,
+                    import_,
+                    import_.source.name))
+
+                link = Link(export, import_)
+                import_.link = link
+                export.links.append(link)
+
+        # link children
+        for child in self.boxes:
+            child.link()
+
+        # create "n" functions. these generate compact unique numbers
+        # for boxes/links/whatever
+        for export in self.exports:
+            def n(self):
+                def n(box=None):
+                    for n, export in enumerate(
+                            export for export in self.box.exports
+                            if not box or any(
+                                link.import_.box == box
+                                for link in export.links)):
+                        if export is self:
+                            return n
+                return n
+            export.box = self
+            export.n = n(export)
+
+        for import_ in self.imports:
+            def n(self):
+                def n(box=None):
+                    for n, import_ in enumerate(
+                            import_ for import_ in self.box.imports
+                            if not box or import_.link.export.box == box):
+                        if import_ is self:
+                            return n
+                return n
+            import_.box = self
+            import_.n = n(import_)
+
+        for child in self.boxes:
+            def n(self):
+                def n(runtime=None):
+                    if not self.parent:
+                        return 0
+                    for n, box in enumerate(
+                            box for box in self.parent.boxes
+                            if not runtime or box.runtime == runtime):
+                        if box is self:
+                            return n
+                return n
+            child.n = n(child)
 
     def build(self, stage=None):
         """

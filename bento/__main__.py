@@ -46,14 +46,15 @@ class ListCommand:
                     name='memories.%s' % memory.name, memory=memory))
             for i, import_ in enumerate(
                     import_ for import_ in box.imports
-                    if a or getattr(import_, 'source', box) == box) :
+                    if a or import_.source == box
+                    if import_.link):
                 if i == 0:
                     print('  imports')
                 print('    %(name)-32s %(import_)s' % dict(
                     name=import_.name, import_=import_))
             for i, export in enumerate(
                     export for export in box.exports
-                    if a or getattr(export, 'source', box) == box):
+                    if a or export.source == box):
                 if i == 0:
                     print('  exports')
                 print('    %(name)-32s %(export)s' % dict(
