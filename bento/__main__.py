@@ -28,11 +28,11 @@ def box_argparse(cls, parser):
             % os.path.basename(sys.argv[0]))
 
 @command
-class ListCommand:
+class BoxesCommand:
     """
-    List the setup of boxes as specified by the current configuration.
+    List the boxes as specified by the current configuration.
     """
-    __argname__ = "ls"
+    __argname__ = "boxes"
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser):
@@ -83,6 +83,46 @@ class ListCommand:
                 ls(box)
 
         ls(box)
+
+@command
+class LinksCommand:
+    """
+    List the import/export links as specified by the current configuration.
+    """
+    __argname__ = "links"
+    __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser):
+        parser.add_argument('-p', action='store_true',
+            help="Also show implicit plumbing exports/imports.")
+        box_argparse(cls, parser)
+    def __init__(self, p=False, **args):
+        box = Box.scan(**args)
+        box.box()
+        box.link()
+
+        def links(box):
+            for i, export in enumerate(
+                    export for export in box.exports
+                    if p or export.source == box):
+                if i == 0:
+                    print('box %s' % box.name)
+                exportname = '%s.export.%s' % (
+                    export.source.name, export.name)
+                if len(exportname) > 32:
+                    print('  %s' % exportname)
+                for j, import_ in enumerate(
+                        link.import_ for link in export.links):
+                    print('  %(export)-32s -> %(import_)s' % dict(
+                        export=exportname
+                            if j == 0 and len(exportname) <= 32 else '',
+                        import_='%s.import.%s' % (
+                            import_.source.name, import_.name)))
+
+            for box in box.boxes:
+                links(box)
+
+        links(box)
 
 @command
 class BuildCommand:

@@ -617,7 +617,9 @@ class Box:
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
                 [(k, v)]
-                for k, v in kwargs['import'].items()))
+                for k, v in kwargs['import'].items())
+            if importargs is not None)
+            # TODO probably look into this last condition
 
         self.exports = sorted(
             Export(name, source=self, **exportargs.__dict__)
@@ -625,7 +627,9 @@ class Box:
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
                 [(k, v)]
-                for k, v in export.items()))
+                for k, v in export.items())
+            if exportargs is not None)
+            # TODO probably look into this last condition
 
         self.boxes = [] 
 
