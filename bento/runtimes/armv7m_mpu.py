@@ -406,7 +406,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
     def __init__(self, mpu_regions=None, jumptable=None, call_region=None):
         super().__init__()
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
-        self._jumptable = Section(**jumptable.__dict__)
+        self._jumptable = Section('jumptable', **jumptable.__dict__)
         self._call_region = (
             Region(**call_region.__dict__)
             if call_region.addr is not None else
@@ -471,7 +471,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             source=self, weak=True)
 
     def box_box(self, box):
-        self._jumptable.memory = box.consume('rx', section=self._jumptable)
+        self._jumptable.alloc(box, 'r')
         # local hooks
         self._abort_hook = box.addimport('%s.__box_abort' % box.name,
             'fn(err32) -> void', source=self, weak=True,

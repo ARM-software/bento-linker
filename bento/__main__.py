@@ -34,15 +34,16 @@ class BoxesCommand:
     """
     __argname__ = "boxes"
     __arghelp__ = __doc__
+    __argaliases__ = ["ls"]
     @classmethod
     def __argparse__(cls, parser):
         parser.add_argument('-p', action='store_true',
             help="Also show implicit plumbing exports/imports.")
-        parser.add_argument('-B', '--no_box', action='store_true',
+        parser.add_argument('-B', '--no-box', action='store_true',
             help="Don't perform memory/section allocation or linking. This"
                 "shows less info, but may be helpful for debugging "
                 "configurations that fail during boxing.")
-        parser.add_argument('-L', '--no_link', action='store_true',
+        parser.add_argument('-L', '--no-link', action='store_true',
             help="Don't perform the box-level linking. This"
                 "shows less info, but may be helpful for debugging "
                 "configurations that fail during linking.")
@@ -228,7 +229,9 @@ def main():
     subparsers = parser.add_subparsers(title="subcommand", dest="command",
         help="Command to run.")
     for name, command in COMMANDS.items():
-        subparser = subparsers.add_parser(name, help=command.__arghelp__)
+        subparser = subparsers.add_parser(name,
+            help=getattr(command, '__arghelp__', None),
+            aliases=getattr(command, '__argaliases__', []))
         subparser.set_defaults(command=command)
         if hasattr(command, '__argparse__'):
             command.__argparse__(subparser)

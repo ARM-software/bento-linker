@@ -60,11 +60,11 @@ class MKOutput(outputs.Output):
             help='Override the baud rate (115200) for the makefile.')
 
         parser.add_argument('--cflags', type=list,
-            help='Override individual C flags.')
+            help='Add custom C flags.')
         parser.add_argument('--asmflags', type=list,
-            help='Override individual assembly flags.')
+            help='Add custom assembly flags.')
         parser.add_argument('--lflags', type=list,
-            help='Override individual linker flags.')
+            help='Add custom linker flags.')
 
     def __init__(self, path=None,
             srcs=None, incs=None, libs=None, defines={},
@@ -108,19 +108,18 @@ class MKOutput(outputs.Output):
             tty=self._tty,
             baud=self._baud)
 
-        self._cflags = cflags
-        self._asmflags = asmflags
-        self._lflags = lflags
+        self._cflags = cflags or []
+        self._asmflags = asmflags or []
+        self._lflags = lflags or []
 
         self.decls = outputs.OutputField(self)
         self.rules = outputs.OutputField(self)
 
     def default_build_box_prologue(self, box):
-        # TODO this is kinda a weird one
         self.decls.append('TARGET         ?= %(target)s',
             target=self._target
                 if self._target else
-                '%s.elf' % (box.name or 'sys'))
+                '%s.elf' % (box.name or 'system'))
         self.decls.append('CROSS_COMPILE  ?= %(cross_compile)s')
         self.decls.append('DEBUG          ?= %(debug)d')
         # note we can't use ?= for program names, implicit
@@ -159,57 +158,48 @@ class MKOutput(outputs.Output):
             '$(wildcard $(patsubst %%,%%/*.s,$(SRC))))')
         self.decls.append('OBJ += $(patsubst %%.S,%%.o,'
             '$(wildcard $(patsubst %%,%%/*.S,$(SRC))))')
-        for child in box.boxes:
-            self.decls.append('OBJ += %(box)s.o', box=child.name)
-        
         self.decls.append('DEP := $(patsubst %%.o,%%.d,$(OBJ))')
+        for child in box.boxes:
+            path = os.path.relpath(child.path, box.path)
+            self.decls.append('BOXES += %(path)s/%(box)s.box',
+                box=child.name, path=path)
         self.decls.append()
 
         out = self.decls.append()
-        if self._cflags is not None:
-            for cflag in self._cflags:
-                out.printf('override CFLAGS += %s' % cflag)
-        else:
-            out.printf('ifneq ($(DEBUG),0)')
-            # TODO?
-            #out.printf('override CFLAGS += -DDEBUG')
-            out.printf('override CFLAGS += -g')
-            out.printf('override CFLAGS += -O0')
-            out.printf('else')
-            # TODO?
-            #out.printf('override CFLAGS += -DNDEBUG')
-            out.printf('override CFLAGS += -Os')
-            out.printf('endif')
-            out.printf('override CFLAGS += -mthumb')
-            out.printf('override CFLAGS += -mcpu=cortex-m4')
-            out.printf('override CFLAGS += -mfpu=fpv4-sp-d16')
-            out.printf('override CFLAGS += -mfloat-abi=softfp')
-            out.printf('override CFLAGS += -std=c99')
-            out.printf('override CFLAGS += -Wall -Wno-format')
-            out.printf('override CFLAGS += -fno-common') # TODO hm
-            out.printf('override CFLAGS += -ffunction-sections')
-            out.printf('override CFLAGS += -fdata-sections')
-            out.printf('override CFLAGS += -ffreestanding')
-            out.printf('override CFLAGS += -fno-builtin')
+        out.printf('ifneq ($(DEBUG),0)')
+        out.printf('override CFLAGS += -DDEBUG')
+        out.printf('override CFLAGS += -g')
+        out.printf('override CFLAGS += -O0')
+        out.printf('else')
+        out.printf('override CFLAGS += -DNDEBUG')
+        out.printf('override CFLAGS += -Os')
+        out.printf('endif')
+        out.printf('override CFLAGS += -mthumb')
+        out.printf('override CFLAGS += -mcpu=cortex-m4')
+        out.printf('override CFLAGS += -mfpu=fpv4-sp-d16')
+        out.printf('override CFLAGS += -mfloat-abi=softfp')
+        out.printf('override CFLAGS += -std=c99')
+        out.printf('override CFLAGS += -Wall -Wno-format')
+        out.printf('override CFLAGS += -fno-common')
+        out.printf('override CFLAGS += -ffunction-sections')
+        out.printf('override CFLAGS += -fdata-sections')
+        out.printf('override CFLAGS += -ffreestanding')
+        out.printf('override CFLAGS += -fno-builtin')
         for k, v in sorted(self._defines.items()):
             out.printf('override CFLAGS += -D%s=%s' % (k, v))
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
+        for cflag in self._cflags:
+            out.printf('override CFLAGS += %s' % cflag)
         self.decls.append()
 
         out = self.decls.append()
-        if self._asmflags is not None:
-            for asmflag in self._asmflags:
-                out.printf('override ASMFLAGS += %s' % asmflag)
-        else:
-            out.printf('override ASMFLAGS += $(CFLAGS)')
+        out.printf('override ASMFLAGS += $(CFLAGS)')
+        for asmflag in self._asmflags:
+            out.printf('override ASMFLAGS += %s' % asmflag)
         self.decls.append()
 
         out = self.decls.append()
-        if self._lflags is not None:
-            for lflag in self._lflags:
-                out.printf('override LFLAGS += %s' % lflag)
-        else:
-            out.printf('override LFLAGS += $(CFLAGS)')
+        out.printf('override LFLAGS += $(CFLAGS)')
         out.printf('override LFLAGS += -T$(LDSCRIPT)')
         out.printf('override LFLAGS += -Wl,--start-group '
             '$(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
@@ -218,7 +208,9 @@ class MKOutput(outputs.Output):
         out.printf('override LFLAGS += --specs=nosys.specs')
         out.printf('override LFLAGS += -Wl,--gc-sections')
         out.printf('override LFLAGS += -Wl,-static')
-        out.printf('override LFLAGS += -Wl,-z -Wl,muldefs') # TODO hm space?
+        out.printf('override LFLAGS += -Wl,-z -Wl,muldefs')
+        for lflag in self._lflags:
+            out.printf('override LFLAGS += %s' % lflag)
         self.decls.append()
         
     def default_build_box(self, box):
@@ -227,18 +219,39 @@ class MKOutput(outputs.Output):
         out.printf('all build: $(TARGET)')
 
         # some convenient commands
-        out = self.rules.append(phony=True)
+        out = self.rules.append(phony=True,
+            doc="computing size size is a bit complicated as each .elf "
+                "includes its boxes, we want independent sizes.")
         out.printf('size: $(TARGET)')
         with out.indent():
-            out.printf('$(SIZE) $<')
+            out.writef('$(strip ( $(SIZE) $<')
+            with out.indent():
+                for child in box.boxes:
+                    path = os.path.relpath(child.path, box.path)
+                    out.writef(' ;\\\n$(MAKE) -s --no-print-directory '
+                        '-C %(path)s size', path=path)
+                out.writef(' ) | awk \'\\\n')
+                with out.indent():
+                    out.writef(
+                        'function f(t, d, b, n) {printf \\\n'
+                        '    "%%7d %%7d %%7d %%7d %%7x %%s\\n", \\\n'
+                        '    t, d, b, t+d+b, t+d+b, n} \\\n'
+                        'NR==1 {print} \\\n'
+                        'NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \\\n'
+                        'NR>=4 && !/TOTALS/ {l[NR-4]=$$0; '
+                            't-=$$1+$$2; b-=$$3+$$2} \\\n'
+                        'NR>=4 && !/TOTALS/ {tt+=$$1; td+=$$2; tb+=$$3} \\\n'
+                        'END {f(t, d, b, n)} \\\n'
+                        'END {for (i in l) print l[i]} \\\n'
+                        'END {f(t+tt, d+td, b+tb, "(TOTALS)")}\')')
 
         out = self.rules.append(phony=True)
         out.printf('debug: $(TARGET)')
         with out.indent():
             out.printf('echo \'$$qRcmd,68616c74#fc\' '
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # halt')
-            out.printf('$(GDB) $< \\\n'
-                '    -ex "target remote $(GDBADDR):$(GDBPORT)"')
+            out.printf('$(strip $(GDB) $< \\\n'
+                '    -ex "target remote $(GDBADDR):$(GDBPORT)")')
             out.printf('echo \'$$qRcmd,676f#2c\' '
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # go')
 
@@ -247,11 +260,11 @@ class MKOutput(outputs.Output):
         with out.indent():
             out.printf('echo \'$$qRcmd,68616c74#fc\' '
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # halt')
-            out.printf('$(GDB) $< \\\n'
+            out.printf('$(strip $(GDB) $< \\\n'
                 '    -ex "target remote $(GDBADDR):$(GDBPORT)" \\\n'
                 '    -ex "load" \\\n'
                 '    -ex "monitor reset" \\\n'
-                '    -batch')
+                '    -batch)')
 
         out = self.rules.append(phony=True)
         out.printf('reset:')
@@ -270,43 +283,71 @@ class MKOutput(outputs.Output):
         out = self.rules.append(phony=True)
         out.printf('tags:')
         with out.indent():
-            # TODO hm, this could actually be smarter (use SRC)
-            out.printf('ctags $$(find -regex \'.*\.\(h\|c\)\')')
+            out.writef('$(strip ctags')
+            with out.indent():
+                out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.c,$(SRC)))')
+                out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.s,$(SRC)))')
+                out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.S,$(SRC)))')
+                out.writef(')')
 
         for child in box.boxes:
             path = os.path.relpath(child.path, box.path)
             out = self.rules.append(box=child.name, path=path)
             out.printf('.PHONY: $(shell '
-                'make -s -C %(path)s %(box)s.bin -q || '
-                'echo %(path)s/%(box)s.bin)')
-            out.printf('%(path)s/%(box)s.bin:')
+                'make -s -C %(path)s %(box)s.box -q || '
+                'echo %(path)s/%(box)s.box)')
+            out.printf('%(path)s/%(box)s.box:')
             with out.indent():
                 out.printf('@echo "' + 6*'='
                     + (' make -C %s ' % out['box']).center(48-2*6, '=')
                     + 6*'=' + '"')
                 out.printf('$(MAKE) --no-print-directory -C %(path)s '
-                    '%(box)s.bin')
+                    '%(box)s.box')
                 out.printf('@echo "' + 48*'=' + '"')
-            out.printf('%(box)s.o: %(path)s/%(box)s.bin')
-            with out.indent():
-                # Hm, we've lost memory info, grab first memory?
-                # TODO there may be a better way to do this, use child's elf?
-                memory = child.memories[0]
-                out.printf('$(OBJCOPY) $< $@ \\\n'
-                    '    -I binary \\\n'
-                    '    -O elf32-littlearm \\\n'
-                    '    -B arm \\\n'
-                    '    --rename-section .data=.box.%(box)s.%(memory)s'
-                        ',alloc,load,readonly,data,contents',
-                    memory=memory.name)
 
-        self.rules.append('-include $(DEP)')
+        # target rule
+        out = self.rules.append(doc='target rule')
+        out.printf('$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)')
+        with out.indent():
+            out.printf('$(CC) $(OBJ) $(BOXES) $(LFLAGS) -o $@')
+
+        self.rules.append('-include $(DEP)', doc="header dependencies")
+
+        # create boxing rule, to be invoked if embedding an elf is needed
+        data_init = None
+        if any(section.name == 'data'
+                for memory in box.memoryslices
+                for section in memory.sections):
+            data_init = box.consume('r', 0)
+        out = self.rules.append(
+            doc="a .box is a .elf stripped, with sections prefixed by "
+                "the names of the allocated memory regions")
+        out.printf('%%.box: %%.elf' + ' %%.box.data'*(data_init is not None))
+        with out.indent():
+            out.writef('$(strip $(OBJCOPY) $< $@ \\\n')
+            with out.indent():
+                out.writef('--strip-all')
+                if data_init is not None:
+                    out.writef(' \\\n--add-section '
+                        '.box.%(box)s.%(memory)s.data=$(word 2,$^)',
+                        memory=data_init.name)
+                for i, memory in enumerate(box.memoryslices):
+                    for j, section in enumerate(memory.sections):
+                        out.writef(' \\\n--only-section .%(section)s',
+                            section=section.name)
+                        out.writef(' \\\n--rename-section .%(section)s='
+                            '.box.%(box)s.%(memory)s.%(section)s',
+                            memory=memory.name,
+                            section=section.name)
+                out.writef(')\n')
 
         out = self.rules.append()
-        out.printf('$(TARGET): $(OBJ) $(LDSCRIPT)')
-        with out.indent():
-            out.printf('$(CC) $(OBJ) $(LFLAGS) -o $@')
+        if data_init is not None:
+            out.printf('%%.box.data: %%.elf')
+            with out.indent():
+                out.printf('$(OBJCOPY) $< $@ -O binary -j .data')
 
+        # other rules
         out = self.rules.append()
         out.printf('%%.bin: %%.elf')
         with out.indent():
@@ -335,7 +376,7 @@ class MKOutput(outputs.Output):
         out = self.rules.append(phony=True)
         out.printf('clean:')
         with out.indent():
-            out.printf('rm -f $(TARGET)')
+            out.printf('rm -f $(TARGET) $(BOXES)')
             out.printf('rm -f $(OBJ)')
             out.printf('rm -f $(DEP)')
             for child in box.boxes:

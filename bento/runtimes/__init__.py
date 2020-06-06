@@ -33,11 +33,11 @@ class Runtime(outputs.OutputBlob):
             return self.name < other
 
     def box_box(self, box):
-        box.text.memory     = box.consume('rx', section=box.text)
-        box.stack.memory    = box.consume('rw', section=box.stack)
-        box.data.memory     = box.consume('rw', section=box.data)
-        box.bss.memory      = box.consume('rw', section=box.bss)
-        box.heap.memory     = box.consume('rw', section=box.heap)
+        box.text    .alloc(box, 'rx')
+        box.stack   .alloc(box, 'rw')
+        box.data    .alloc(box, 'rw')
+        box.bss     .alloc(box, 'rw')
+        box.heap    .alloc(box, 'rw')
 
     def box(self, box):
         for level, lbox in [

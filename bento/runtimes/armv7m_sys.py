@@ -87,13 +87,13 @@ class ARMv7MSysRuntime(runtimes.Runtime):
     def __init__(self, no_startup=None, isr_vector=None):
         super().__init__()
         self._no_startup = no_startup or False 
-        self._isr_vector = Section(**{**isr_vector.__dict__,
+        self._isr_vector = Section('isr_vector', **{**isr_vector.__dict__,
             'size': isr_vector.size
                 if isr_vector.size is not None else
                 0x400})
 
     def box_box(self, box):
-        self._isr_vector.memory = box.consume('rx', section=self._isr_vector)
+        self._isr_vector.alloc(box, 'r')
 
         self._abort_hook = box.addimport('%s.__box_abort' % box.name,
             'fn(err32) -> void', source=self, weak=True,

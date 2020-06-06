@@ -46,7 +46,8 @@ class Section:
 
         return size
 
-    def __init__(self, size=None, align=None, memory=None):
+    def __init__(self, name, size=None, align=None, memory=None):
+        self.name = name
         self.size = (Section.parsesection(size)
             if isinstance(size, str) else
             size or 0)
@@ -62,7 +63,35 @@ class Section:
         return "%(size)#010x %(size)s bytes" % dict(size=self.size)
 
     def __bool__(self):
-        return self.size != 0
+        return bool(self.size)
+
+    def alloc(self, box, mode='rwx', reverse=False):
+        """
+        Find best memory given parameters and assign this section to it.
+        This updates Section's memory field as well as adds ourselfe to
+        the Memory's list of sections.
+        """
+        memory = box.consume(mode, section=self, reverse=reverse)
+        assert memory is not None, (
+            "Not enough memory found that satisfies mode=%s size=%d:\n"
+            "%s\n"
+            "%s = %s in %s\n"
+            "%s" % (
+            ''.join(mode), self.size or 0,
+            '\n'.join("%s = %s in %s" % (
+                section.name, section, box.name)
+                for memory in box.memoryslices
+                if set(mode).issubset(memory.mode)
+                for section in memory.sections
+                if section),
+            self.name, self, box.name,
+            '\n'.join("memory.%s = %s in %s" % (
+                memory.name, memory, box.name)
+                for memory in box.memoryslices)))
+
+        memory.sections.append(self)
+        self.memory = memory
+        return memory
 
 class Region:
     """
@@ -75,6 +104,8 @@ class Region:
         name = name or cls.__argname__
         help = (help or cls.__arghelp__).replace('REGION', name)
         parser.add_argument("region", pred=cls.parseregion,
+            help=cls.__arghelp__)
+        parser.add_argument("--region", pred=cls.parseregion,
             help=cls.__arghelp__)
         parser.add_argument("--addr", type=lambda x: int(x, 0),
             help="Starting address of region. Note that addr may be "
@@ -166,6 +197,8 @@ class Memory(Region):
     def __argparse__(cls, parser, **kwargs):
         parser.add_argument("memory", pred=cls.parsememory,
             help=cls.__arghelp__)
+        parser.add_argument("--memory", pred=cls.parsememory,
+            help=cls.__arghelp__)
         parser.add_argument("--mode", pred=cls.parsemode,
             help="String of characters indicating how the underlying memory "
                 "can be accessed. Can be a combination of %s." %
@@ -210,7 +243,7 @@ class Memory(Region):
 
     def __init__(self, name, memory=None,
             mode=None, addr=None, size=None, align=None):
-        self.name = name
+        self.name = name.name if isinstance(name, Memory) else name
         memory = Memory.parsememory(memory) if memory else (None, None, None)
         self.mode = Memory.parsemode(mode) if mode else memory[0] or set()
         self.align = align
@@ -228,6 +261,7 @@ class Memory(Region):
                     self.size, self.align))
 
         # modified size after memory is consumed
+        self.sections = name.sections if isinstance(name, Memory) else []
         self._addr = self.addr
         self._size = self.size
 
@@ -241,7 +275,7 @@ class Memory(Region):
             size=self.size)
 
     def __lt__(self, other):
-        return (self.addr, self.name) < (other.addr, other.name)
+        return (self.addr or 0, self.name) < (other.addr or 0, other.name)
 
     def used(self):
         return self.size - self._size
@@ -253,6 +287,7 @@ class Memory(Region):
         if section is not None:
             size = section.size
             align = section.align
+
         assert align is None, "TODO" # TODO
         assert size <= self._size, ("Not enough memory in %s "
             "for size=%#010x" % (self.name, size))
@@ -260,11 +295,11 @@ class Memory(Region):
         if not reverse:
             self._addr += size
             self._size -= size
-            return Memory(self.name, mode=self.mode,
+            return Memory(self, mode=self.mode,
                 addr=self._addr, size=size, align=None)
         else:
             self._size -= size
-            return Memory(self.name, mode=self.mode,
+            return Memory(self, mode=self.mode,
                 addr=self._addr + self._size, size=size, align=None)
 
     def iscompatible(self, mode='rwx', size=None, align=None,
@@ -605,11 +640,11 @@ class Box:
             for name, memargs in memory.items())
         self.memoryslices = self.memories
 
-        self.stack = Section(**stack.__dict__)
-        self.heap = Section(**heap.__dict__)
-        self.text = Section(**text.__dict__)
-        self.data = Section(**data.__dict__)
-        self.bss = Section(**bss.__dict__)
+        self.stack = Section('stack', **stack.__dict__)
+        self.heap = Section('heap', **heap.__dict__)
+        self.text = Section('text', **text.__dict__)
+        self.data = Section('data', **data.__dict__)
+        self.bss = Section('bss', **bss.__dict__)
 
         self.imports = sorted(
             Import(name, source=self, **importargs.__dict__)
@@ -669,9 +704,9 @@ class Box:
             section=None, memory=None, reverse=False):
         best = self.bestmemory(mode=mode, size=size, align=align,
             section=section, memory=memory, reverse=reverse)
-        assert best, ("No memory found that satisfies "
-            "mode=%s size=%#010x" % (mode,
-                (section.size if section else size) or 0))
+        if best is None:
+            return None
+
         return best.consume(size=size, align=align,
             section=section, reverse=reverse)
 
@@ -760,7 +795,7 @@ class Box:
             try:
                 nargs = parser.parse_toml(os.path.join(path, recipe),
                     prefix=prefix)
-                args = argstuff.nsmerge(args, nargs)
+                args = argstuff.nsmerge(nargs, args)
             except FileNotFoundError:
                 pass
 
@@ -849,7 +884,25 @@ class Box:
                             size=memory.size,
                             align=memory.align,
                             reverse=True)
+                        assert slice is not None, (
+                            "Not enough memory found that satisfies "
+                            "mode=%s size=%d:\n"
+                            "%s\n"
+                            "%s" % (
+                            ''.join(memory.mode), memory.size or 0,
+                            '\n'.join("box.%s.memory.%s = %s in %s" % (
+                                child.name, childmemory.name,
+                                childmemory, self.name)
+                                for child in self.boxes
+                                for childmemory in child.memories
+                                if memory.mode.issubset(childmemory.mode)
+                                if childmemory),
+                            '\n'.join("memory.%s = %s in %s" % (
+                                memory.name, memory, self.name)
+                                for memory in self.memoryslices)))
+
                         memory.addr = slice.addr
+                        memory._addr = slice.addr
 
                     self.memoryslices = list(it.chain.from_iterable(
                         slice - memory for slice in self.memoryslices))
@@ -973,7 +1026,8 @@ class Box:
                 import_.name, import_, import_.source.name))
             assert len(targets) <= 1, (
                 "Ambiguous import/export for %r:\n"
-                "import.%s = %s in %s\n%s" % (
+                "import.%s = %s in %s\n"
+                "%s" % (
                 import_.name,
                 import_.name, import_, import_.source.name,
                 '\n'.join("export.%s = %s in %s" % (

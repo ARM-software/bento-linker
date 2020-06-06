@@ -100,10 +100,10 @@ class LDOutput(outputs.Output):
             with out.pushindent():
                 out.printf('. = ALIGN(%(align)d);')
                 out.printf('__stack = .;')
-                out.printf('. += __stack_min;')
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__stack_end = .;')
             out.printf('} > %(MEMORY)s')
+            out.printf('. += __stack_min;') # TODO hm
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__stack_end = .;')
 
         out = self.sections.append(
             section='.data',
@@ -149,13 +149,13 @@ class LDOutput(outputs.Output):
                 out.printf('__heap = .;')
                 # TODO need all these?
                 out.printf('__HeapBase = .;')
-                out.printf('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);')
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__heap_end = .;')
-                # TODO need all these?
-                out.printf('__HeapLimit = .;')
-                out.printf('__heap_limit = .;')
             out.printf('} > %(MEMORY)s')
+            out.printf('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__heap_end = .;')
+            # TODO need all these?
+            out.printf('__HeapLimit = .;')
+            out.printf('__heap_limit = .;')
             out.printf()
             out.printf('ASSERT(__heap_end - __heap > __heap_min,')
             out.printf('    "Not enough memory for heap")')
@@ -168,15 +168,16 @@ class LDOutput(outputs.Output):
             if not self.no_sections:
                 out = self.sections.append(
                     section='.box.%(box)s.' + memory.name,
-                    memory='box_%(box)s_' + memory.name)
-                out.printf('%(section)s : {')
+                    memory='box_%(box)s_' + memory.name,
+                    noload='(NOLOAD)'*('w' in memory.mode))
+                out.printf('%(section)s %(noload)s: {')
                 with out.pushindent():
                     out.printf('__%(memory)s = .;')
                     out.printf('KEEP(*(%(section)s*))')
-                    out.printf('. = ORIGIN(%(MEMORY)s) + '
-                        'LENGTH(%(MEMORY)s);')
-                    out.printf('__%(memory)s_end = .;')
                 out.printf('} > %(MEMORY)s')
+                out.printf('. = ORIGIN(%(MEMORY)s) + '
+                    'LENGTH(%(MEMORY)s);')
+                out.printf('__%(memory)s_end = .;')
 
     def build(self, box):
         # TODO docs?

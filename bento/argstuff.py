@@ -46,10 +46,10 @@ def nsmerge(a, b):
                 isinstance(a[k], (Namespace, dict)) and
                 isinstance(b[k], (Namespace, dict))):
             ndict[k] = nsmerge(a[k], b[k])
-        elif k in a and a[k] is not None:
-            ndict[k] = a[k]
         elif k in b and b[k] is not None:
             ndict[k] = b[k]
+        elif k in a and a[k] is not None:
+            ndict[k] = a[k]
         else:
             ndict[k] = None
     return ndict
@@ -419,7 +419,7 @@ class ArgumentParser(argparse.ArgumentParser):
                         for k, v in ns.__dict__.items()})
             nns = nsdict(nns, dest.split('.'))
 
-            ns = nsmerge(ns, nns)
+            ns = nsmerge(nns, ns)
 
         return ns, args
 
