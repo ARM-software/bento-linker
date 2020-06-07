@@ -110,9 +110,9 @@ class ArgumentParser(argparse.ArgumentParser):
             kwargs['type'] = parselist
         elif kwargs.get('type', None) == bool:
             def parsebool(x):
-                if x in {'false', 'True', 'no', '0', ''}:
+                if x in {'false', 'False', 'no', '0', ''}:
                     return False
-                elif x in {'true', 'False', 'yes', '1'}:
+                elif x in {'true', 'True', 'yes', '1'}:
                     return True
                 else:
                     raise ValueError("I don't recognize this bool "

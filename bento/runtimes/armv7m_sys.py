@@ -99,8 +99,9 @@ class ARMv7MSysRuntime(runtimes.Runtime):
                 doc="Override __box_write for a specific box."))
 
         if not self._no_startup:
+            # allow overloading main, but default to using main if available
             self._main_hook = box.addimport('%s.__box_main' % box.name,
-                'fn() -> void', source=self,
+                'fn() -> void', source=self, weak=True,
                 doc="Entry point to the program.")
 
             # link isr vector entries
@@ -151,7 +152,6 @@ class ARMv7MSysRuntime(runtimes.Runtime):
             with out.pushindent():
                 out.printf('. = ALIGN(%(align)d);')
                 out.printf('__isr_vector_start = .;')
-                out.printf('__isr_vector = .;')
                 out.printf('KEEP(*(.isr_vector))')
                 out.printf('. = __isr_vector_start + %(isr_vector_size)#x;',
                     isr_vector_size=self._isr_vector.size)
@@ -190,11 +190,16 @@ class ARMv7MSysRuntime(runtimes.Runtime):
         if not self._no_startup:
             output.decls.append('//// ISR Vector definitions ////')
 
+            # default to standard main definition
+            if not self._main_hook.link:
+                output.decls.append('extern void main(void);')
+
             # create entry point
             output.decls.append(RESET_HANDLER,
                 name='__box_reset_handler',
                 doc='Reset Handler',
-                main=self._main_hook.link.export.alias)
+                main=self._main_hook.link.export.alias
+                    if self._main_hook.link else 'main')
 
             # create default isr
             output.decls.append(DEFAULT_HANDLER,
@@ -213,7 +218,7 @@ class ARMv7MSysRuntime(runtimes.Runtime):
             output.decls.append('//// ISR Vector ////')
             out = output.decls.append(
                 size=2+len(self._esr_hooks)+len(self._isr_hooks))
-            out.printf('__attribute__((section(".isr_vector")))')
+            out.printf('__attribute__((used, section(".isr_vector")))')
             out.printf('const uint32_t __isr_vector[%(size)d] = {')
             with out.indent():
                 out.printf('(uint32_t)&__stack_end,')

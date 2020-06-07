@@ -18,26 +18,19 @@ class MKOutput(outputs.Output):
     def __argparse__(cls, parser, **kwargs):
         outputs.Output.__argparse__(parser, **kwargs)
 
-        parser.add_argument('--srcs', type=list,
-            help='Override source directories. Defaults to \'.\'.')
-        parser.add_argument('--incs', type=list,
-            help='Override Include directories. Defaults to '
-                'source directories.')
-        parser.add_argument('--libs', type=list,
-            help='Override libraries. Defaults to m, c, gcc, and nosys.')
-
         defineparser = parser.add_set('--defines',
             append=True, metavar='DEFINE')
         defineparser.add_argument('define',
             help='Add preprocessor defines to the build.')
+        parser.add_argument('--libs', type=list,
+            help='Override libraries. Defaults to '
+                '[\'m\', \'c\', \'gcc\', and \'nosys\'].')
 
         parser.add_argument('--target',
             help='Override the target output (name.elf) for the makefile.')
         parser.add_argument('--cross_compile',
             help='Override the compiler triplet (arm-none-eabi-) '
                 'for the makefile.')
-        parser.add_argument('--debug',
-            help='Enable/disable debugging.')
         parser.add_argument('--cc',
             help='Override the C compiler for the makefile.')
         parser.add_argument('--objcopy',
@@ -66,23 +59,19 @@ class MKOutput(outputs.Output):
         parser.add_argument('--lflags', type=list,
             help='Add custom linker flags.')
 
-    def __init__(self, path=None,
-            srcs=None, incs=None, libs=None, defines={},
-            target=None, cross_compile=None, debug=None,
+    def __init__(self, path=None, defines={}, libs=None,
+            target=None, cross_compile=None,
             cc=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdbaddr=None, gdbport=None,
             tty=None, baud=None,
             cflags=None, asmflags=None, lflags=None):
         super().__init__(path)
-        self._srcs = srcs or ['.']
-        self._incs = incs or self._srcs
-        self._libs = libs or ['m', 'c', 'gcc', 'nosys']
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in defines.items()))
+        self._libs = libs or ['m', 'c', 'gcc', 'nosys']
 
         self._target = target
         self._cross_compile = cross_compile or 'arm-none-eabi-'
-        self._debug = debug or False
         self._cc = cc or '$(CROSS_COMPILE)gcc'
         self._objcopy = objcopy or '$(CROSS_COMPILE)objcopy'
         self._objdump = objdump or '$(CROSS_COMPILE)objdump'
@@ -93,10 +82,20 @@ class MKOutput(outputs.Output):
         self._gdbport = gdbport or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
         self._baud = baud or 115200
+
+        self._cflags = cflags or []
+        self._asmflags = asmflags or []
+        self._lflags = lflags or []
+
+        self.decls = outputs.OutputField(self)
+        self.rules = outputs.OutputField(self)
+
+    def box(self, box):
         self.pushattrs(
             target=self._target,
             cross_compile=self._cross_compile,
-            debug=self._debug,
+            debug=box.debug,
+            lto=box.lto,
             cc=self._cc,
             objcopy=self._objcopy,
             objdump=self._objdump,
@@ -108,13 +107,6 @@ class MKOutput(outputs.Output):
             tty=self._tty,
             baud=self._baud)
 
-        self._cflags = cflags or []
-        self._asmflags = asmflags or []
-        self._lflags = lflags or []
-
-        self.decls = outputs.OutputField(self)
-        self.rules = outputs.OutputField(self)
-
     def default_build_box_prologue(self, box):
         self.decls.append('TARGET         ?= %(target)s',
             target=self._target
@@ -122,6 +114,7 @@ class MKOutput(outputs.Output):
                 '%s.elf' % (box.name or 'system'))
         self.decls.append('CROSS_COMPILE  ?= %(cross_compile)s')
         self.decls.append('DEBUG          ?= %(debug)d')
+        self.decls.append('LTO            ?= %(lto)d')
         # note we can't use ?= for program names, implicit
         # makefile variables get in the way :(
         self.decls.append('CC             = %(cc)s')
@@ -136,11 +129,11 @@ class MKOutput(outputs.Output):
         self.decls.append('BAUD           ?= %(baud)s')
         self.decls.append()
 
-        for src in self._srcs:
+        for src in box.srcs:
             self.decls.append('SRC += %(path)s', path=src)
         self.decls.append()
 
-        for inc in self._incs:
+        for inc in box.incs:
             self.decls.append('INC += %(path)s', path=inc)
         self.decls.append()
 
@@ -173,6 +166,9 @@ class MKOutput(outputs.Output):
         out.printf('else')
         out.printf('override CFLAGS += -DNDEBUG')
         out.printf('override CFLAGS += -Os')
+        out.printf('ifneq ($(LTO),0)')
+        out.printf('override CFLAGS += -flto')
+        out.printf('endif')
         out.printf('endif')
         out.printf('override CFLAGS += -mthumb')
         out.printf('override CFLAGS += -mcpu=cortex-m4')

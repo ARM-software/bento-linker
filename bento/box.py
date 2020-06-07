@@ -63,7 +63,7 @@ class Section:
         return "%(size)#010x %(size)s bytes" % dict(size=self.size)
 
     def __bool__(self):
-        return bool(self.size)
+        return self.size is not None
 
     def alloc(self, box, mode='rwx', reverse=False):
         """
@@ -149,7 +149,7 @@ class Region:
             size=self.size)
 
     def __bool__(self):
-        return bool(self.size)
+        return self.size is not None
 
     def __lt__(self, other):
         return self.addr < other.addr
@@ -601,6 +601,18 @@ class Box:
         for Output in OUTPUTS.values():
             outputparser.add_nestedparser(Output)
 
+        parser.add_argument('--debug', type=bool,
+            help='Hint that the box should be in debug mode. Defaults '
+                'to true.')
+        parser.add_argument('--lto', type=bool,
+            help='Hint that the box should be built with link-time '
+                'optimizations. Defaults to true.')
+        parser.add_argument('--srcs', type=list,
+            help='Supply source directories. Defaults to [\'.\'].')
+        parser.add_argument('--incs', type=list,
+            help='Supply include directories. Defaults to what\'s '
+                'passed to --srcs.')
+
         parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
         parser.add_nestedparser('--heap', Section)
@@ -614,9 +626,11 @@ class Box:
         parser.add_set(Export, metavar='BOX.EXPORT', depth=2)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
-            runtime=None, output=None, memory=None,
-            stack=None, heap=None, text=None, data=None, bss=None,
-            export=None, box=None, **kwargs):
+            runtime=None, output=None,
+            debug=None, lto=None, srcs=None, incs=None,
+            memory=None, stack=None, heap=None,
+            text=None, data=None, bss=None,
+            export={}, box={}, **kwargs):
         self.name = name or 'system'
         self.parent = parent
         self.path = path
@@ -635,6 +649,11 @@ class Box:
             for name, outputargs in output.__dict__.items()
             if outputargs.path)
 
+        self.debug = debug if debug is not None else False
+        self.lto = lto if lto is not None else True
+        self.srcs = srcs if srcs is not None else ['.']
+        self.incs = incs if incs is not None else self.srcs
+
         self.memories = sorted(
             Memory(name, **memargs.__dict__)
             for name, memargs in memory.items())
@@ -652,7 +671,7 @@ class Box:
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
                 [(k, v)]
-                for k, v in kwargs['import'].items())
+                for k, v in kwargs.get('import', {}).items())
             if importargs is not None)
             # TODO probably look into this last condition
 
@@ -756,7 +775,7 @@ class Box:
         return export
 
     @staticmethod
-    def _scan_argparse(parser):
+    def _scan_argparse(parser, **kwargs):
         # add root box
         Box.__argparse__(parser)
         # add nested boxes

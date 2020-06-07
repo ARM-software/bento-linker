@@ -106,7 +106,7 @@ struct __box_frame {
 
 // foward declaration of fault wrapper, may be called directly
 // in other handlers, but only in other handlers! (needs isr context)
-__attribute__((naked, noreturn))
+__attribute__((used, naked, noreturn))
 void __box_faulthandler(int32_t err);
 
 #define __BOX_ASSERT(test, code) do {   \\
@@ -115,6 +115,7 @@ void __box_faulthandler(int32_t err);
         }                               \\
     } while (0)
 
+__attribute__((used))
 uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
@@ -164,7 +165,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-__attribute__((naked, noreturn))
+__attribute__((used, naked, noreturn))
 void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of args
@@ -198,6 +199,7 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     );
 }
 
+__attribute__((used))
 uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
@@ -236,7 +238,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-__attribute__((naked, noreturn))
+__attribute__((used, naked, noreturn))
 void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of rets
@@ -261,6 +263,7 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     );
 }
 
+__attribute__((used))
 uint64_t __box_faultsetup(int32_t err) {
     // invoke user handler, may not return
     // TODO should we set this up to be called in non-isr context?
@@ -309,7 +312,7 @@ uint64_t __box_faultsetup(int32_t err) {
     return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-__attribute__((naked, noreturn))
+__attribute__((used, naked, noreturn))
 void __box_faulthandler(int32_t err) {
     __asm__ volatile (
         // call into c with stack control

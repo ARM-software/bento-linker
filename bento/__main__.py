@@ -22,7 +22,7 @@ def box_argparse(cls, parser):
     parser.add_argument('--recipe RECIPE', fake=True,
         help="Path to reciple.toml file for box-specific configuration. "
             "Defaults to <path>/recipe.toml.")
-    parser.add_glob(Box,
+    parser.add_glob(Box.scan,
         help="This command also accepts all box configuration options. "
             "Run '%s options' for a full list."
             % os.path.basename(sys.argv[0]))
