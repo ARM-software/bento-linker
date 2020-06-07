@@ -112,7 +112,8 @@ class LinksCommand:
                     '%s.export.%s' % (export.source, export.name)
                     if export.source != box.name else
                     'export.%s' % export.name)
-                if len(exportname) > 32:
+                if len(exportname) > 32 and any(
+                        link.import_ for link in export.links):
                     print('  %s' % exportname)
                 for j, import_ in enumerate(
                         link.import_ for link in export.links):

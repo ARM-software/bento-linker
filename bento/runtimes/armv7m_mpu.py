@@ -422,12 +422,21 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         parent.addexport('__box_usagefault_handler', 'fn() -> void',
             target=parent.name, source=self.__name)
 
-        self._parent_fault_hook = parent.addimport(
-            '__box_fault', 'fn(err32) -> void',
-            target=parent.name, source=self.__name, weak=True,
-            doc="Called when a box faults, either due to an illegal "
-                "memory access or other failure. the error code is "
-                "provided as an argument.")
+        # we collect hooks here because we need to handle them all at once
+        self._fault_hooks = []
+        self._write_hooks = []
+        for child in parent.boxes:
+            if child.runtime == self:
+                self._fault_hooks.append(parent.addimport(
+                    '__box_%s_fault' % child.name, 'fn(err32) -> void',
+                    target=parent.name, source=self.__name, weak=True,
+                    doc="Called when this box faults, either due to an illegal "
+                        "memory access or other failure. the error code is "
+                        "provided as an argument."))
+                self._write_hooks.append(parent.addimport(
+                    '__box_%s_write' % child.name, 'fn(err32) -> void',
+                    target=parent.name, source=self.__name, weak=True,
+                    doc="Override __box_write for this specific box."))
 
     def box_parent(self, parent, box):
         assert math.log2(self._call_region.size) % 1 == 0, (
@@ -461,13 +470,9 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             '__box_init', 'fn() -> err32',
             target=box.name, source=self.__name,
             alias='__box_%s_rawinit' % box.name)
-        self._parent_child_fault_hook = parent.addimport(
-            '__box_%s_fault' % box.name, 'fn(err32) -> void',
-            target=parent.name, source=self.__name, weak=True,
-            doc="Override fault handling for a specific box.")
         parent.addexport(
             '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
-            target=box.name, source=self.__name, weak=True)
+            target=box.name, source=self.__name)
 
     def box_box(self, box):
         self._jumptable.alloc(box, 'r')
@@ -475,14 +480,14 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         box.addexport(
             '__box_init', 'fn() -> err32',
             source=self.__name)
-        self._child_write_hook = box.addimport(
+        box.addimport(
             '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
             source=self.__name)
-        # hooks
-        box.addexport(
+        # plugs
+        self._abort_plug = box.addexport(
             '__box_abort', 'fn(err32) -> void',
             target=box.name, source=self.__name, weak=True)
-        box.addexport(
+        self._write_plug = box.addexport(
             '__box_write', 'fn(i32, u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True)
 
@@ -541,6 +546,14 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         out = output.decls.append(doc='System state')
         out.printf('uint32_t __box_active = 0;')
 
+        # redirect writes if necessary
+        if any(not write_hook.link for write_hook in self._write_hooks):
+            out = output.decls.append(doc='Redirected __box_writes')
+            for write_hook in self._write_hooks:
+                if not write_hook.link:
+                    out.printf('#define %(write_hook)s __box_write',
+                        write_hook=write_hook.linkname)
+
         # jumptables
         out = output.decls.append(doc='Jumptables')
         out.printf('const uint32_t __box_sys_jumptable[] = {')
@@ -594,31 +607,23 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         out.printf('};')
 
         # fault handlers
+        for fault_hook, child in zip(self._fault_hooks, (
+                child for child in sys.boxes
+                if child.runtime == self)):
+            if not fault_hook.link:
+                out.printf('__attribute__((used))')
+                out.printf('void __box_%(box)s_fault(int err) {}',
+                    box=child.name)
+
         out = output.decls.append()
-        out.printf('void __box_sys_fault(int err) {')
+        out.printf('void (*const __box_faults[__BOX_COUNT+1])(int err) = {')
         with out.indent():
-            out.printf('// system must halt, no way to recover')
-            out.printf('while (1) {}')
-        out.printf('}')
-
-        out = output.decls.append()
-        if not self._parent_fault_hook.link:
-            out.printf('void __box_fault(int err) {}')
-
-        for box in sys.boxes:
-            if box.runtime == self:
-                if not box.runtime._parent_child_fault_hook.link:
-                    out.printf('#define __box_%(box)s_fault __box_fault',
-                        box=box.name)
-
-        out = output.decls.append()
-        out.printf('void (*const '
-            '__box_faults[__BOX_COUNT+1])(int err) = {')
-        with out.indent():
-            out.printf('&__box_sys_fault,', box=box.name)
-            for box in sys.boxes:
-                if box.runtime == self:
-                    out.printf('&__box_%(box)s_fault,', box=box.name)
+            out.printf('&__box_abort,', box=box.name)
+            for fault_hook in self._fault_hooks:
+                out.printf('&%(fault_hook)s,',
+                    fault_hook=fault_hook.link.export.alias
+                        if fault_hook.link else
+                        fault_hook.linkname)
         out.printf('};')
 
         # state
@@ -672,17 +677,17 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         out = output.decls.append(doc='special box triggers')
         out.printf('%(name)-16s = %(retprefix)#010x + 1;',
             name='__box_ret')
-        if self._abort_hook.link.export.source == self.__name:
+        if self._abort_plug.links:
             out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
                 name='__box_abort',
                 id=1)
-        if self._write_hook.link.export.source == self.__name:
+        if self._write_plug.links:
             out.printf('%(name)-16s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
                 name='__box_write',
-                id=self._child_write_hook.link.export.n()
+                id=self._write_hook.link.export.n()
                     *(len(box.parent.boxes)+1),
-                falible=self._child_write_hook.isfalible())
+                falible=self._write_hook.isfalible())
 
         if not output.no_sections:
             out = output.sections.append(

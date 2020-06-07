@@ -4,12 +4,12 @@ BOX_STDLIB_HOOKS = """
 #ifdef __GNUC__
 __attribute__((noreturn))
 void __wrap_abort(void) {
-    %(abort_hook)s(-1);
+    __box_abort(-1);
 }
 
 __attribute__((noreturn))
 void _exit(int returncode) {
-    %(abort_hook)s(-returncode);
+    __box_abort(-returncode);
 }
 #endif
 """
@@ -32,12 +32,10 @@ class AbortGlue(runtimes.Runtime):
 
     def build_box_c(self, output, box):
         super().build_box_c(output, box)
-        output.pushattrs(
-            abort_hook=self._abort_hook.link.export.alias
-                if self._abort_hook.link else '__box_abort')
 
         output.decls.append('//// __box_abort glue ////')
         if not self._abort_hook.link:
+            # defaults to just halting
             out = output.decls.append()
             out.printf('__attribute__((noreturn))')
             out.printf('void __box_abort(int err) {')
@@ -45,7 +43,16 @@ class AbortGlue(runtimes.Runtime):
                 out.printf('// if there\'s no other course of action, we spin')
                 out.printf('while (1) {}')
             out.printf('}')
-
+        elif self._abort_hook.link.export.alias != '__box_abort':
+            # jump to correct implementation
+            out = output.decls.append()
+            out.printf('__attribute__((noreturn))')
+            out.printf('void __box_abort(int err) {')
+            with out.indent():
+                out.printf('%(alias)s(err);',
+                    alias=self._write_hook.link.export.alias)
+            out.printf('}')
+            
         output.decls.append(BOX_STDLIB_HOOKS)
 
     def build_box_mk(self, output, box):

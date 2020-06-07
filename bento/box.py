@@ -1060,6 +1060,12 @@ class Box:
                 "import.%s = %s in %s" % (
                 import_.name,
                 import_.name, import_, import_.source))
+
+            # remove weaks
+            while len(targets) > 1 and any(target.weak for target in targets):
+                maxweak = max(target.weak for target in targets)
+                targets = [target for target in targets
+                    if target.weak < maxweak]
             assert len(targets) <= 1, (
                 "Ambiguous import/export for %r:\n"
                 "import.%s = %s in %s\n"
