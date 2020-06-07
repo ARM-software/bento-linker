@@ -108,55 +108,56 @@ class MKOutput(outputs.Output):
             baud=self._baud)
 
     def default_build_box_prologue(self, box):
-        self.decls.append('TARGET         ?= %(target)s',
+        out = self.decls.append()
+        out.printf('TARGET         ?= %(target)s',
             target=self._target
                 if self._target else
                 '%s.elf' % (box.name or 'system'))
-        self.decls.append('CROSS_COMPILE  ?= %(cross_compile)s')
-        self.decls.append('DEBUG          ?= %(debug)d')
-        self.decls.append('LTO            ?= %(lto)d')
+        out.printf('CROSS_COMPILE  ?= %(cross_compile)s')
+        out.printf('DEBUG          ?= %(debug)d')
+        out.printf('LTO            ?= %(lto)d')
         # note we can't use ?= for program names, implicit
         # makefile variables get in the way :(
-        self.decls.append('CC             = %(cc)s')
-        self.decls.append('OBJCOPY        = %(objcopy)s')
-        self.decls.append('OBJDUMP        = %(objdump)s')
-        self.decls.append('AR             = %(ar)s')
-        self.decls.append('SIZE           = %(size)s')
-        self.decls.append('GDB            = %(gdb)s')
-        self.decls.append('GDBADDR        ?= %(gdbaddr)s')
-        self.decls.append('GDBPORT        ?= %(gdbport)s')
-        self.decls.append('TTY            ?= %(tty)s')
-        self.decls.append('BAUD           ?= %(baud)s')
-        self.decls.append()
+        out.printf('CC             = %(cc)s')
+        out.printf('OBJCOPY        = %(objcopy)s')
+        out.printf('OBJDUMP        = %(objdump)s')
+        out.printf('AR             = %(ar)s')
+        out.printf('SIZE           = %(size)s')
+        out.printf('GDB            = %(gdb)s')
+        out.printf('GDBADDR        ?= %(gdbaddr)s')
+        out.printf('GDBPORT        ?= %(gdbport)s')
+        out.printf('TTY            ?= %(tty)s')
+        out.printf('BAUD           ?= %(baud)s')
 
+    def default_build_box(self, box):
+        out = self.decls.append()
         for src in box.srcs:
-            self.decls.append('SRC += %(path)s', path=src)
-        self.decls.append()
+            out.printf('SRC += %(path)s', path=src)
 
+        out = self.decls.append()
         for inc in box.incs:
-            self.decls.append('INC += %(path)s', path=inc)
-        self.decls.append()
+            out.printf('INC += %(path)s', path=inc)
 
+        out = self.decls.append()
         for lib in self._libs:
-            self.decls.append('LIB += %(path)s', path=lib)
-        self.decls.append()
+            out.printf('LIB += %(path)s', path=lib)
 
-        self.decls.append('LDSCRIPT := $(firstword $(wildcard '
+        out = self.decls.append()
+        out.printf('LDSCRIPT := $(firstword $(wildcard '
             '$(patsubst %%,%%/*.ld,$(SRC))))')
-        self.decls.append()
 
-        self.decls.append('OBJ := $(patsubst %%.c,%%.o,'
+        out = self.decls.append()
+        out.printf('OBJ := $(patsubst %%.c,%%.o,'
             '$(wildcard $(patsubst %%,%%/*.c,$(SRC))))')
-        self.decls.append('OBJ += $(patsubst %%.s,%%.o,'
+        out.printf('OBJ += $(patsubst %%.s,%%.o,'
             '$(wildcard $(patsubst %%,%%/*.s,$(SRC))))')
-        self.decls.append('OBJ += $(patsubst %%.S,%%.o,'
+        out.printf('OBJ += $(patsubst %%.S,%%.o,'
             '$(wildcard $(patsubst %%,%%/*.S,$(SRC))))')
-        self.decls.append('DEP := $(patsubst %%.o,%%.d,$(OBJ))')
+        out.printf('DEP := $(patsubst %%.o,%%.d,$(OBJ))')
         for child in box.boxes:
             path = os.path.relpath(child.path, box.path)
-            self.decls.append('BOXES += %(path)s/%(box)s.box',
+            out.printf('BOXES += %(path)s/%(box)s.box',
                 box=child.name, path=path)
-        self.decls.append()
 
         out = self.decls.append()
         out.printf('ifneq ($(DEBUG),0)')
@@ -181,18 +182,10 @@ class MKOutput(outputs.Output):
         out.printf('override CFLAGS += -fdata-sections')
         out.printf('override CFLAGS += -ffreestanding')
         out.printf('override CFLAGS += -fno-builtin')
-        for k, v in sorted(self._defines.items()):
-            out.printf('override CFLAGS += -D%s=%s' % (k, v))
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
-        for cflag in self._cflags:
-            out.printf('override CFLAGS += %s' % cflag)
-        self.decls.append()
 
         out = self.decls.append()
         out.printf('override ASMFLAGS += $(CFLAGS)')
-        for asmflag in self._asmflags:
-            out.printf('override ASMFLAGS += %s' % asmflag)
-        self.decls.append()
 
         out = self.decls.append()
         out.printf('override LFLAGS += $(CFLAGS)')
@@ -204,13 +197,10 @@ class MKOutput(outputs.Output):
         out.printf('override LFLAGS += --specs=nosys.specs')
         out.printf('override LFLAGS += -Wl,--gc-sections')
         out.printf('override LFLAGS += -Wl,-static')
-        out.printf('override LFLAGS += -Wl,-z -Wl,muldefs')
-        for lflag in self._lflags:
-            out.printf('override LFLAGS += %s' % lflag)
-        self.decls.append()
+        out.printf('override LFLAGS += -Wl,-z -Wl,muldefs') # TODO
         
-    def default_build_box(self, box):
         # default rule
+        self.rules.append('### rules ###')
         out = self.rules.append(phony=True, doc='default rule')
         out.printf('all build: $(TARGET)')
 
@@ -234,8 +224,8 @@ class MKOutput(outputs.Output):
                         '    t, d, b, t+d+b, t+d+b, n} \\\n'
                         'NR==1 {print} \\\n'
                         'NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \\\n'
-                        'NR>3 && /^([ \\t]+[0-9]+){3,}/ && !/TOTALS/ {'
-                        '   l[NR-4]=$$0; t-=$$1+$$2; b-=$$3+$$2;'
+                        'NR>3 && /^([ \\t]+[0-9]+){3,}/ && !/TOTALS/ { \\\n'
+                        '   l[NR-4]=$$0; t-=$$1+$$2; b-=$$3+$$2; \\\n'
                         '   tt+=$$1; td+=$$2; tb+=$$3} \\\n'
                         'END {f(t, d, b, n)} \\\n'
                         'END {for (i in l) print l[i]} \\\n'
@@ -379,25 +369,50 @@ class MKOutput(outputs.Output):
                 path = os.path.relpath(child.path, box.path)
                 out.printf('$(MAKE) -C %(path)s clean', path=path)
 
+    def default_build_box_epilogue(self, box):
+        # we put these at the end so they have precedence
+        if any([self._defines, self._cflags, self._asmflags, self._lflags]):
+            self.decls.append('### user provided flags ###')
+
+        if self._defines or self._cflags:
+            out = self.decls.append()
+            for k, v in sorted(self._defines.items()):
+                out.printf('override CFLAGS += -D%s=%s' % (k, v))
+
+            for cflag in self._cflags:
+                out.printf('override CFLAGS += %s' % cflag)
+
+        if self._asmflags:
+            out = self.decls.append()
+            for asmflag in self._asmflags:
+                out.printf('override ASMFLAGS += %s' % asmflag)
+
+        if self._lflags:
+            out = self.decls.append()
+            for lflag in self._lflags:
+                out.printf('override LFLAGS += %s' % lflag)
+
     def build(self, box):
-        self.write('###### BENTO-BOX AUTOGENERATED ######\n')
-        self.write('\n')
+        self.printf('###### BENTO-BOX AUTOGENERATED ######')
+        self.printf('')
+
         if self.decls:
             for decl in self.decls:
                 if 'doc' in decl:
-                    for line in textwrap.wrap(decl['doc'], width=77):
-                        self.write('# %s\n' % line)
-                self.write(decl.getvalue().strip())
-                self.write('\n')
+                    for line in textwrap.wrap(decl['doc'], width=78-2):
+                        self.print('# %s' % line)
+                self.print(decl.getvalue().strip())
+                self.print()
+
         for rule in self.rules:
             if 'doc' in rule:
-                for line in textwrap.wrap(rule['doc'], width=77):
-                    self.write('# %s\n' % line)
+                for line in textwrap.wrap(rule['doc'], width=78-2):
+                    self.print('# %s' % line)
             value = rule.getvalue().strip()
             value = re.sub('^    ', '\t', value, flags=re.M)
             if rule.get('phony', False):
-                self.write('.PHONY: %s\n' % re.match(
+                self.print('.PHONY: %s' % re.match(
                     r'^([^:]*):', value).group(1))
-            self.write(value)
-            self.write('\n\n')
+            self.print(value)
+            self.print()
             

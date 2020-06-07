@@ -122,10 +122,6 @@ class OutputBlob(io.StringIO):
         attrs.update(kwargs)
         return self._expandall(attrs)
 
-    def __repr__(self):
-        return super(object, self).__repr__()
-
-
 class OutputField(list):
     def __init__(self, parent=None, rules={}, **kwargs):
         super().__init__()
@@ -159,9 +155,6 @@ class OutputField(list):
     def extend(self, iterable):
         for x in iterable:
             self.append(x)
-
-    def __repr__(self):
-        return super(object, self).__repr__()
 
 class Output(OutputBlob):
     """An optional output that a runtime can generate."""

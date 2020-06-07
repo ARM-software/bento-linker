@@ -490,15 +490,24 @@ class Fn:
 
         return args, argnames, rets, retnames
 
-    def __init__(self, name, type, alias=None, doc=None,
-            source=None, weak=False):
-        self.name = name
-        self.targetname = name.split('.', 1)[0] if '.' in name else None
-        self.linkname = name.split('.', 1)[-1]
+    def __init__(self, name, type, source=None, target=None,
+            alias=None, doc=None, weak=False):
+
+        if target is not None:
+            self.name = '.'.join([target, name])
+            self.target = target
+            self.linkname = name
+        else:
+            self.name = name
+            self.target = name.split('.', 1)[0] if '.' in name else None
+            self.linkname = name.split('.', 1)[-1]
+
         self.alias = alias or self.linkname
         self.doc = doc
-        self.source = source
         self.weak = weak
+
+        assert source is not None, "Need a source you doofus"
+        self.source = source
 
         argtypes, argnames, rettypes, retnames = Fn.parsetype(type)
         self.args = [Type(arg) for arg in argtypes]
@@ -535,12 +544,12 @@ class Fn:
 
     def islinkable(self, other, exportbox=None, importbox=None):
         return (self.linkname == other.linkname and 
-            (self.targetname is None or
+            (self.target is None or
                 exportbox is None or
-                self.targetname == exportbox) and
-            (other.targetname is None or
+                self.target == exportbox) and
+            (other.target is None or
                 importbox is None or
-                other.targetname == importbox))
+                other.target == importbox))
 
 class Import(Fn):
     """
@@ -666,7 +675,7 @@ class Box:
         self.bss = Section('bss', **bss.__dict__)
 
         self.imports = sorted(
-            Import(name, source=self, **importargs.__dict__)
+            Import(name, source=self.name, **importargs.__dict__)
             for name, importargs in it.chain.from_iterable(
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
@@ -676,7 +685,7 @@ class Box:
             # TODO probably look into this last condition
 
         self.exports = sorted(
-            Export(name, source=self, **exportargs.__dict__)
+            Export(name, source=self.name, **exportargs.__dict__)
             for name, exportargs in it.chain.from_iterable(
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
@@ -761,14 +770,12 @@ class Box:
         return parent if parent != self else None
 
     def addimport(self, import_, *args, **kwargs):
-        kwargs.setdefault('source', self)
         if not isinstance(import_, Export):
             import_ = Import(import_, *args, **kwargs)
         self.imports.append(import_)
         return import_
 
     def addexport(self, export, *args, **kwargs):
-        kwargs.setdefault('source', self)
         if not isinstance(export, Export):
             export = Export(export, *args, **kwargs)
         self.exports.append(export)
@@ -986,12 +993,12 @@ class Box:
                     import_.name,
                     importset[import_.name].name,
                     importset[import_.name],
-                    importset[import_.name].source.name,
+                    importset[import_.name].source,
                     import_.name,
                     import_,
-                    import_.source.name))
+                    import_.source))
             # prioritize our own imports
-            if import_ not in importset or import_.source == self:
+            if import_ not in importset or import_.source == self.name:
                 importset[import_.name] = import_
         # actually don't make this unique, 
         self.imports = sorted(self.imports)
@@ -1006,10 +1013,10 @@ class Box:
                     export.name,
                     exportset[export.name].name,
                     exportset[export.name],
-                    exportset[export.name].source.name,
+                    exportset[export.name].source,
                     export.name,
                     export,
-                    export.source.name))
+                    export.source))
                 assert exportset[export.name].iscompatible(export), (
                     "Incompatible exports for %r:\n"
                     "export.%s = %s in %s\n"
@@ -1017,26 +1024,26 @@ class Box:
                     export.name,
                     exportset[export.name].name,
                     exportset[export.name],
-                    exportset[export.name].source.name,
+                    exportset[export.name].source,
                     export.name,
                     export,
-                    export.source.name))
+                    export.source))
             if export not in exportset or exportset[export.name].weak:
                 exportset[export.name] = export
         self.exports = sorted(exportset.values())
 
         # now create linkages
         for export in self.exports:
-            assert (export.targetname is None or any(
-                target.name == export.targetname
+            assert (export.target is None or any(
+                target.name == export.target
                 for target in it.chain(
                     [self],
                     [self.parent] if self.parent else [],
                     self.boxes))), (
                 "No target %r found for export %r:\n"
                 "export.%s = %s in %s" % (
-                export.targetname, export.name,
-                export.name, export, export.source.name))
+                export.target, export.name,
+                export.name, export, export.source))
 
         for import_ in self.imports:
             targets = []
@@ -1052,15 +1059,15 @@ class Box:
                 "No export found for %r:\n"
                 "import.%s = %s in %s" % (
                 import_.name,
-                import_.name, import_, import_.source.name))
+                import_.name, import_, import_.source))
             assert len(targets) <= 1, (
                 "Ambiguous import/export for %r:\n"
                 "import.%s = %s in %s\n"
                 "%s" % (
                 import_.name,
-                import_.name, import_, import_.source.name,
+                import_.name, import_, import_.source,
                 '\n'.join("export.%s = %s in %s" % (
-                    export.name, export, export.source.name)
+                    export.name, export, export.source)
                     for export in targets)))
 
             if targets:
@@ -1072,10 +1079,10 @@ class Box:
                     export.name,
                     export.name,
                     export,
-                    export.source.name,
+                    export.source,
                     import_.name,
                     import_,
-                    import_.source.name))
+                    import_.source))
 
                 link = Link(export, import_)
                 import_.link = link
@@ -1135,14 +1142,14 @@ class Box:
             for child in self.boxes:
                 child.build(stage='runtimes')
 
-        if not stage or stage == 'outputs':
-            for child in self.boxes:
-                child.build(stage='outputs')
-            for output in self.outputs:
-                output.build(self)
-
         if not stage or stage == 'epilogues':
             for child in self.boxes:
                 child.build(stage='epilogues')
             for epilogue in self.build_epilogues.values():
                 epilogue()
+
+        if not stage or stage == 'outputs':
+            for child in self.boxes:
+                child.build(stage='outputs')
+            for output in self.outputs:
+                output.build(self)

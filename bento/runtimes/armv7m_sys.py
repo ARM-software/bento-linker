@@ -3,6 +3,8 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Section
+from ..runtimes.write_glue import WriteGlue
+from ..runtimes.abort_glue import AbortGlue
 
 
 RESET_HANDLER = """
@@ -45,17 +47,8 @@ void %(name)s(void) {
 }
 """
 
-BOX_WRITE = """
-//__attribute__((alias("__box_write")))
-int _write(int handle, char *buffer, int size) {
-    extern ssize_t __box_write(int32_t handle, void *buffer, size_t size);
-    // TODO hmm, why can't this alias?
-    return __box_write(handle, (uint8_t*)buffer, size);
-}
-"""
-
 @runtimes.runtime
-class ARMv7MSysRuntime(runtimes.Runtime):
+class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     """
     A bento-box runtime that runs in privledge mode on the system.
     Usually required at the root of the project.
@@ -76,66 +69,50 @@ class ARMv7MSysRuntime(runtimes.Runtime):
                 if isr_vector.size is not None else
                 0x400})
 
+    __name = __argname__
     def box_box(self, box):
         self._isr_vector.alloc(box, 'r')
 
-        self._abort_hook = box.addimport('%s.__box_abort' % box.name,
-            'fn(err32) -> void', source=self, weak=True,
-            doc="May be called by a well-behaved code to terminate the box "
-                "if execution can not continue. Notably used for asserts. "
-                "Note that __box_abort may be skipped if the box is killed "
-                "because of an illegal operation. Must not return.")
-        self._write_hook = box.addimport('%s.__box_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
-            doc="Provides a minimal implementation of stdout to the box. "
-                "The exact behavior depends on the superbox's implementation "
-                "of __box_write. If none is provided, __box_write links but "
-                "does nothing.")
-        self._child_write_hooks = []
-        for child in box.boxes:
-            self._child_write_hooks.append(box.addimport(
-                '%s.__box_%s_write' % (box.name, child.name),
-                'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
-                doc="Override __box_write for a specific box."))
-
         if not self._no_startup:
             # allow overloading main, but default to using main if available
-            self._main_hook = box.addimport('%s.__box_main' % box.name,
-                'fn() -> void', source=self, weak=True,
-                doc="Entry point to the program.")
+            self._main_hook = box.addimport(
+                '__box_main', 'fn() -> void',
+                target=box.name, source=self.__name, weak=True,
+                doc="Entry point to the program. By default this will be "
+                    "hooked up to call the normal C main.")
 
             # link isr vector entries
             self._esr_hooks = [
-                box.addimport('%s.__box_nmi_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_hardfault_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_memmanage_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_busfault_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_usagefault_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
+                box.addimport('__box_nmi_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_hardfault_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_memmanage_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_busfault_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_usagefault_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
                 None,
                 None,
                 None,
                 None,
-                box.addimport('%s.__box_svc_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_debugmon_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
+                box.addimport('__box_svc_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_debugmon_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
                 None,
-                box.addimport('%s.__box_svc_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
-                box.addimport('%s.__box_systick_handler' % box.name,
-                    'fn() -> void', source=self, weak=True),
+                box.addimport('__box_svc_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
+                box.addimport('__box_systick_handler', 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True),
             ]
 
             self._isr_hooks = []
             for i in range(self._isr_vector.size//4 - 16):
                 self._isr_hooks.append(box.addimport(
-                    '%s.__box_irq%d_handler' % (box.name, i),
-                    'fn() -> void', source=self, weak=True))
+                    '__box_irq%d_handler' % i, 'fn() -> void',
+                    target=box.name, source=self.__name, weak=True))
 
         super().box_box(box)
 
@@ -162,31 +139,9 @@ class ARMv7MSysRuntime(runtimes.Runtime):
         super().build_box_ld(output, box)
 
     def build_box_c(self, output, box):
+        super().build_box_c(output, box)
+
         # default write/abort hooks
-        output.decls.append('//// stdout implementation ////')
-        if not self._abort_hook.link:
-            out = output.decls.append()
-            out.printf('void __box_abort(int err) {')
-            with out.indent():
-                out.printf('// no other course of action, so we spin')
-                out.printf('while (1) {}')
-            out.printf('}')
-
-        if not self._write_hook.link:
-            out = output.decls.append()
-            out.printf('ssize_t __box_write(int32_t fd, '
-                'void *buffer, size_t size) {')
-            with out.indent():
-                out.printf('return size;')
-            out.printf('}')
-
-        for hook, child in zip(self._child_write_hooks, box.boxes):
-            if not hook.link:
-                out.printf('#define __box_%(box)s_write __box_write',
-                    box=child.name)
-
-        output.decls.append(BOX_WRITE)
-
         if not self._no_startup:
             output.decls.append('//// ISR Vector definitions ////')
 
@@ -209,7 +164,7 @@ class ARMv7MSysRuntime(runtimes.Runtime):
             out = output.decls.append()
             for handler in it.chain(self._esr_hooks, self._isr_hooks):
                 if (handler and handler.link and
-                        handler.link.export.source != box):
+                        handler.link.export.source != box.name):
                     out.printf('void %(name)s(void);', name=handler.alias)
 
             output.decls.append('extern uint32_t __stack_end;')

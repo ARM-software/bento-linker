@@ -58,7 +58,7 @@ class BoxesCommand:
         def ls(box):
             print('box %s' % box.name)
             print('  %(name)-34s %(path)s' % dict(
-                name='path', path=box.path))
+                name='path', path=box.path + '/'))
             print('  %(name)-34s %(runtime)s' % dict(
                 name='runtime', runtime=box.runtime.__argname__))
             for memory in box.memories:
@@ -66,7 +66,7 @@ class BoxesCommand:
                     name='memories.%s' % memory.name, memory=memory))
             for i, import_ in enumerate(
                     import_ for import_ in box.imports
-                    if p or import_.source == box
+                    if p or import_.source == box.name
                     if import_.link):
                 if i == 0:
                     print('  imports')
@@ -74,7 +74,7 @@ class BoxesCommand:
                     name=import_.name, import_=import_))
             for i, export in enumerate(
                     export for export in box.exports
-                    if p or export.source == box):
+                    if p or export.source == box.name):
                 if i == 0:
                     print('  exports')
                 print('    %(name)-32s %(export)s' % dict(
@@ -105,11 +105,13 @@ class LinksCommand:
         def links(box):
             for i, export in enumerate(
                     export for export in box.exports
-                    if p or export.source == box):
+                    if p or export.source == box.name):
                 if i == 0:
                     print('box %s' % box.name)
-                exportname = '%s.export.%s' % (
-                    export.source.name, export.name)
+                exportname = (
+                    '%s.export.%s' % (export.source, export.name)
+                    if export.source != box.name else
+                    'export.%s' % export.name)
                 if len(exportname) > 32:
                     print('  %s' % exportname)
                 for j, import_ in enumerate(
@@ -118,7 +120,7 @@ class LinksCommand:
                         export=exportname
                             if j == 0 and len(exportname) <= 32 else '',
                         import_='%s.import.%s' % (
-                            import_.source.name, import_.name)))
+                            import_.source, import_.name)))
 
             for box in box.boxes:
                 links(box)
@@ -192,30 +194,33 @@ class HooksCommand:
     def __init__(self, **args):
         box = Box.scan(**args)
         box.box()
-        first = True
 
         def hooks(box):
             runtimes = {}
             for import_ in box.imports:
-                if import_.targetname == box.name and import_.source != box:
-                    if import_.source.name not in runtimes:
-                        runtimes[import_.source.name] = []
-                    runtimes[import_.source.name].append(import_)
+                if import_.target == box.name and import_.source != box.name:
+                    if import_.source not in runtimes:
+                        runtimes[import_.source] = []
+                    runtimes[import_.source].append(import_)
 
+            print('available hooks in %s:' % box.name)
             for runtime, imports in sorted(runtimes.items(),
                     key=lambda r: '' if r[0] == box.runtime else r[0]):
-                nonlocal first
-                if not first:
-                    print()
-                first = False
-                print('available hooks in %r for %r:' % (box.name, runtime))
+                needsnl = False
+                print('  %s hooks:' % runtime)
                 for import_ in imports:
-                    print('  %(name)-32s %(import_)s' % dict(
+                    needsnl = True
+                    print('    %(name)-32s %(import_)s' % dict(
                         name=import_.linkname,
                         import_=import_))
                     if import_.doc:
-                        for line in textwrap.wrap(import_.doc, width=54):
-                            print(24*' ' + line)
+                        for line in textwrap.wrap(import_.doc, width=78-8):
+                            print(8*' ' + line)
+                        print()
+                        needsnl = False
+
+                if needsnl:
+                    print()
 
             for child in box.boxes:
                 hooks(child)

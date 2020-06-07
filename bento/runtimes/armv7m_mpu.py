@@ -4,6 +4,8 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Fn, Section, Region
+from ..runtimes.write_glue import WriteGlue
+from ..runtimes.abort_glue import AbortGlue
 
 # utility functions in C
 BOX_INIT = """
@@ -29,15 +31,6 @@ int32_t __box_init(void) {
     __libc_init_array();
 
     return 0;
-}
-"""
-
-BOX_WRITE = """
-//__attribute__((alias("__box_write")))
-int _write(int handle, char *buffer, int size) {
-    extern ssize_t __box_write(int32_t handle, void *buffer, size_t size);
-    // TODO hmm, why can't this alias?
-    return __box_write(handle, (uint8_t*)buffer, size);
 }
 """
 
@@ -362,12 +355,13 @@ void __box_mpu_handler(void) {
         "ldr r3, =#%(retprefix)#010x \\n\\t"
         "subs r3, r2, r3 \\n\\t"
         "beq __box_rethandler \\n\\t"
+        // fallback to fault handler
         // explicit fault?
         "ldr r3, =#%(retprefix)#010x + 1*4 \\n\\t"
         "subs r3, r2, r3 \\n\\t"
-        "beq __box_faulthandler \\n\\t"
-        // fallback to fault handler
-        "ldr r0, =%%0 \\n\\t"
+        "ite eq \\n\\t"
+        "ldreq r0, [r1, #0] \\n\\t"
+        "ldrne r0, =%%0 \\n\\t"
         "b __box_faulthandler \\n\\t"
         :
         : "i"(BOX_ERR_FAULT)
@@ -394,7 +388,7 @@ int __box_%(box)s_init(void) {
 """
 
 @runtimes.runtime
-class ARMv7MMPURuntime(runtimes.Runtime):
+class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     """
     A bento-box runtime that uses a v7 MPU to provide memory isolation
     between boxes.
@@ -419,17 +413,18 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             if call_region.addr is not None else
             Region('0x1e000000-0x1fffffff'))
 
+    __name = __argname__
     def box_parent_prologue(self, parent):
-        parent.addexport('%s.__box_memmanage_handler' % parent.name,
-            'fn() -> void', source=self)
-        parent.addexport('%s.__box_busfault_handler' % parent.name,
-            'fn() -> void', source=self)
-        parent.addexport('%s.__box_usagefault_handler' % parent.name,
-            'fn() -> void', source=self)
+        parent.addexport('__box_memmanage_handler', 'fn() -> void',
+            target=parent.name, source=self.__name)
+        parent.addexport('__box_busfault_handler', 'fn() -> void',
+            target=parent.name, source=self.__name)
+        parent.addexport('__box_usagefault_handler', 'fn() -> void',
+            target=parent.name, source=self.__name)
 
         self._parent_fault_hook = parent.addimport(
-            '%s.__box_fault' % parent.name,
-            'fn(err32) -> void', source=self, weak=True,
+            '__box_fault', 'fn(err32) -> void',
+            target=parent.name, source=self.__name, weak=True,
             doc="Called when a box faults, either due to an illegal "
                 "memory access or other failure. the error code is "
                 "provided as an argument.")
@@ -462,39 +457,35 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 "Memory region %r too small (< 32 bytes)"
                     % memory.name)
 
-        parent.addimport('%s.__box_init' % box.name,
-            'fn() -> err32',
-            alias='__box_%s_rawinit' % box.name,
-            source=self)
+        parent.addimport(
+            '__box_init', 'fn() -> err32',
+            target=box.name, source=self.__name,
+            alias='__box_%s_rawinit' % box.name)
         self._parent_child_fault_hook = parent.addimport(
-            '%s.__box_%s_fault' % (parent.name, box.name),
-            'fn(err32) -> void', source=self, weak=True,
+            '__box_%s_fault' % box.name, 'fn(err32) -> void',
+            target=parent.name, source=self.__name, weak=True,
             doc="Override fault handling for a specific box.")
         parent.addexport(
-            '%s.__box_%s_write' % (box.name, box.name),
-            'fn(i32, u8*, usize) -> errsize',
-            source=self, weak=True)
+            '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
+            target=box.name, source=self.__name, weak=True)
 
     def box_box(self, box):
         self._jumptable.alloc(box, 'r')
-        # local hooks
-        self._abort_hook = box.addimport('%s.__box_abort' % box.name,
-            'fn(err32) -> void', source=self, weak=True,
-            doc="May be called by a well-behaved code to terminate the box "
-                "if execution can not continue. Notably used for asserts. "
-                "Note that __box_abort may be skipped if the box is killed "
-                "because of an illegal operation. Must not return.")
-        self._write_hook = box.addimport('%s.__box_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize', source=self, weak=True,
-            doc="Provides a minimal implementation of stdout to the box. "
-                "The exact behavior depends on the superbox's implementation "
-                "of __box_write. If none is provided, __box_write links but "
-                "does nothing.")
         # plumbing
-        box.addexport('__box_init',
-            'fn() -> err32', source=self)
-        self._child_write_hook = box.addimport('__box_%s_write' % box.name,
-            'fn(i32, u8*, usize) -> errsize', source=self)
+        box.addexport(
+            '__box_init', 'fn() -> err32',
+            source=self.__name)
+        self._child_write_hook = box.addimport(
+            '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
+            source=self.__name)
+        # hooks
+        box.addexport(
+            '__box_abort', 'fn(err32) -> void',
+            target=box.name, source=self.__name, weak=True)
+        box.addexport(
+            '__box_write', 'fn(i32, u8*, usize) -> errsize',
+            target=box.name, source=self.__name, weak=True)
+
         super().box_box(box)
 
     # overridable
@@ -681,11 +672,11 @@ class ARMv7MMPURuntime(runtimes.Runtime):
         out = output.decls.append(doc='special box triggers')
         out.printf('%(name)-16s = %(retprefix)#010x + 1;',
             name='__box_ret')
-        if not self._abort_hook.link:
+        if self._abort_hook.link.export.source == self.__name:
             out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
                 name='__box_abort',
                 id=1)
-        if not self._write_hook.link:
+        if self._write_hook.link.export.source == self.__name:
             out.printf('%(name)-16s = %(callprefix)#010x + '
                     '%(id)d*4 + %(falible)d*2 + 1;',
                 name='__box_write',
@@ -714,7 +705,6 @@ class ARMv7MMPURuntime(runtimes.Runtime):
 
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(BOX_INIT)
-        output.decls.append(BOX_WRITE)
 
         output.decls.append('extern uint32_t __stack_end;')
         out = output.decls.append(doc='box-side jumptable')
