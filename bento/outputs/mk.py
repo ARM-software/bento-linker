@@ -238,9 +238,9 @@ class MKOutput(outputs.Output):
                         '    t, d, b, t+d+b, t+d+b, n} \\\n'
                         'NR==1 {print} \\\n'
                         'NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \\\n'
-                        'NR>=4 && !/TOTALS/ {l[NR-4]=$$0; '
-                            't-=$$1+$$2; b-=$$3+$$2} \\\n'
-                        'NR>=4 && !/TOTALS/ {tt+=$$1; td+=$$2; tb+=$$3} \\\n'
+                        'NR>3 && /^([ \\t]+[0-9]+){3,}/ && !/TOTALS/ {'
+                        '   l[NR-4]=$$0; t-=$$1+$$2; b-=$$3+$$2;'
+                        '   tt+=$$1; td+=$$2; tb+=$$3} \\\n'
                         'END {f(t, d, b, n)} \\\n'
                         'END {for (i in l) print l[i]} \\\n'
                         'END {f(t+tt, d+td, b+tb, "(TOTALS)")}\')')

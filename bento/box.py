@@ -874,6 +874,16 @@ class Box:
         - Allocate sections
         - Create implicit exports?
         """
+        assert all(memory.addr is not None and
+                memory.size is not None
+                for memory in self.memoryslices), (
+            "Memory insufficiently specified for box %r:\n"
+            "%s" % (
+            self.name,
+            '\n'.join("memory.%s = %s in %s" % (
+                memory.name, memory, self.name)
+                for memory in self.memoryslices)))
+
         if not stage or stage == 'boxes':
             # create memory slices for children
             for child in self.boxes:

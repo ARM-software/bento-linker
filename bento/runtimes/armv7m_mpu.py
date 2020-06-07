@@ -448,18 +448,16 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             callregionlog2=int(math.log2(self._call_region.size)),
             mpuregions=self._mpu_regions)
 
-        for box in parent.boxes:
-            if box.runtime == self:
-                for memory in box.memories:
-                    assert math.log2(memory.size) % 1 == 0, (
-                        "Memory region %r not aligned to a power-of-two"
-                            % memory.name)
-                    assert memory.addr % memory.size == 0, (
-                        "Memory region %r not aligned to its size"
-                            % memory.name)
-                    assert memory.size >= 32, (
-                        "Memory region %r too small (< 32 bytes)"
-                            % memory.name)
+        for memory in box.memories:
+            assert math.log2(memory.size) % 1 == 0, (
+                "Memory region %r not aligned to a power-of-two"
+                    % memory.name)
+            assert memory.addr % memory.size == 0, (
+                "Memory region %r not aligned to its size"
+                    % memory.name)
+            assert memory.size >= 32, (
+                "Memory region %r too small (< 32 bytes)"
+                    % memory.name)
 
         parent.addimport('%s.__box_init' % box.name,
             'fn() -> err32',
@@ -699,6 +697,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             out.printf('%(section)s : {')
             with out.pushindent():
                 out.printf('. = ALIGN(%(align)d);')
+                out.printf('__jumptable_start = .;')
                 out.printf('__jumptable = .;')
                 out.printf('KEEP(*(.jumptable))')
                 out.printf('. = ALIGN(%(align)d);')

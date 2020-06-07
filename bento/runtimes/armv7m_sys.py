@@ -150,9 +150,10 @@ class ARMv7MSysRuntime(runtimes.Runtime):
             out.printf('.isr_vector : {')
             with out.pushindent():
                 out.printf('. = ALIGN(%(align)d);')
+                out.printf('__isr_vector_start = .;')
                 out.printf('__isr_vector = .;')
                 out.printf('KEEP(*(.isr_vector))')
-                out.printf('. = __isr_vector + %(isr_vector_size)#x;',
+                out.printf('. = __isr_vector_start + %(isr_vector_size)#x;',
                     isr_vector_size=self._isr_vector.size)
                 out.printf('. = ALIGN(%(align)d);')
                 out.printf('__isr_vector_end = .;')
