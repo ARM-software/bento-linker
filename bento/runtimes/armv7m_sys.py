@@ -6,58 +6,42 @@ from ..box import Section
 
 
 RESET_HANDLER = """
-__attribute__((naked, noreturn))
+__attribute__((noreturn))
 void %(name)s(void) {
-    __asm__ volatile (
-        // disable irqs
-        "cpsid i \\n\\t"
+    // zero bss
+    extern uint32_t __bss_start;
+    extern uint32_t __bss_end;
+    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
+        *d = 0;
+    }
 
-        // copy data
-        "ldr r1, =__data_init \\n\\t"
-        "ldr r2, =__data \\n\\t"
-        "ldr r3, =__data_end \\n\\t"
-    "._L0: \\n\\t"
-        "cmp r2, r3 \\n\\t"
-        "ittt lt \\n\\t"
-        "ldrlt r0, [r1], #4 \\n\\t"
-        "strlt r0, [r2], #4 \\n\\t"
-        "blt ._L0 \\n\\t"
+    // load data
+    extern uint32_t __data_init_start;
+    extern uint32_t __data_start;
+    extern uint32_t __data_end;
+    const uint32_t *s = &__data_init_start;
+    for (uint32_t *d = &__data_start; d < &__data_end; d++) {
+        *d = *s++;
+    }
 
-        // clear bss
-        "ldr r1, =__bss \\n\\t"
-        "ldr r2, =__bss_end \\n\\t"
-        "movs r0, 0 \\n\\t"
-    "._L1: \\n\\t"
-        "cmp r1, r2 \\n\\t"
-        "itt lt \\n\\t"
-        "strlt r0, [r1], #4 \\n\\t"
-        "blt ._L1 \\n\\t"
+    // init libc
+    extern void __libc_init_array(void);
+    __libc_init_array();
 
-        // init stdlib
-        "ldr r0, =__libc_init_array \\n\\t"
-        "blx r0 \\n\\t"
+    // enter main
+    %(main)s();
 
-        // enable irqs
-        "cpsie i \\n\\t"
-
-        // go to main!
-        "ldr r0, =%(main)s \\n\\t"
-        "blx r0 \\n\\t"
-
-        // loop if main exits
-    "._L2: \\n\\t"
-        "wfi \\n\\t"
-        "b ._L2 \\n\\t"
-    );
+    // halt if main exits
+    while (1) {
+        __asm__ volatile ("wfi");
+    }
 }
 """
 
 DEFAULT_HANDLER = """
-__attribute__((weak, naked, noreturn))
+__attribute__((noreturn))
 void %(name)s(void) {
-    __asm__ volatile (
-        "b . \\n\\t"
-    );
+    while (1) {}
 }
 """
 

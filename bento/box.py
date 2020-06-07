@@ -902,7 +902,7 @@ class Box:
                                 for memory in self.memoryslices)))
 
                         memory.addr = slice.addr
-                        memory._addr = slice.addr
+                        memory._addr = slice._addr
 
                     self.memoryslices = list(it.chain.from_iterable(
                         slice - memory for slice in self.memoryslices))

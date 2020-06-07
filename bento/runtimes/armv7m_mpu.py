@@ -9,20 +9,24 @@ from ..box import Fn, Section, Region
 BOX_INIT = """
 int32_t __box_init(void) {
     // zero bss
-    extern uint32_t __bss;
+    extern uint32_t __bss_start;
     extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss; d < &__bss_end; d++) {
+    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
         *d = 0;
     }
 
     // load data
-    extern uint32_t __data_init;
-    extern uint32_t __data;
+    extern uint32_t __data_init_start;
+    extern uint32_t __data_start;
     extern uint32_t __data_end;
-    const uint32_t *s = &__data_init;
-    for (uint32_t *d = &__data; d < &__data_end; d++) {
+    const uint32_t *s = &__data_init_start;
+    for (uint32_t *d = &__data_start; d < &__data_end; d++) {
         *d = *s++;
     }
+
+    // init libc
+    extern void __libc_init_array(void);
+    __libc_init_array();
 
     return 0;
 }
@@ -448,13 +452,13 @@ class ARMv7MMPURuntime(runtimes.Runtime):
             if box.runtime == self:
                 for memory in box.memories:
                     assert math.log2(memory.size) % 1 == 0, (
-                        "Memory region %s not aligned to a power-of-two"
+                        "Memory region %r not aligned to a power-of-two"
                             % memory.name)
                     assert memory.addr % memory.size == 0, (
-                        "Memory region %s not aligned to its size"
+                        "Memory region %r not aligned to its size"
                             % memory.name)
                     assert memory.size >= 32, (
-                        "Memory region %s too small (< 32 bytes)"
+                        "Memory region %r too small (< 32 bytes)"
                             % memory.name)
 
         parent.addimport('%s.__box_init' % box.name,
@@ -655,7 +659,7 @@ class ARMv7MMPURuntime(runtimes.Runtime):
                 box_memory=self._jumptable.memory.name,
                 section='.box.%(box)s.%(box_memory)s',
                 memory='box_%(box)s_%(box_memory)s')
-            out.printf('__box_%(box)s_jumptable = __%(memory)s;')
+            out.printf('__box_%(box)s_jumptable = __%(memory)s_start;')
 
     def build_parent_c(self, output, sys, box):
         output.decls.append('//// %(box)s init ////')

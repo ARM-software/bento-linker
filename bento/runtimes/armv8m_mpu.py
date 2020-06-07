@@ -89,10 +89,10 @@ class ARMv8MMPURuntime(ARMv7MMPURuntime):
             if box.runtime == self:
                 for memory in box.memories:
                     assert memory.size >= 32, (
-                        "Memory region %s too small (< 32 bytes)"
+                        "Memory region %r too small (< 32 bytes)"
                             % memory.name)
                     assert memory.addr % 32 == 0 and memory.size % 32 == 0, (
-                        "Memory region %s not aligned to 32 byte address"
+                        "Memory region %r not aligned to 32 byte address"
                             % memory.name)
 
         self.ids = {}
