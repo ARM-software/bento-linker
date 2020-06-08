@@ -1,0 +1,28 @@
+memory.flash = 'rx 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x1000
+heap = 0x1000
+
+runtime = 'armv7m_sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+define.NRF52840_XXAA=1
+define.NRFX_UARTE_ENABLED=1
+define.NRFX_UARTE0_ENABLED=1
+srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates'
+]
+
+export.__box_write = 'fn(i32, u8*, usize) -> errsize'
