@@ -162,6 +162,10 @@ class Region:
             return (other >= self.addr and
                 other < self.addr + self.size)
 
+    def overlaps(self, other):
+        return (self.addr < other.addr+other.size and
+            self.addr+self.size > other.addr)
+
     def __sub__(self, regions):
         if isinstance(regions, Region):
             regions = [regions]
@@ -605,6 +609,20 @@ class Box:
         for Runtime in RUNTIMES.values():
             runtimeparser.add_nestedparser(Runtime)
 
+        parser.add_argument('--init', choices=['lazy', 'super', 'manual'],
+            help='Select when the box will be initialized. \'lazy\' init will '
+                'initialize the box on the first box call, at the cost of some '
+                'overhead on every call. \'super\' registers this box to be '
+                'initialized with its containing box using C constructors. '
+                '\'manual\' leaves it up to the user to call '
+                '__box_<name>_init() manually. Must be one of: {%(choices)s}. '
+                'Defaults to lazy.')
+        parser.add_argument('--idempotent', type=bool,
+            help='Indicate if the box is idempotent, where idempotency '
+                'indicates if it is ok to lose state between box calls. '
+                'Idempotent boxes can share RAM with a performance penalty. '
+                'Defaults to false.')
+
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser('--output')
         for Output in OUTPUTS.values():
@@ -634,7 +652,7 @@ class Box:
                 'printf to reduce a code cost that is duplicated in every '
                 'box. If this isn\'t wanted, --printf=std provides the '
                 'printf found in the stdlib. Can be one of the following: '
-                '{%(choices)s}')
+                '{%(choices)s}. Defaults to minimal.')
 
         parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
@@ -649,8 +667,9 @@ class Box:
         parser.add_set(Export, metavar='BOX.EXPORT', depth=2)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
-            runtime=None, output=None,
-            debug=None, lto=None, srcs=None, incs=None, define={},
+            runtime=None, init=None, idempotent=None,
+            output=None, debug=None, lto=None,
+            srcs=None, incs=None, define={},
             emit_stdlib_hooks=None, printf=None,
             memory=None, stack=None, heap=None,
             text=None, data=None, bss=None,
@@ -664,6 +683,11 @@ class Box:
         selected = runtime.select or 'noop'
         self.runtime = RUNTIMES[selected](**getattr(
             runtime, selected, argstuff.Namespace()).__dict__)
+
+        self.init = (init if init is not None else 'lazy')
+        self.idempotent = (
+            idempotent if idempotent is not None else False)
+        self.roommates = []
 
         from .outputs import OUTPUTS
         self.outputs = sorted(
@@ -959,6 +983,24 @@ class Box:
 
                         memory.addr = slice.addr
                         memory._addr = slice._addr
+
+                    # check for overlaps
+                    for child2 in self.boxes:
+                        if child2.name == child.name:
+                            continue
+                        for memory2 in child2.memories:
+                            if (memory2.addr is not None and
+                                    memory2.overlaps(memory)):
+                                assert (child.idempotent and
+                                        child2.idempotent), (
+                                    "Overlapping memory for non-idempotent "
+                                    "boxes:\n"
+                                    "memory.%s = %s in %s\n"
+                                    "memory.%s = %s in %s" % (
+                                    memory.name, memory, child.name,
+                                    memory2.name, memory2, child.name))
+                                child.roommates.append(child2)
+                                child2.roommates.append(child)
 
                     self.memoryslices = list(it.chain.from_iterable(
                         slice - memory for slice in self.memoryslices))

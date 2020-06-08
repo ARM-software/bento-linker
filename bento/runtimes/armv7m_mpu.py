@@ -682,12 +682,8 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                 name='__box_abort',
                 id=1)
         if self._write_plug.links:
-            out.printf('%(name)-16s = %(callprefix)#010x + '
-                    '%(id)d*4 + %(falible)d*2 + 1;',
-                name='__box_write',
-                id=self._write_hook.link.export.n()
-                    *(len(box.parent.boxes)+1),
-                falible=self._write_hook.isfalible())
+            out.printf('%(name)-16s = __box_%(box)s_write;',
+                name='__box_write')
 
         if output.emit_sections:
             out = output.sections.append(

@@ -439,7 +439,7 @@ class ArgumentParser(argparse.ArgumentParser):
                 elif v is None:
                     pass
                 elif v is True:
-                    args.append('--%s' % '.'.join(prefix + [k]))
+                    args.append('--%s=true' % '.'.join(prefix + [k]))
                 else:
                     args.append('--%s=%s' % ('.'.join(prefix + [k]), v))
 
