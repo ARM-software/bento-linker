@@ -35,6 +35,8 @@ class HOutput(outputs.Output):
 
     def default_build_box_prologue(self, box):
         # always need standard types
+        self.includes.append("<stdint.h>")
+        self.includes.append("<stdbool.h>")
         self.includes.append("<sys/types.h>")
 
         # TODO configurable?

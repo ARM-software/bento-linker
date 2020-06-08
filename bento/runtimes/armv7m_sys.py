@@ -57,13 +57,15 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, **kwargs):
-        parser.add_argument('--no_startup', type=bool,
-            help="Don't emit definitions normally found in startup files.")
+        parser.add_argument('--emit_startup', type=bool,
+            help="Enable/disable startup code and isr_vector used to "
+                "initialize the device.")
         parser.add_nestedparser('--isr_vector', Section)
 
-    def __init__(self, no_startup=None, isr_vector=None):
+    def __init__(self, emit_startup=None, isr_vector=None):
         super().__init__()
-        self._no_startup = no_startup or False 
+        self._emit_startup = (
+            emit_startup if emit_startup is not None else True)
         self._isr_vector = Section('isr_vector', **{**isr_vector.__dict__,
             'size': isr_vector.size
                 if isr_vector.size is not None else
@@ -73,7 +75,7 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     def box_box(self, box):
         self._isr_vector.alloc(box, 'r')
 
-        if not self._no_startup:
+        if self._emit_startup:
             # allow overloading main, but default to using main if available
             self._main_hook = box.addimport(
                 '__box_main', 'fn() -> void',
@@ -142,7 +144,7 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         super().build_box_c(output, box)
 
         # default write/abort hooks
-        if not self._no_startup:
+        if self._emit_startup:
             output.decls.append('//// ISR Vector definitions ////')
 
             # default to standard main definition

@@ -18,14 +18,6 @@ class MKOutput(outputs.Output):
     def __argparse__(cls, parser, **kwargs):
         outputs.Output.__argparse__(parser, **kwargs)
 
-        defineparser = parser.add_set('--defines',
-            append=True, metavar='DEFINE')
-        defineparser.add_argument('define',
-            help='Add preprocessor defines to the build.')
-        parser.add_argument('--libs', type=list,
-            help='Override libraries. Defaults to '
-                '[\'m\', \'c\', \'gcc\', and \'nosys\'].')
-
         parser.add_argument('--target',
             help='Override the target output (name.elf) for the makefile.')
         parser.add_argument('--cross_compile',
@@ -52,6 +44,10 @@ class MKOutput(outputs.Output):
         parser.add_argument('--baud',
             help='Override the baud rate (115200) for the makefile.')
 
+        parser.add_argument('--libs', type=list,
+            help='Override libraries. Defaults to '
+                '[\'m\', \'c\', \'gcc\', and \'nosys\'].')
+
         parser.add_argument('--cflags', type=list,
             help='Add custom C flags.')
         parser.add_argument('--asmflags', type=list,
@@ -59,16 +55,12 @@ class MKOutput(outputs.Output):
         parser.add_argument('--lflags', type=list,
             help='Add custom linker flags.')
 
-    def __init__(self, path=None, defines={}, libs=None,
-            target=None, cross_compile=None,
+    def __init__(self, path=None, target=None, cross_compile=None,
             cc=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdbaddr=None, gdbport=None,
             tty=None, baud=None,
-            cflags=None, asmflags=None, lflags=None):
+            libs=None, cflags=None, asmflags=None, lflags=None):
         super().__init__(path)
-        self._defines = co.OrderedDict(sorted(
-            (k, getattr(v, 'define', v)) for k, v in defines.items()))
-        self._libs = libs or ['m', 'c', 'gcc', 'nosys']
 
         self._target = target
         self._cross_compile = cross_compile or 'arm-none-eabi-'
@@ -82,6 +74,8 @@ class MKOutput(outputs.Output):
         self._gdbport = gdbport or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
         self._baud = baud or 115200
+
+        self._libs = libs or ['m', 'c', 'gcc', 'nosys']
 
         self._cflags = cflags or []
         self._asmflags = asmflags or []
@@ -197,7 +191,7 @@ class MKOutput(outputs.Output):
         out.printf('override LFLAGS += --specs=nosys.specs')
         out.printf('override LFLAGS += -Wl,--gc-sections')
         out.printf('override LFLAGS += -Wl,-static')
-        out.printf('override LFLAGS += -Wl,-z -Wl,muldefs') # TODO
+        out.printf('override LFLAGS += -Wl,-z,muldefs')
         
         # default rule
         self.rules.append('### rules ###')
@@ -371,12 +365,12 @@ class MKOutput(outputs.Output):
 
     def default_build_box_epilogue(self, box):
         # we put these at the end so they have precedence
-        if any([self._defines, self._cflags, self._asmflags, self._lflags]):
+        if any([box.defines, self._cflags, self._asmflags, self._lflags]):
             self.decls.append('### user provided flags ###')
 
-        if self._defines or self._cflags:
+        if box.defines or self._cflags:
             out = self.decls.append()
-            for k, v in sorted(self._defines.items()):
+            for k, v in box.defines.items():
                 out.printf('override CFLAGS += -D%s=%s' % (k, v))
 
             for cflag in self._cflags:

@@ -651,7 +651,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     def build_parent_ld(self, output, sys, box):
         super().build_parent_ld(output, sys, box)
 
-        if not output.no_sections:
+        if output.emit_sections:
             out = output.sections.append(
                 box_memory=self._jumptable.memory.name,
                 section='.box.%(box)s.%(box_memory)s',
@@ -689,7 +689,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     *(len(box.parent.boxes)+1),
                 falible=self._write_hook.isfalible())
 
-        if not output.no_sections:
+        if output.emit_sections:
             out = output.sections.append(
                 section='.jumptable',
                 memory=self._jumptable.memory.name)

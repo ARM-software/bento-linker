@@ -1,9 +1,16 @@
 from .. import runtimes
 
 BOX_STDLIB_HOOKS = """
+__attribute__((used, noreturn))
+void __wrap_abort(void) {
+    __box_abort(-1);
+}
+
 #ifdef __GNUC__
 __attribute__((noreturn))
-void __wrap_abort(void) {
+void __assert_func(const char *file, int line,
+        const char *func, const char *expr) {
+    printf("%%s:%%d: assertion \\"%%s\\" failed\\n", file, line, expr);
     __box_abort(-1);
 }
 
@@ -52,11 +59,16 @@ class AbortGlue(runtimes.Runtime):
                 out.printf('%(alias)s(err);',
                     alias=self._write_hook.link.export.alias)
             out.printf('}')
-            
-        output.decls.append(BOX_STDLIB_HOOKS)
+
+        if box.emit_stdlib_hooks:
+            output.includes.append('<stdio.h>')
+            output.decls.append(BOX_STDLIB_HOOKS)
 
     def build_box_mk(self, output, box):
         super().build_box_mk(output, box)
-        output.decls.append('### __box_abort glue ###')
-        output.decls.append('override LFLAGS += -Wl,--wrap,abort')
+
+        if box.emit_stdlib_hooks:
+            output.decls.append('### __box_abort glue ###')
+            output.decls.append('override LFLAGS += -Wl,--wrap,abort')
+
 

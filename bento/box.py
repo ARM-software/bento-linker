@@ -612,7 +612,7 @@ class Box:
 
         parser.add_argument('--debug', type=bool,
             help='Hint that the box should be in debug mode. Defaults '
-                'to true.')
+                'to false.')
         parser.add_argument('--lto', type=bool,
             help='Hint that the box should be built with link-time '
                 'optimizations. Defaults to true.')
@@ -621,6 +621,20 @@ class Box:
         parser.add_argument('--incs', type=list,
             help='Supply include directories. Defaults to what\'s '
                 'passed to --srcs.')
+        defineparser = parser.add_set('--define', append=True)
+        defineparser.add_argument('define',
+            help='Add preprocessor defines to the build. It\'s up to the '
+                'output backends for these to be passed to compilation.')
+        parser.add_argument('--emit_stdlib_hooks', type=bool,
+            help='Hint to enable/disable the stdlib hooks that connect '
+                'box hooks to the C standard library. Defaults to true.')
+        parser.add_argument('--printf', choices=['minimal', 'std'],
+            help='Hint to select the printf implementation to use in the '
+                'box. By default, boxes provide a non-standard minimal '
+                'printf to reduce a code cost that is duplicated in every '
+                'box. If this isn\'t wanted, --printf=std provides the '
+                'printf found in the stdlib. Can be one of the following: '
+                '{%(choices)s}')
 
         parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
@@ -636,7 +650,8 @@ class Box:
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
             runtime=None, output=None,
-            debug=None, lto=None, srcs=None, incs=None,
+            debug=None, lto=None, srcs=None, incs=None, define={},
+            emit_stdlib_hooks=None, printf=None,
             memory=None, stack=None, heap=None,
             text=None, data=None, bss=None,
             export={}, box={}, **kwargs):
@@ -662,6 +677,11 @@ class Box:
         self.lto = lto if lto is not None else True
         self.srcs = srcs if srcs is not None else ['.']
         self.incs = incs if incs is not None else self.srcs
+        self.defines = co.OrderedDict(sorted(
+            (k, getattr(v, 'define', v)) for k, v in define.items()))
+        self.emit_stdlib_hooks = (
+            emit_stdlib_hooks if emit_stdlib_hooks is not None else True)
+        self.printf = printf if printf is not None else 'minimal'
 
         self.memories = sorted(
             Memory(name, **memargs.__dict__)
