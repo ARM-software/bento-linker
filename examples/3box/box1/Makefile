@@ -77,6 +77,12 @@ override LFLAGS += -Wl,--wrap,printf
 
 override LFLAGS += -Wl,--wrap,vprintf
 
+override LFLAGS += -Wl,--wrap,fprintf
+
+override LFLAGS += -Wl,--wrap,vfprintf
+
+override LFLAGS += -Wl,--wrap,fflush
+
 ### rules ###
 
 # default rule

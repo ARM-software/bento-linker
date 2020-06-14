@@ -65,9 +65,9 @@ class LDOutput(outputs.Output):
                     section='.box.%(box)s.' + memory.name,
                     memory='box_%(box)s_' + memory.name,
                     noload='(NOLOAD)'*('w' in memory.mode))
-                out.printf('%(section)s %(noload)s: {')
+                out.printf('__%(memory)s_start = .;')
+                out.printf('%(section)s . %(noload)s: {')
                 with out.pushindent():
-                    out.printf('__%(memory)s_start = .;')
                     out.printf('KEEP(*(%(section)s*))')
                 out.printf('} > %(MEMORY)s')
                 out.printf('. = ORIGIN(%(MEMORY)s) + '
@@ -92,10 +92,10 @@ class LDOutput(outputs.Output):
         out = self.sections.append(
             section='.text',
             memory=box.text.memory.name)
-        out.printf('%(section)s : {')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__text_start = .;')
+        out.printf('%(section)s . : {')
         with out.pushindent():
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__text_start = .;')
             out.printf('*(.text*)')
             out.printf('*(.rodata*)')
             out.printf('*(.glue_7*)')
@@ -131,23 +131,25 @@ class LDOutput(outputs.Output):
             out.printf('KEEP(*crtbegin?.o(.dtors))')
             out.printf('KEEP(*(EXCLUDE_FILE(*crtend?.o *crtend.o) .dtors))')
             out.printf('KEEP(*(SORT(.dtors.*)))')
-            out.printf()
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__text_end = .;')
         out.printf('} > %(MEMORY)s')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__text_end = .;')
         out.printf()
+        out.printf('__extab_start = .;')
         out.printf('.ARM.extab : {')
         with out.indent():
             out.printf('*(.ARM.extab* .gnu.linkonce.armextab.*)')
         out.printf('} > %(MEMORY)s')
+        out.printf('__extab_end = .;')
         out.printf()
+        out.printf('__exidx_start = .;')
         out.printf('.ARM.exidx : {')
         with out.indent():
-            out.printf('__exidx_start = .;')
             out.printf('*(.ARM.exidx* .gnu.linkonce.armexidx.*)')
-            out.printf('__exidx_end = .;')
         out.printf('} > %(MEMORY)s')
+        out.printf('__exidx_end = .;')
         out.printf()
+        out.printf('. = ALIGN(%(align)d);')
         out.printf('__data_init_start = .;')
 
         # write out ram sections
@@ -159,10 +161,11 @@ class LDOutput(outputs.Output):
             out = self.sections.append(
                 section='.stack',
                 memory=box.stack.memory.name)
-            out.printf('%(section)s (NOLOAD) : {')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__stack_start = .;')
+            out.printf('%(section)s . (NOLOAD) : {')
             with out.pushindent():
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__stack_start = .;')
+                out.printf('. = .;')
             out.printf('} > %(MEMORY)s')
             out.printf('. += __stack_min;')
             out.printf('. = ALIGN(%(align)d);')
@@ -172,35 +175,35 @@ class LDOutput(outputs.Output):
             section='.data',
             memory=box.data.memory.name,
             initmemory=box.text.memory.name)
-        out.printf('%(section)s : AT(__data_init_start) {')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__data_start = .;')
+        out.printf('%(section)s . : AT(__data_init_start) {')
         with out.pushindent():
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__data_start = .;')
             out.printf('*(.data*)')
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__data_end = .;')
         out.printf('} > %(MEMORY)s')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__data_end = .;')
         out.printf()
         out.printf('__data_init_end = '
             'LOADADDR(%(section)s) + SIZEOF(%(section)s);')
         out.printf('ASSERT(__data_init_end <= '
             'ORIGIN(%(INITMEMORY)s) + LENGTH(%(INITMEMORY)s),')
-        out.printf('    "Not enough memory in %(INITMEMORY)s for data")')
+        out.printf('    "Not enough memory in %(INITMEMORY)s for data init")')
 
         out = self.sections.append(
             section='.bss',
             memory=box.bss.memory.name)
-        out.printf('%(section)s (NOLOAD) : {')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__bss_start = .;')
+        out.printf('__bss_start__ = .;')
+        out.printf('%(section)s . (NOLOAD) : {')
         with out.pushindent():
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__bss_start = .;')
-            out.printf('__bss_start__ = .;')
             out.printf('*(.bss*)')
             out.printf('*(COMMON)')
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__bss_end = .;')
-            out.printf('__bss_end__ = .;')
         out.printf('} > %(MEMORY)s')
+        out.printf('. = ALIGN(%(align)d);')
+        out.printf('__bss_end = .;')
+        out.printf('__bss_end__ = .;')
 
         if box.heap:
             constants.printf('%(symbol)-16s = DEFINED(%(symbol)s) '
@@ -210,14 +213,15 @@ class LDOutput(outputs.Output):
             out = self.sections.append(
                 section='.heap',
                 memory=box.heap.memory.name)
-            out.printf('%(section)s (NOLOAD) : {')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__heap_start = .;')
+            out.printf('__end__ = .;')
+            out.printf('PROVIDE(end = .);')
+            out.printf('%(section)s . (NOLOAD) : {')
             with out.pushindent():
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__end__ = .;')
-                out.printf('PROVIDE(end = .);')
-                out.printf('__heap_start = .;')
+                out.printf('. = .;')
             out.printf('} > %(MEMORY)s')
-            out.printf('. += ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);')
+            out.printf('. = ORIGIN(%(MEMORY)s) + LENGTH(%(MEMORY)s);')
             out.printf('. = ALIGN(%(align)d);')
             out.printf('__heap_end = .;')
             out.printf('__heap_limit = .;')
@@ -259,8 +263,9 @@ class LDOutput(outputs.Output):
             for memory in sorted(self.memories, key=lambda m: m['addr']):
                 if any(section['memory'] == memory['memory']
                         for section in sections):
-                    self.print(4*' ' + '/* %s sections */'
-                        % memory['memory'].upper())
+                    with self.pushattrs(indent=4, memory=memory['memory']):
+                        self.printf('/* %(MEMORY)s sections */')
+                        self.printf('. = ORIGIN(%(MEMORY)s);')
                 nsections = []
                 for section in sections:
                     if section['memory'] == memory['memory']:
@@ -277,7 +282,8 @@ class LDOutput(outputs.Output):
                 sections = nsections
             # write any sections without a valid memory?
             if sections:
-                self.print(4*' ' + '/* misc sections */')
+                with self.pushattrs(indent=4):
+                    self.printf('/* misc sections */')
                 for section in sections:
                     if 'doc' in section:
                         for line in textwrap.wrap(

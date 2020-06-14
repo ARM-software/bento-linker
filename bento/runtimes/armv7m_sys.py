@@ -8,7 +8,7 @@ from ..runtimes.abort_glue import AbortGlue
 
 
 RESET_HANDLER = """
-__attribute__((noreturn))
+__attribute__((naked, noreturn))
 void %(name)s(void) {
     // zero bss
     extern uint32_t __bss_start;
@@ -41,7 +41,7 @@ void %(name)s(void) {
 """
 
 DEFAULT_HANDLER = """
-__attribute__((noreturn))
+__attribute__((naked, noreturn))
 void %(name)s(void) {
     while (1) {}
 }
@@ -127,16 +127,16 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out = output.sections.append(
                 section='.isr_vector',
                 memory=self._isr_vector.memory.name)
-            out.printf('.isr_vector : {')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__isr_vector_start = .;')
+            out.printf('.isr_vector . : {')
             with out.pushindent():
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__isr_vector_start = .;')
                 out.printf('KEEP(*(.isr_vector))')
                 out.printf('. = __isr_vector_start + %(isr_vector_size)#x;',
                     isr_vector_size=self._isr_vector.size)
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__isr_vector_end = .;')
             out.printf('} > %(MEMORY)s')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__isr_vector_end = .;')
 
         super().build_box_ld(output, box)
 

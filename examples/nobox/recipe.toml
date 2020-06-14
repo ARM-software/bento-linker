@@ -1,7 +1,7 @@
 memory.flash = 'rx 0x00000000-0x000fffff'
 memory.ram   = 'rw 0x20000000-0x2003ffff'
-stack = 0x1000
-heap = 0x1000
+stack = 0x800
+heap = 0x800
 
 runtime = 'armv7m_sys'
 output.ld = 'bb.ld'

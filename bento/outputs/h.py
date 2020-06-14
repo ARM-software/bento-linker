@@ -73,7 +73,8 @@ class HOutput(outputs.Output):
                 if export.source == box):
             if i == 0:
                 self.decls.append('//// box exports ////')
-            self.decls.append(export, attrs='extern')
+            self.decls.append(export, attrs=
+                '__attribute__((visibility("default"))) \nextern') # TODO hm
 
         # functions we can expect from runtimes
         self.decls.append('//// box hooks ////')

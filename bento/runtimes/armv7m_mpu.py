@@ -689,15 +689,15 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out = output.sections.append(
                 section='.jumptable',
                 memory=self._jumptable.memory.name)
-            out.printf('%(section)s : {')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable_start = .;')
+            out.printf('%(section)s . : {')
             with out.pushindent():
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__jumptable_start = .;')
                 out.printf('__jumptable = .;')
                 out.printf('KEEP(*(.jumptable))')
-                out.printf('. = ALIGN(%(align)d);')
-                out.printf('__jumptable_end = .;')
             out.printf('} > %(MEMORY)s')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable_end = .;')
 
         super().build_box_ld(output, box)
 

@@ -37,6 +37,7 @@ int box3_hello(void);
 
 //// box exports ////
 
+__attribute__((visibility("default"))) 
 extern ssize_t __box_write(int32_t a0, void *a1, size_t a2);
 
 //// box hooks ////
@@ -177,25 +178,6 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == 'X' || np[1] == 'x' || np[1] == 'p') {
-                // make it prettier for pointers
-                if (np[1] == 'p') {
-                    zero_justify = true;
-                    width = 2*sizeof(void*);
-                }
-
-                // hexadecimal number
-                mode = 'x';
-                value = va_arg(args, uint32_t);
-                size = 0;
-                for (uint32_t t = value; t > 0; t /= 16) {
-                    size += 1;
-                }
-                if (size == 0) {
-                    size += 1;
-                }
-                break;
-
             } else if (np[1] == 'd' || np[1] == 'i') {
                 // signed decimal number
                 mode = 'd';
@@ -227,15 +209,30 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == '\0') {
-                // uh oh
-                __box_abort(-1);
+            } else if (np[1] >= ' ' && np[1] <= '?') {
+                // unknown modifier? skip
 
             } else {
-                // probably an ignored character, skip
+                // hex or unknown character, terminate
 
+                // make it prettier for pointers
+                if (!(np[1] == 'x' || np[1] == 'X')) {
+                    zero_justify = true;
+                    width = 2*sizeof(void*);
+                }
+
+                // hexadecimal number
+                mode = 'x';
+                value = va_arg(args, uint32_t);
+                size = 0;
+                for (uint32_t t = value; t > 0; t /= 16) {
+                    size += 1;
+                }
+                if (size == 0) {
+                    size += 1;
+                }
+                break;
             }
-
         }
 
         // consume the format
@@ -321,12 +318,12 @@ ssize_t __box_cbprintf(
 
 static ssize_t __box_vprintf_write(void *ctx, const void *buf, size_t size) {
     // TODO hm, not const?
-    return __box_write(1, (void *)buf, size);
+    return __box_write((int32_t)ctx, (void *)buf, size);
 }
 
 __attribute__((used))
 ssize_t __wrap_vprintf(const char *format, va_list args) {
-    return __box_cbprintf(__box_vprintf_write, NULL, format, args);
+    return __box_cbprintf(__box_vprintf_write, (void*)1, format, args);
 }
 
 __attribute__((used))
@@ -336,6 +333,27 @@ ssize_t __wrap_printf(const char *format, ...) {
     ssize_t res = __wrap_vprintf(format, args);
     va_end(args);
     return res;
+}
+
+__attribute__((used))
+ssize_t __wrap_vfprintf(FILE *f, const char *format, va_list args) {
+    int32_t fd = (f == stdout) ? 1 : 2;
+    return __box_cbprintf(__box_vprintf_write, (void*)fd, format, args);
+}
+
+__attribute__((used))
+ssize_t __wrap_fprintf(FILE *f, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    ssize_t res = __wrap_vfprintf(f, format, args);
+    va_end(args);
+    return res;
+}
+
+__attribute__((used))
+int __wrap_fflush(FILE *f) {
+    // do nothing currently
+    return 0;
 }
 
 #ifdef __GNUC__
@@ -349,7 +367,7 @@ int _write(int handle, char *buffer, int size) {
 extern void main(void);
 
 // Reset Handler
-__attribute__((noreturn))
+__attribute__((naked, noreturn))
 void __box_reset_handler(void) {
     // zero bss
     extern uint32_t __bss_start;
@@ -380,7 +398,7 @@ void __box_reset_handler(void) {
     }
 }
 
-__attribute__((noreturn))
+__attribute__((naked, noreturn))
 void __box_default_handler(void) {
     while (1) {}
 }

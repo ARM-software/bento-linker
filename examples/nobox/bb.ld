@@ -3,8 +3,8 @@
 ENTRY(__box_reset_handler)
 
 /* overridable constants */
-__stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00001000;
-__heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00001000;
+__stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00000800;
+__heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00000800;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x00100000
@@ -13,18 +13,19 @@ MEMORY {
 
 SECTIONS {
     /* FLASH sections */
-    .isr_vector : {
-        . = ALIGN(4);
-        __isr_vector_start = .;
+    . = ORIGIN(FLASH);
+    . = ALIGN(4);
+    __isr_vector_start = .;
+    .isr_vector . : {
         KEEP(*(.isr_vector))
         . = __isr_vector_start + 0x400;
-        . = ALIGN(4);
-        __isr_vector_end = .;
     } > FLASH
+    . = ALIGN(4);
+    __isr_vector_end = .;
 
-    .text : {
-        . = ALIGN(4);
-        __text_start = .;
+    . = ALIGN(4);
+    __text_start = .;
+    .text . : {
         *(.text*)
         *(.rodata*)
         *(.glue_7*)
@@ -60,62 +61,67 @@ SECTIONS {
         KEEP(*crtbegin?.o(.dtors))
         KEEP(*(EXCLUDE_FILE(*crtend?.o *crtend.o) .dtors))
         KEEP(*(SORT(.dtors.*)))
-
-        . = ALIGN(4);
-        __text_end = .;
     } > FLASH
+    . = ALIGN(4);
+    __text_end = .;
 
+    __extab_start = .;
     .ARM.extab : {
         *(.ARM.extab* .gnu.linkonce.armextab.*)
     } > FLASH
+    __extab_end = .;
 
+    __exidx_start = .;
     .ARM.exidx : {
-        __exidx_start = .;
         *(.ARM.exidx* .gnu.linkonce.armexidx.*)
-        __exidx_end = .;
     } > FLASH
+    __exidx_end = .;
 
+    . = ALIGN(4);
     __data_init_start = .;
 
     /* RAM sections */
-    .stack (NOLOAD) : {
-        . = ALIGN(4);
-        __stack_start = .;
+    . = ORIGIN(RAM);
+    . = ALIGN(4);
+    __stack_start = .;
+    .stack . (NOLOAD) : {
+        . = .;
     } > RAM
     . += __stack_min;
     . = ALIGN(4);
     __stack_end = .;
 
-    .data : AT(__data_init_start) {
-        . = ALIGN(4);
-        __data_start = .;
+    . = ALIGN(4);
+    __data_start = .;
+    .data . : AT(__data_init_start) {
         *(.data*)
-        . = ALIGN(4);
-        __data_end = .;
     } > RAM
+    . = ALIGN(4);
+    __data_end = .;
 
     __data_init_end = LOADADDR(.data) + SIZEOF(.data);
     ASSERT(__data_init_end <= ORIGIN(FLASH) + LENGTH(FLASH),
-        "Not enough memory in FLASH for data")
+        "Not enough memory in FLASH for data init")
 
-    .bss (NOLOAD) : {
-        . = ALIGN(4);
-        __bss_start = .;
-        __bss_start__ = .;
+    . = ALIGN(4);
+    __bss_start = .;
+    __bss_start__ = .;
+    .bss . (NOLOAD) : {
         *(.bss*)
         *(COMMON)
-        . = ALIGN(4);
-        __bss_end = .;
-        __bss_end__ = .;
     } > RAM
+    . = ALIGN(4);
+    __bss_end = .;
+    __bss_end__ = .;
 
-    .heap (NOLOAD) : {
-        . = ALIGN(4);
-        __end__ = .;
-        PROVIDE(end = .);
-        __heap_start = .;
+    . = ALIGN(4);
+    __heap_start = .;
+    __end__ = .;
+    PROVIDE(end = .);
+    .heap . (NOLOAD) : {
+        . = .;
     } > RAM
-    . += ORIGIN(RAM) + LENGTH(RAM);
+    . = ORIGIN(RAM) + LENGTH(RAM);
     . = ALIGN(4);
     __heap_end = .;
     __heap_limit = .;

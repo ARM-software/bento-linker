@@ -152,5 +152,6 @@ from .wasm3 import Wasm3Runtime
 from .armv7m_sys import ARMv7MSysRuntime
 from .armv7m_mpu import ARMv7MMPURuntime
 from .armv8m_mpu import ARMv8MMPURuntime
+from .silverfish import SilverfishRuntime
 from .write_glue import WriteGlue
 from .abort_glue import AbortGlue

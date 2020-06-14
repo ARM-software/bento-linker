@@ -35,6 +35,7 @@ int box3_hello(void);
 
 //// box exports ////
 
+__attribute__((visibility("default"))) 
 extern ssize_t __box_write(int32_t a0, void *a1, size_t a2);
 
 //// box hooks ////
