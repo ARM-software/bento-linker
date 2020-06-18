@@ -2,14 +2,14 @@
 
 /* box calls */
 __box_box1_rawinit = 0x1e000000 + 1*4 + 1*2 + 1;
-box1_add2        = 0x1e000000 + 13*4 + 1*2 + 1;
-box1_hello       = 0x1e000000 + 17*4 + 1*2 + 1;
+__box_box1_raw_box1_add2 = 0x1e000000 + 13*4 + 1*2 + 1;
+__box_box1_raw_box1_hello = 0x1e000000 + 17*4 + 1*2 + 1;
 __box_box2_rawinit = 0x1e000000 + 2*4 + 1*2 + 1;
-box2_add2        = 0x1e000000 + 14*4 + 1*2 + 1;
-box2_hello       = 0x1e000000 + 18*4 + 1*2 + 1;
+__box_box2_raw_box2_add2 = 0x1e000000 + 14*4 + 1*2 + 1;
+__box_box2_raw_box2_hello = 0x1e000000 + 18*4 + 1*2 + 1;
 __box_box3_rawinit = 0x1e000000 + 3*4 + 1*2 + 1;
-box3_add2        = 0x1e000000 + 15*4 + 1*2 + 1;
-box3_hello       = 0x1e000000 + 19*4 + 1*2 + 1;
+__box_box3_raw_box3_add2 = 0x1e000000 + 15*4 + 1*2 + 1;
+__box_box3_raw_box3_hello = 0x1e000000 + 19*4 + 1*2 + 1;
 
 ENTRY(__box_reset_handler)
 

@@ -2,12 +2,12 @@
 
 /* box calls */
 __box_box1_rawinit = 0x1e000000 + 1*4 + 1*2 + 1;
-box1_add2        = 0x1e000000 + 7*4 + 1*2 + 1;
-box1_badassert   = 0x1e000000 + 9*4 + 1*2 + 1;
-box1_badread     = 0x1e000000 + 11*4 + 1*2 + 1;
-box1_badwrite    = 0x1e000000 + 13*4 + 1*2 + 1;
-box1_hello       = 0x1e000000 + 15*4 + 1*2 + 1;
-box1_overflow    = 0x1e000000 + 17*4 + 1*2 + 1;
+__box_box1_raw_box1_add2 = 0x1e000000 + 7*4 + 1*2 + 1;
+__box_box1_raw_box1_badassert = 0x1e000000 + 9*4 + 1*2 + 1;
+__box_box1_raw_box1_badread = 0x1e000000 + 11*4 + 1*2 + 1;
+__box_box1_raw_box1_badwrite = 0x1e000000 + 13*4 + 1*2 + 1;
+__box_box1_raw_box1_hello = 0x1e000000 + 15*4 + 1*2 + 1;
+__box_box1_raw_box1_overflow = 0x1e000000 + 17*4 + 1*2 + 1;
 
 ENTRY(__box_reset_handler)
 

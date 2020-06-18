@@ -69,9 +69,6 @@ void main(void) {
 
     printf("hi from nrf52840!\n");
 
-    printf("initializing boxes...\n");
-    __box_box1_init();
-
     printf("pinging box1\n");
     int x = box1_add2(1, 2);
     printf("1 + 2 = %d\n", x);

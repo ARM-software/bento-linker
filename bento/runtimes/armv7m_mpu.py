@@ -6,6 +6,7 @@ from .. import runtimes
 from ..box import Fn, Section, Region
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
+from ..outputs import OutputBlob
 
 # utility functions in C
 BOX_INIT = """
@@ -36,6 +37,7 @@ int32_t __box_init(void) {
 
 BOX_STRUCT_STATE = """
 struct __box_state {
+    bool initialized;
     uint32_t caller;
     uint32_t lr;
     uint32_t *sp;
@@ -258,6 +260,9 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
 
 __attribute__((used))
 uint64_t __box_faultsetup(int32_t err) {
+    // mark box as uninitialized
+    __box_state[__box_active]->initialized = false;
+
     // invoke user handler, may not return
     // TODO should we set this up to be called in non-isr context?
     __box_faults[__box_active](err);
@@ -370,8 +375,27 @@ void __box_mpu_handler(void) {
 """
 
 BOX_SYS_INIT = """
+int __box_%(box)s_clobber(void) {
+    __box_%(box)s_state.initialized = false;
+    return 0;
+}
+
 int __box_%(box)s_init(void) {
-    int32_t err = __box_mpu_init();
+    // do nothing if already initialized
+    if (__box_%(box)s_state.initialized) {
+        return 0;
+    }
+
+    int err;
+%(roommate_clobbers)s
+    // check that MPU is initialized
+    err = __box_mpu_init();
+    if (err) {
+        return err;
+    }
+
+    // load the box if unloaded
+    err = __box_%(box)s_load();
     if (err) {
         return err;
     }
@@ -383,7 +407,13 @@ int __box_%(box)s_init(void) {
 
     // call box's init
     extern int __box_%(box)s_rawinit(void);
-    return __box_%(box)s_rawinit();
+    err = __box_%(box)s_rawinit();
+    if (err) {
+        return err;
+    }
+
+    __box_%(box)s_state.initialized = true;
+    return 0;
 }
 """
 
@@ -535,21 +565,40 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('},')
         out.printf('};')
 
+    def _needswrapper(self, import_):
+        if (import_.link.export.source != self.__name and
+                import_.link.export.box.init == 'lazy'):
+            return True
+
+        # if no conditions are hit we can shortcut straight to MPU handler
+        return False
+
     def build_parent_ld_prologue(self, output, sys):
         super().build_parent_ld_prologue(output, sys)
 
         out = output.decls.append(doc='box calls')
         for import_ in sys.imports:
             if import_.link and import_.link.export.box != sys:
-                out.printf(
-                    '%(import_)-16s = %(callprefix)#010x + '
-                        '%(id)d*4 + %(falible)d*2 + 1;',
-                    import_=import_.alias,
-                    id=import_.link.export.n()*(len(sys.boxes)+1) +
-                        import_.link.export.box.n()+1,
-                    falible=import_.isfalible())
+                with out.pushattrs(
+                        box=import_.link.export.box.name,
+                        import_=import_.alias,
+                        rawimport = '__box_%(box)s_raw_%(import_)s',
+                        id=import_.link.export.n()*(len(sys.boxes)+1) +
+                            import_.link.export.box.n()+1,
+                        falible=import_.isfalible()):
+                    if import_.link.export.source != self.__name:
+                        out.printf(
+                            '%(rawimport)-16s = '
+                                '%(callprefix)#010x + '
+                                '%(id)d*4 + %(falible)d*2 + 1;')
+                    if not self._needswrapper(import_):
+                        out.printf(
+                            '%(import_)-16s = '
+                                '%(callprefix)#010x + '
+                                '%(id)d*4 + %(falible)d*2 + 1;')
 
     def build_parent_c_prologue(self, output, sys):
+        super().build_parent_c_prologue(output, sys)
         output.decls.append('//// jumptable implementation ////')
         self.build_mpu_dispatch(output, sys)
 
@@ -670,8 +719,56 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('__box_%(box)s_jumptable = __%(memory)s_start;')
 
     def build_parent_c(self, output, sys, box):
+        super().build_parent_c(output, sys, box)
+
         output.decls.append('//// %(box)s init ////')
-        output.decls.append(BOX_SYS_INIT)
+        roommate_clobbers = OutputBlob(indent=4)
+        out = roommate_clobbers
+        if box.roommates:
+            out.printf()
+            out.printf('// bring down any overlapping boxes')
+        for i, roommate in enumerate(box.roommates):
+            with out.pushattrs(roommate=roommate.name):
+                out.printf('extern int __box_%(roommate)s_clobber(void);')
+                out.printf('err = __box_%(roommate)s_clobber();')
+                out.printf('if (err) {')
+                with out.indent():
+                    out.printf('return err;')
+                out.printf('}')
+
+        output.decls.append(BOX_SYS_INIT,
+            roommate_clobbers=roommate_clobbers)
+
+        # build wrappers if needed
+        for import_ in sys.imports:
+            if (import_.link and
+                    import_.link.export.box == box and
+                    self._needswrapper(import_)):
+                out = output.decls.append(
+                    import_=import_.name,
+                    repr=import_.repr_c(),
+                    rawimport='__box_%(box)s_raw_%(import_)s',
+                    rawrepr=import_.repr_c('%(rawimport)s'))
+                out.printf('%(repr)s {')
+                with out.indent():
+                    if box.init == 'lazy':
+                        out.printf('if (!__box_%(box)s_state.initialized) {')
+                        with out.indent():
+                            out.printf('int _err = __box_%(box)s_init();')
+                            out.printf('if (_err) {')
+                            with out.indent():
+                                if import_.isfalible():
+                                    out.printf('return _err;')
+                                else:
+                                    out.printf('__box_abort(_err);')
+                            out.printf('}')
+                        out.printf('}')
+                        out.printf()
+                    # call the raw function
+                    out.printf('extern %(rawrepr)s;')
+                    out.printf('return %(rawimport)s(%(args)s);',
+                        args=', '.join(import_.argnames))
+                out.printf('}')
 
     def build_ld(self, output, box):
         # create box calls for imports

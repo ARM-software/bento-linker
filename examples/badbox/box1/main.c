@@ -28,5 +28,8 @@ int box1_badwrite(void) {
 }
 
 int box1_overflow(void) {
-    return box1_overflow();
+    box1_overflow();
+
+    // make sure this isn't tail recursive
+    return 0;
 }

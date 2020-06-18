@@ -37,7 +37,6 @@ int box3_hello(void);
 
 //// box exports ////
 
-__attribute__((visibility("default"))) 
 extern ssize_t __box_write(int32_t a0, void *a1, size_t a2);
 
 //// box hooks ////
@@ -55,11 +54,20 @@ ssize_t __box_write(int32_t fd, void *buffer, size_t size);
 // Initialize box box1.
 int __box_box1_init(void);
 
+// Mark the box box1 as needing to be reinitialized.
+int __box_box1_clobber(void);
+
 // Initialize box box2.
 int __box_box2_init(void);
 
+// Mark the box box2 as needing to be reinitialized.
+int __box_box2_clobber(void);
+
 // Initialize box box3.
 int __box_box3_init(void);
+
+// Mark the box box3 as needing to be reinitialized.
+int __box_box3_clobber(void);
 
 //// jumptable implementation ////
 
@@ -187,6 +195,7 @@ void (*const __box_faults[__BOX_COUNT+1])(int err) = {
 
 // Box state
 struct __box_state {
+    bool initialized;
     uint32_t caller;
     uint32_t lr;
     uint32_t *sp;
@@ -372,6 +381,9 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
 
 __attribute__((used))
 uint64_t __box_faultsetup(int32_t err) {
+    // mark box as uninitialized
+    __box_state[__box_active]->initialized = false;
+
     // invoke user handler, may not return
     // TODO should we set this up to be called in non-isr context?
     __box_faults[__box_active](err);
@@ -1094,10 +1106,36 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
 };
 
+//// box1 loading ////
+
+static int __box_box1_load(void) {
+    // default loader does nothing
+    return 0;
+}
+
 //// box1 init ////
 
+int __box_box1_clobber(void) {
+    __box_box1_state.initialized = false;
+    return 0;
+}
+
 int __box_box1_init(void) {
-    int32_t err = __box_mpu_init();
+    // do nothing if already initialized
+    if (__box_box1_state.initialized) {
+        return 0;
+    }
+
+    int err;
+
+    // check that MPU is initialized
+    err = __box_mpu_init();
+    if (err) {
+        return err;
+    }
+
+    // load the box if unloaded
+    err = __box_box1_load();
     if (err) {
         return err;
     }
@@ -1109,13 +1147,69 @@ int __box_box1_init(void) {
 
     // call box's init
     extern int __box_box1_rawinit(void);
-    return __box_box1_rawinit();
+    err = __box_box1_rawinit();
+    if (err) {
+        return err;
+    }
+
+    __box_box1_state.initialized = true;
+    return 0;
+}
+
+int box1_add2(int32_t a0, int32_t a1) {
+    if (!__box_box1_state.initialized) {
+        int _err = __box_box1_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box1_raw_box1_add2(int32_t a0, int32_t a1);
+    return __box_box1_raw_box1_add2(a0, a1);
+}
+
+int box1_hello(void) {
+    if (!__box_box1_state.initialized) {
+        int _err = __box_box1_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box1_raw_box1_hello(void);
+    return __box_box1_raw_box1_hello();
+}
+
+//// box2 loading ////
+
+static int __box_box2_load(void) {
+    // default loader does nothing
+    return 0;
 }
 
 //// box2 init ////
 
+int __box_box2_clobber(void) {
+    __box_box2_state.initialized = false;
+    return 0;
+}
+
 int __box_box2_init(void) {
-    int32_t err = __box_mpu_init();
+    // do nothing if already initialized
+    if (__box_box2_state.initialized) {
+        return 0;
+    }
+
+    int err;
+
+    // check that MPU is initialized
+    err = __box_mpu_init();
+    if (err) {
+        return err;
+    }
+
+    // load the box if unloaded
+    err = __box_box2_load();
     if (err) {
         return err;
     }
@@ -1127,13 +1221,69 @@ int __box_box2_init(void) {
 
     // call box's init
     extern int __box_box2_rawinit(void);
-    return __box_box2_rawinit();
+    err = __box_box2_rawinit();
+    if (err) {
+        return err;
+    }
+
+    __box_box2_state.initialized = true;
+    return 0;
+}
+
+int box2_add2(int32_t a0, int32_t a1) {
+    if (!__box_box2_state.initialized) {
+        int _err = __box_box2_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box2_raw_box2_add2(int32_t a0, int32_t a1);
+    return __box_box2_raw_box2_add2(a0, a1);
+}
+
+int box2_hello(void) {
+    if (!__box_box2_state.initialized) {
+        int _err = __box_box2_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box2_raw_box2_hello(void);
+    return __box_box2_raw_box2_hello();
+}
+
+//// box3 loading ////
+
+static int __box_box3_load(void) {
+    // default loader does nothing
+    return 0;
 }
 
 //// box3 init ////
 
+int __box_box3_clobber(void) {
+    __box_box3_state.initialized = false;
+    return 0;
+}
+
 int __box_box3_init(void) {
-    int32_t err = __box_mpu_init();
+    // do nothing if already initialized
+    if (__box_box3_state.initialized) {
+        return 0;
+    }
+
+    int err;
+
+    // check that MPU is initialized
+    err = __box_mpu_init();
+    if (err) {
+        return err;
+    }
+
+    // load the box if unloaded
+    err = __box_box3_load();
     if (err) {
         return err;
     }
@@ -1145,6 +1295,36 @@ int __box_box3_init(void) {
 
     // call box's init
     extern int __box_box3_rawinit(void);
-    return __box_box3_rawinit();
+    err = __box_box3_rawinit();
+    if (err) {
+        return err;
+    }
+
+    __box_box3_state.initialized = true;
+    return 0;
+}
+
+int box3_add2(int32_t a0, int32_t a1) {
+    if (!__box_box3_state.initialized) {
+        int _err = __box_box3_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box3_raw_box3_add2(int32_t a0, int32_t a1);
+    return __box_box3_raw_box3_add2(a0, a1);
+}
+
+int box3_hello(void) {
+    if (!__box_box3_state.initialized) {
+        int _err = __box_box3_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_box3_raw_box3_hello(void);
+    return __box_box3_raw_box3_hello();
 }
 

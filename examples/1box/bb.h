@@ -27,7 +27,6 @@ int box1_hello(void);
 
 //// box exports ////
 
-__attribute__((visibility("default"))) 
 extern ssize_t __box_write(int32_t a0, void *a1, size_t a2);
 
 //// box hooks ////
@@ -44,5 +43,8 @@ ssize_t __box_write(int32_t fd, void *buffer, size_t size);
 
 // Initialize box box1.
 int __box_box1_init(void);
+
+// Mark the box box1 as needing to be reinitialized.
+int __box_box1_clobber(void);
 
 #endif

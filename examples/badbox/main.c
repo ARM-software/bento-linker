@@ -69,9 +69,6 @@ void main(void) {
 
     printf("hi from nrf52840!\n");
 
-    printf("initializing boxes...\n");
-    __box_box1_init();
-
     printf("pinging box1\n");
     int x = box1_add2(1, 2);
     printf("1 + 2 = %d\n", x);
@@ -81,16 +78,12 @@ void main(void) {
     printf("return values: %d\n", x1);
 
     printf("testing bad functions\n");
-    __box_box1_init();
     x = box1_badassert();
     printf("box1_badassert: %d\n", x);
-    __box_box1_init();
     x = box1_badread();
     printf("box1_badread: %d\n", x);
-    __box_box1_init();
     x = box1_badwrite();
     printf("box1_badwrite: %d\n", x);
-    __box_box1_init();
     x = box1_overflow();
     printf("box1_overflow: %d\n", x);
 

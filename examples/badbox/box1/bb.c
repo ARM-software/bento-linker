@@ -22,22 +22,16 @@ enum box_err {
 
 //// box exports ////
 
-__attribute__((visibility("default"))) 
 extern int box1_add2(int32_t a0, int32_t a1);
 
-__attribute__((visibility("default"))) 
 extern int box1_badassert(void);
 
-__attribute__((visibility("default"))) 
 extern int box1_badread(void);
 
-__attribute__((visibility("default"))) 
 extern int box1_badwrite(void);
 
-__attribute__((visibility("default"))) 
 extern int box1_hello(void);
 
-__attribute__((visibility("default"))) 
 extern int box1_overflow(void);
 
 //// box hooks ////

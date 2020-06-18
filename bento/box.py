@@ -217,9 +217,10 @@ class Memory(Region):
 
     @staticmethod
     def parsemode(s):
-        if any(c not in Memory.MODEFLAGS for c in s):
+        mode = set(s) - {'-'}
+        if not mode.issubset(set(Memory.MODEFLAGS)):
             raise ValueError("invalid memory mode %r" % s)
-        return set(s)
+        return mode
 
     @staticmethod
     def parsememory(s):
@@ -609,14 +610,25 @@ class Box:
         for Runtime in RUNTIMES.values():
             runtimeparser.add_nestedparser(Runtime)
 
-        parser.add_argument('--init', choices=['lazy', 'super', 'manual'],
+        from .loaders import LOADERS
+        loaderparser = parser.add_nestedparser('--loader')
+        loaderparser.add_argument("select",
+            metavar='LOADER', choices=LOADERS,
+            help='Loader for the box. This can be one of the following '
+                'loaders: {%(choices)s}. Defaults to noop.')
+        loaderparser.add_argument("--select",
+            metavar='LOADER', choices=LOADERS,
+            help='Loader for the box. This can be one of the following '
+                'loaders: {%(choices)s}. Defaults to noop.')
+        for Loader in LOADERS.values():
+            loaderparser.add_nestedparser(Loader)
+
+        parser.add_argument('--init', choices=['lazy', 'manual'],
             help='Select when the box will be initialized. \'lazy\' init will '
                 'initialize the box on the first box call, at the cost of some '
-                'overhead on every call. \'super\' registers this box to be '
-                'initialized with its containing box using C constructors. '
-                '\'manual\' leaves it up to the user to call '
-                '__box_<name>_init() manually. Must be one of: {%(choices)s}. '
-                'Defaults to lazy.')
+                'overhead on every call. \'manual\' leaves it up to the user '
+                'to call __box_<name>_init() manually. Must be one of: '
+                '{%(choices)s}. Defaults to lazy.')
         parser.add_argument('--idempotent', type=bool,
             help='Indicate if the box is idempotent, where idempotency '
                 'indicates if it is ok to lose state between box calls. '
@@ -667,7 +679,7 @@ class Box:
         parser.add_set(Export, metavar='BOX.EXPORT', depth=2)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
-            runtime=None, init=None, idempotent=None,
+            runtime=None, loader=None, init=None, idempotent=None,
             output=None, debug=None, lto=None,
             srcs=None, incs=None, define={},
             emit_stdlib_hooks=None, printf=None,
@@ -683,6 +695,11 @@ class Box:
         selected = runtime.select or 'noop'
         self.runtime = RUNTIMES[selected](**getattr(
             runtime, selected, argstuff.Namespace()).__dict__)
+
+        from .loaders import LOADERS
+        selected = loader.select or 'noop'
+        self.loader = LOADERS[selected](**getattr(
+            loader, selected, argstuff.Namespace()).__dict__)
 
         self.init = (init if init is not None else 'lazy')
         self.idempotent = (
@@ -709,7 +726,8 @@ class Box:
 
         # build the runtime stack
         from .outputs import OutputGlue
-        self.runtime.inherit(OutputGlue())
+        self.loader.inherit(OutputGlue())
+        self.runtime.inherit(self.loader)
 
         self.memories = sorted(
             Memory(name, **memargs.__dict__)
@@ -878,12 +896,16 @@ class Box:
 
             # load additional config from the filesystem
             path = args.path or '.'
+            assert os.path.isdir(path), "Path %r not found?" % path
             recipe = args.recipe or 'recipe.toml'
             try:
                 nargs = parser.parse_toml(os.path.join(path, recipe),
                     prefix=prefix)
                 args = argstuff.nsmerge(nargs, args)
             except FileNotFoundError:
+                if args.recipe:
+                    # raise if explicitly requested
+                    raise
                 pass
 
             # apply all
@@ -1016,8 +1038,8 @@ class Box:
                                     "memory.%s = %s in %s" % (
                                     memory.name, memory, child.name,
                                     memory2.name, memory2, child.name))
-                                child.roommates.append(child2)
-                                child2.roommates.append(child)
+                                if child2 not in child.roommates:
+                                    child.roommates.append(child2)
 
                     self.memoryslices = list(it.chain.from_iterable(
                         slice - memory for slice in self.memoryslices))

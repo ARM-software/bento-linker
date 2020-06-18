@@ -73,8 +73,7 @@ class HOutput(outputs.Output):
                 if export.source == box):
             if i == 0:
                 self.decls.append('//// box exports ////')
-            self.decls.append(export, attrs=
-                '__attribute__((visibility("default"))) \nextern') # TODO hm
+            self.decls.append(export, attrs='extern')
 
         # functions we can expect from runtimes
         self.decls.append('//// box hooks ////')
@@ -95,6 +94,9 @@ class HOutput(outputs.Output):
                 self.decls.append(
                     'int __box_%(box)s_init(void);',
                     doc='Initialize box %(box)s.')
+                self.decls.append(
+                    'int __box_%(box)s_clobber(void);',
+                    doc='Mark the box %(box)s as needing to be reinitialized.')
 
     def getvalue(self):
         self.seek(0)

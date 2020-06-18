@@ -58,9 +58,11 @@ class BoxesCommand:
         def ls(box):
             print('box %s' % box.name)
             print('  %(name)-34s %(path)s' % dict(
-                name='path', path=box.path + '/'))
+                name='path', path=box.path))
             print('  %(name)-34s %(runtime)s' % dict(
                 name='runtime', runtime=box.runtime.__argname__))
+            print('  %(name)-34s %(loader)s' % dict(
+                name='loader', loader=box.loader.__argname__))
             for memory in box.memories:
                 print('  %(name)-34s %(memory)s' % dict(
                     name='memory.%s' % memory.name, memory=memory))

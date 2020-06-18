@@ -2,7 +2,7 @@
 
 TARGET         ?= box1.elf
 CROSS_COMPILE  ?= arm-none-eabi-
-DEBUG          ?= 1
+DEBUG          ?= 0
 LTO            ?= 1
 CC             = $(CROSS_COMPILE)gcc
 OBJCOPY        = $(CROSS_COMPILE)objcopy
