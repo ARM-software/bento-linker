@@ -164,10 +164,10 @@ $(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	$(strip $(OBJCOPY) $< $@ \
 	    --strip-all \
 	    --add-section .box.system.flash.data=$(word 2,$^) \
-	    --only-section .isr_vector \
-	    --rename-section .isr_vector=.box.system.flash.isr_vector \
 	    --only-section .text \
 	    --rename-section .text=.box.system.flash.text \
+	    --only-section .isr_vector \
+	    --rename-section .isr_vector=.box.system.flash.isr_vector \
 	    --only-section .stack \
 	    --rename-section .stack=.box.system.ram.stack \
 	    --only-section .data \

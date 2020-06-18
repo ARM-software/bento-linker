@@ -6,6 +6,7 @@ import itertools as it
 import string
 import io
 import re
+from ..glue import Inherit
 
 OUTPUTS = co.OrderedDict()
 def output(cls):
@@ -44,7 +45,13 @@ class OutputBlob(io.StringIO):
         self.writef('\n')
 
     def pushattrs(self, **kwargs):
-        self._attrs.append(kwargs)
+        nkwargs = {}
+        for k, v in kwargs.items():
+            while isinstance(v, str) and '%(' in v:
+                v = v % self.attrs(**kwargs)
+            nkwargs[k] = v
+
+        self._attrs.append(nkwargs)
 
         class context:
             def __enter__(_):
@@ -75,10 +82,7 @@ class OutputBlob(io.StringIO):
                 except TypeError:
                     continue
             else:
-                if isinstance(v, str) and re.search(r'%(?!%)', v):
-                    return v % self.attrs()
-                else:
-                    return v
+                return v
 
     def _expandall(self, attrs):
         expanded = {}
@@ -122,10 +126,13 @@ class OutputBlob(io.StringIO):
         attrs.update(kwargs)
         return self._expandall(attrs)
 
+    def __str__(self):
+        return self.getvalue()
+
 class OutputField(list):
-    def __init__(self, parent=None, rules={}, **kwargs):
+    def __init__(self, inherit=None, rules={}, **kwargs):
         super().__init__()
-        self._parent = parent
+        self._inherit = inherit
         self._rules = rules
         self._attrs = kwargs
 
@@ -134,7 +141,7 @@ class OutputField(list):
             outf = _fmt
         else:
             outf = OutputBlob(**{
-                **self._parent.attrs(),
+                **self._inherit.attrs(),
                 **self._attrs,
                 **kwargs})
 
@@ -156,11 +163,12 @@ class OutputField(list):
         for x in iterable:
             self.append(x)
 
-class Output(OutputBlob):
-    """An optional output that a runtime can generate."""
-    __argname__ = "unnamed_output"
-    __arghelp__ = __doc__
-
+class Output(Inherit(
+        ['%s%s%s' % (op, level, order)
+        for op, level, order in it.product(
+            ['box', 'build'],
+            ['_root', '_muxer', '_parent', ''],
+            ['_prologue', '', '_epilogue'])]), OutputBlob):
     @classmethod
     def __argparse__(cls, parser, **kwargs):
         parser.add_argument("path",
@@ -173,20 +181,27 @@ class Output(OutputBlob):
         self.name = self.__argname__
         self.path = path
 
+    def __eq__(self, other):
+        if isinstance(other, Output):
+            return self.name == other.name
+        else:
+            return self.name == other
+
     def __lt__(self, other):
-        return self.name < other.name
+        if isinstance(other, Output):
+            return self.name < other.name
+        else:
+            return self.name < other
 
     def box(self, box):
+        super().box(box)
         self.pushattrs(
             name=self.name,
             path=self.path,
+            root=getattr(box.getroot(), 'name', None),
+            muxer=getattr(box.getmuxer(), 'name', None),
+            parent=getattr(box.getparent(), 'name', None),
             box=box.name)
-
-    def link(self, box):
-        pass
-
-    def build(self, box):
-        pass
 
 # Output class imports
 # These must be imported here, since they depend on the above utilities
@@ -194,3 +209,23 @@ from .h import HOutput
 from .c import COutput
 from .ld import LDOutput
 from .mk import MKOutput
+
+# output glue for connecting default runtime generation
+import importlib
+from .. import glue
+importlib.reload(glue)
+
+class OutputGlue(glue.Glue):
+    __argname__ = "output_glue"
+    def __init__(self):
+        # we offer redirection for build_parent_mk -> parent.mk.build_parent
+        for op, level, Output, order in it.product(
+                ['box', 'build'],
+                ['_root', '_muxer', '_parent', ''],
+                OUTPUTS.values(),
+                ['_prologue', '', '_epilogue']):
+            m = getattr(Output, '%s%s%s' % (op, level, order), None)
+            if m:
+                setattr(self, '%s%s_%s%s' % (
+                    op, level, Output.__argname__, order), m)
+

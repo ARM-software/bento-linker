@@ -26,7 +26,8 @@ class AbortGlue(runtimes.Runtime):
     Helper layer for handling __box_abort and friends.
     """
     __name = 'abort_glue'
-    def box_box(self, box):
+    def box(self, box):
+        super().box(box)
         self._abort_hook = box.addimport(
             '__box_abort', 'fn(err32) -> void',
             target=box.name, source=self.__name, weak=True,
@@ -35,10 +36,8 @@ class AbortGlue(runtimes.Runtime):
                 "Note that __box_abort may be skipped if the box is killed "
                 "because of an illegal operation. Must not return.")
 
-        super().box_box(box)
-
-    def build_box_c(self, output, box):
-        super().build_box_c(output, box)
+    def build_c(self, output, box):
+        super().build_c(output, box)
 
         output.decls.append('//// __box_abort glue ////')
         if not self._abort_hook.link:
@@ -64,8 +63,8 @@ class AbortGlue(runtimes.Runtime):
             output.includes.append('<stdio.h>')
             output.decls.append(BOX_STDLIB_HOOKS)
 
-    def build_box_mk(self, output, box):
-        super().build_box_mk(output, box)
+    def build_mk(self, output, box):
+        super().build_mk(output, box)
 
         if box.emit_stdlib_hooks:
             output.decls.append('### __box_abort glue ###')

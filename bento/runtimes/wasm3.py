@@ -265,10 +265,10 @@ class Wasm3Runtime(runtimes.Runtime):
             outf.write(4*' '+'assert(!err);\n')
         outf.write('}\n')
 
-    def build_box_header(self, sys, box, output):
+    def build_header(self, sys, box, output):
         self.build_common_header(sys, box, output)
 
-#    def build_box_jumptable(self, sys, box, output):
+#    def build_jumptable(self, sys, box, output):
 #        self.build_common_header(sys, box, output)
 #
 ##        output.append_decl(BOX_INIT.lstrip() % dict(name=box.name))
@@ -317,7 +317,7 @@ class Wasm3Runtime(runtimes.Runtime):
         outf.write('} > BOX_%s_%s\n' % (box.name.upper(),
             bestmemory.name.upper() if bestmemory else '?'))
 
-#    def build_box_partiallinkerscript(self, sys, box, output):
+#    def build_partiallinkerscript(self, sys, box, output):
 #        # create box calls for imports
 #        output.append_decl('/* box calls */')
 #        for i, import_ in enumerate(it.chain(
@@ -325,7 +325,7 @@ class Wasm3Runtime(runtimes.Runtime):
 #            output.append_decl('%-16s = 0x0fffc000 + %d*2;' % (
 #                import_, i))
 
-#    def build_box_linkerscript(self, sys, box, output):
+#    def build_linkerscript(self, sys, box, output):
 #        # extra decls?
 #        for section in box.sections.values():
 #            if section.size is not None:
@@ -333,7 +333,7 @@ class Wasm3Runtime(runtimes.Runtime):
 #                    '__%s_min' % section.name, section.size))
 #
 #        output.append_decl()
-#        self.build_box_partiallinkerscript(sys, box, output)
+#        self.build_partiallinkerscript(sys, box, output)
 #
 #        # create memories
 #        for memory in box.memories.values():

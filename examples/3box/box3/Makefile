@@ -152,10 +152,10 @@ $(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	$(strip $(OBJCOPY) $< $@ \
 	    --strip-all \
 	    --add-section .box.box3.flash.data=$(word 2,$^) \
-	    --only-section .jumptable \
-	    --rename-section .jumptable=.box.box3.flash.jumptable \
 	    --only-section .text \
 	    --rename-section .text=.box.box3.flash.text \
+	    --only-section .jumptable \
+	    --rename-section .jumptable=.box.box3.flash.jumptable \
 	    --only-section .stack \
 	    --rename-section .stack=.box.box3.ram.stack \
 	    --only-section .data \

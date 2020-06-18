@@ -281,7 +281,8 @@ class WriteGlue(runtimes.Runtime):
     Helper layer for handling __box_write and friends.
     """
     __name = 'write_glue'
-    def box_box(self, box):
+    def box(self, box):
+        super().box(box)
         self._write_hook = box.addimport(
             '__box_write', 'fn(i32, u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True,
@@ -290,10 +291,8 @@ class WriteGlue(runtimes.Runtime):
                 "of __box_write. If none is provided, __box_write links but "
                 "does nothing.")
 
-        super().box_box(box)
-
-    def build_box_c(self, output, box):
-        super().build_box_c(output, box)
+    def build_c(self, output, box):
+        super().build_c(output, box)
 
         output.decls.append('//// __box_write glue ////')
         if not self._write_hook.link:
@@ -323,8 +322,8 @@ class WriteGlue(runtimes.Runtime):
         if box.emit_stdlib_hooks:
             output.decls.append(BOX_STDLIB_HOOKS)
 
-    def build_box_mk(self, output, box):
-        super().build_box_mk(output, box)
+    def build_mk(self, output, box):
+        super().build_mk(output, box)
 
         if box.emit_stdlib_hooks:
             output.decls.append('### __box_write glue ###')

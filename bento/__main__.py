@@ -63,20 +63,20 @@ class BoxesCommand:
                 name='runtime', runtime=box.runtime.__argname__))
             for memory in box.memories:
                 print('  %(name)-34s %(memory)s' % dict(
-                    name='memories.%s' % memory.name, memory=memory))
+                    name='memory.%s' % memory.name, memory=memory))
             for i, import_ in enumerate(
                     import_ for import_ in box.imports
                     if p or import_.source == box.name
                     if import_.link):
                 if i == 0:
-                    print('  imports')
+                    print('  import')
                 print('    %(name)-32s %(import_)s' % dict(
                     name=import_.name, import_=import_))
             for i, export in enumerate(
                     export for export in box.exports
                     if p or export.source == box.name):
                 if i == 0:
-                    print('  exports')
+                    print('  export')
                 print('    %(name)-32s %(export)s' % dict(
                     name=export.name, export=export))
 

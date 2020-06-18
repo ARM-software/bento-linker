@@ -3,8 +3,8 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Section
-from ..runtimes.write_glue import WriteGlue
-from ..runtimes.abort_glue import AbortGlue
+from ..glue.write_glue import WriteGlue
+from ..glue.abort_glue import AbortGlue
 
 
 RESET_HANDLER = """
@@ -72,7 +72,8 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                 0x400})
 
     __name = __argname__
-    def box_box(self, box):
+    def box(self, box):
+        super().box(box)
         self._isr_vector.alloc(box, 'r')
 
         if self._emit_startup:
@@ -116,9 +117,7 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     '__box_irq%d_handler' % i, 'fn() -> void',
                     target=box.name, source=self.__name, weak=True))
 
-        super().box_box(box)
-
-    def build_box_ld(self, output, box):
+    def build_ld(self, output, box):
         # reset handler
         output.decls.append('ENTRY(__box_reset_handler)')
 
@@ -138,10 +137,10 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('. = ALIGN(%(align)d);')
             out.printf('__isr_vector_end = .;')
 
-        super().build_box_ld(output, box)
+        super().build_ld(output, box)
 
-    def build_box_c(self, output, box):
-        super().build_box_c(output, box)
+    def build_c(self, output, box):
+        super().build_c(output, box)
 
         # default write/abort hooks
         if self._emit_startup:

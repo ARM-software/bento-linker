@@ -55,6 +55,391 @@ ssize_t __box_write(int32_t fd, void *buffer, size_t size);
 // Initialize box box1.
 int __box_box1_init(void);
 
+//// jumptable implementation ////
+
+struct __box_mpuregions {
+    uint32_t count;
+    uint32_t regions[][2];
+};
+
+#define SHCSR    ((volatile uint32_t*)0xe000ed24)
+#define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
+#define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
+#define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
+#define MPU_RASR ((volatile uint32_t*)0xe000eda0)
+
+static int32_t __box_mpu_init(void) {
+    // make sure MPU is initialized
+    if (!(*MPU_CTRL & 0x1)) {
+        // do we have an MPU?
+        assert(*MPU_TYPE >= 4);
+        // enable MemManage exception
+        *SHCSR = *SHCSR | 0x00070000;
+        // setup call region
+        *MPU_RBAR = 0x1e000000 | 0x10;
+        // disallow execution
+        //*MPU_RASR = 0x10230021;
+        *MPU_RASR = 0x10000001 | ((25-1) << 1);
+        // enable the MPU
+        *MPU_CTRL = 5;
+    }
+    return 0;
+}
+
+static void __box_mpu_switch(const struct __box_mpuregions *regions) {
+    *MPU_CTRL = 0;
+    uint32_t count = regions->count;
+    for (int i = 0; i < 4; i++) {
+        if (i < count) {
+            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RASR = regions->regions[i][1];
+        } else {
+            *MPU_RBAR = 0x10 | (i+1);
+            *MPU_RASR = 0;
+        }
+    }
+    *MPU_CTRL = 5;
+}
+
+// System state
+uint32_t __box_active = 0;
+
+// Redirected __box_writes
+#define __box_box1_write __box_write
+
+// Jumptables
+const uint32_t __box_sys_jumptable[] = {
+    (uint32_t)NULL, // no stack for sys
+    (uint32_t)__box_write,
+    (uint32_t)__box_box1_write,
+};
+
+extern const uint32_t __box_box1_jumptable[];
+
+#define __BOX_COUNT 1
+const uint32_t *const __box_jumptables[__BOX_COUNT+1] = {
+    __box_sys_jumptable,
+    __box_box1_jumptable,
+};
+
+const struct __box_mpuregions __box_sys_mpuregions = {
+    .count = 0,
+    .regions = {},
+};
+
+const struct __box_mpuregions __box_box1_mpuregions = {
+    .count = 2,
+    .regions = {
+        {0x000fe000, 0x02000019},
+        {0x2003e000, 0x13000019},
+    },
+};
+
+const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
+    &__box_sys_mpuregions,
+    &__box_box1_mpuregions,
+};
+__attribute__((used))
+void __box_box1_fault(int err) {}
+
+void (*const __box_faults[__BOX_COUNT+1])(int err) = {
+    &__box_abort,
+    &__box_box1_fault,
+};
+
+// Box state
+struct __box_state {
+    uint32_t caller;
+    uint32_t lr;
+    uint32_t *sp;
+};
+
+struct __box_state __box_sys_state;
+struct __box_state __box_box1_state;
+
+struct __box_state *const __box_state[__BOX_COUNT+1] = {
+    &__box_sys_state,
+    &__box_box1_state,
+};
+
+// Dispach logic
+struct __box_frame {
+    uint32_t *fp;
+    uint32_t lr;
+    uint32_t *sp;
+};
+
+// foward declaration of fault wrapper, may be called directly
+// in other handlers, but only in other handlers! (needs isr context)
+__attribute__((used, naked, noreturn))
+void __box_faulthandler(int32_t err);
+
+#define __BOX_ASSERT(test, code) do {   \
+        if (!(test)) {                  \
+            __box_faulthandler(code);   \
+        }                               \
+    } while (0)
+
+__attribute__((used))
+uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_frame *frame = (struct __box_frame*)sp;
+    frame->fp = fp;
+    frame->lr = state->lr;
+    frame->sp = state->sp;
+    state->lr = lr;
+    state->sp = sp;
+
+    uint32_t path = (op & 0xffffff)/4;
+    uint32_t caller = __box_active;
+    __box_active = path % (__BOX_COUNT+1);
+    const uint32_t *targetjumptable = __box_jumptables[__box_active];
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    // keep track of caller
+    targetstate->caller = caller;
+    // don't allow returns while executing
+    targetstate->lr = 0;
+    // need sp to fixup instruction aborts
+    targetstate->sp = targetsp;
+    uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // enable control?
+    uint32_t control;
+    __asm__ volatile ("mrs %0, control" : "=r"(control));
+    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
+    __asm__ volatile ("msr control, %0" :: "r"(control));
+
+    // setup new call frame
+    targetsp -= 8;
+    targetsp[0] = fp[0];        // r0 = arg0
+    targetsp[1] = fp[1];        // r1 = arg1
+    targetsp[2] = fp[2];        // r2 = arg2
+    targetsp[3] = fp[3];        // r3 = arg3
+    targetsp[4] = fp[4];        // r12 = r12
+    targetsp[5] = 0x1f000000 + 1; // lr = __box_ret
+    targetsp[6] = targetpc;     // pc = targetpc
+    targetsp[7] = fp[7];        // psr = psr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((used, naked, noreturn))
+void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
+    __asm__ volatile (
+        // keep track of args
+        "mov r3, r1 \n\t"
+        // save core registers
+        "stmdb r1!, {r4-r11} \n\t"
+        // save fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vstmdbeq r1!, {s16-s31} \n\t"
+        // make space to save state
+        "sub r1, r1, #3*4 \n\t"
+        // sp == msp?
+        "tst r0, #0x4 \n\t"
+        "it eq \n\t"
+        "moveq sp, r1 \n\t"
+        // ah! reserve a frame in case we're calling this
+        // interrupts stack from another stack
+        "sub sp, sp, #8*4 \n\t"
+        // call into c now that we have stack control
+        "bl __box_callsetup \n\t"
+        // update new sp
+        "tst r0, #0x4 \n\t"
+        "itee eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // drop reserved frame?
+        "subne sp, sp, #8*4 \n\t"
+        // return to call
+        "bx r0 \n\t"
+    );
+}
+
+__attribute__((used))
+uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    struct __box_state *state = __box_state[__box_active];
+    // drop exception frame and fixup instruction aborts
+    sp = state->sp;
+    state->lr = lr;
+    state->sp = sp;
+
+    __box_active = state->caller;
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    __BOX_ASSERT(targetlr, BOX_ERR_FAULT); // in call?
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetframe = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetframe->fp;
+    targetstate->lr = targetframe->lr;
+    targetstate->sp = targetframe->sp;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // enable control?
+    uint32_t control;
+    __asm__ volatile ("mrs %0, control" : "=r"(control));
+    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
+    __asm__ volatile ("msr control, %0" :: "r"(control));
+
+    // copy return frame
+    targetfp[0] = fp[0];       // r0 = arg0
+    targetfp[1] = fp[1];       // r1 = arg1
+    targetfp[2] = fp[2];       // r2 = arg2
+    targetfp[3] = fp[3];       // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((used, naked, noreturn))
+void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
+    __asm__ volatile (
+        // keep track of rets
+        "mov r3, r1 \n\t"
+        // call into c new that we have stack control
+        "bl __box_retsetup \n\t"
+        // drop saved state
+        "add r1, r1, #3*4 \n\t"
+        // restore fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vldmiaeq r1!, {s16-s31} \n\t"
+        // restore core registers
+        "ldmia r1!, {r4-r11} \n\t"
+        // update sp
+        "tst r0, #0x4 \n\t"
+        "ite eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // return
+        "bx r0 \n\t"
+    );
+}
+
+__attribute__((used))
+uint64_t __box_faultsetup(int32_t err) {
+    // invoke user handler, may not return
+    // TODO should we set this up to be called in non-isr context?
+    __box_faults[__box_active](err);
+
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_state *targetstate = __box_state[state->caller];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetbf->fp;
+    // in call?
+    if (!targetlr) {
+        // halt if not handled
+        while (1) {}
+    }
+
+    // check if our return target supports erroring
+    uint32_t op = targetfp[6];
+    if (!(op & 2)) {
+        // halt if not handled
+        while (1) {}
+    }
+
+    // we can return an error
+    __box_active = state->caller;
+    targetstate->lr = targetbf->lr;
+    targetstate->sp = targetbf->sp;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // enable control?
+    uint32_t control;
+    __asm__ volatile ("mrs %0, control" : "=r"(control));
+    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
+    __asm__ volatile ("msr control, %0" :: "r"(control));
+
+    // copy return frame
+    targetfp[0] = err;         // r0 = arg0
+    targetfp[1] = 0;           // r1 = arg1
+    targetfp[2] = 0;           // r2 = arg2
+    targetfp[3] = 0;           // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((used, naked, noreturn))
+void __box_faulthandler(int32_t err) {
+    __asm__ volatile (
+        // call into c with stack control
+        "bl __box_faultsetup \n\t"
+        // drop saved state
+        "add r1, r1, #3*4 \n\t"
+        // restore fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vldmiaeq r1!, {s16-s31} \n\t"
+        // restore core registers
+        "ldmia r1!, {r4-r11} \n\t"
+        // update sp
+        "tst r0, #0x4 \n\t"
+        "ite eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // return
+        "bx r0 \n\t"
+    );
+}
+
+__attribute__((alias("__box_mpu_handler")))
+void __box_usagefault_handler(void);
+__attribute__((alias("__box_mpu_handler")))
+void __box_busfault_handler(void);
+__attribute__((alias("__box_mpu_handler")))
+void __box_memmanage_handler(void);
+__attribute__((naked))
+void __box_mpu_handler(void) {
+    __asm__ volatile (
+        // get lr
+        "mov r0, lr \n\t"
+        "tst r0, #0x4 \n\t"
+        // get sp
+        "ite eq \n\t"
+        "mrseq r1, msp \n\t"
+        "mrsne r1, psp \n\t"
+        // get pc
+        "ldr r2, [r1, #6*4] \n\t"
+        // call?
+        "ldr r3, =#0x1e000000 \n\t"
+        "sub r3, r2, r3 \n\t"
+        "lsrs r3, r3, #25-1 \n\t"
+        "beq __box_callhandler \n\t"
+        // ret?
+        "ldr r3, =#0x1f000000 \n\t"
+        "subs r3, r2, r3 \n\t"
+        "beq __box_rethandler \n\t"
+        // fallback to fault handler
+        // explicit fault?
+        "ldr r3, =#0x1f000000 + 1*4 \n\t"
+        "subs r3, r2, r3 \n\t"
+        "ite eq \n\t"
+        "ldreq r0, [r1, #0] \n\t"
+        "ldrne r0, =%0 \n\t"
+        "b __box_faulthandler \n\t"
+        :
+        : "i"(BOX_ERR_FAULT)
+    );
+}
+
 //// __box_abort glue ////
 
 __attribute__((noreturn))
@@ -666,394 +1051,6 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
 };
-
-//// jumptable implementation ////
-
-struct __box_mpuregions {
-    uint32_t count;
-    uint32_t regions[][2];
-};
-
-#define SHCSR    ((volatile uint32_t*)0xe000ed24)
-#define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
-#define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
-#define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
-#define MPU_RASR ((volatile uint32_t*)0xe000eda0)
-
-static int32_t __box_mpu_init(void) {
-    // make sure MPU is initialized
-    if (!(*MPU_CTRL & 0x1)) {
-        // do we have an MPU?
-        assert(*MPU_TYPE >= 4);
-        // enable MemManage exception
-        *SHCSR = *SHCSR | 0x00070000;
-        // setup call region
-        *MPU_RBAR = 0x1e000000 | 0x10;
-        // disallow execution
-        //*MPU_RASR = 0x10230021;
-        *MPU_RASR = 0x10000001 | ((25-1) << 1);
-        // enable the MPU
-        *MPU_CTRL = 5;
-    }
-    return 0;
-}
-
-static void __box_mpu_switch(const struct __box_mpuregions *regions) {
-    *MPU_CTRL = 0;
-    uint32_t count = regions->count;
-    for (int i = 0; i < 4; i++) {
-        if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
-            *MPU_RASR = regions->regions[i][1];
-        } else {
-            *MPU_RBAR = 0x10 | (i+1);
-            *MPU_RASR = 0;
-        }
-    }
-    *MPU_CTRL = 5;
-}
-
-// System state
-uint32_t __box_active = 0;
-
-// Redirected __box_writes
-#define __box_box1_write __box_write
-
-// Jumptables
-const uint32_t __box_sys_jumptable[] = {
-    (uint32_t)NULL, // no stack for sys
-    (uint32_t)__box_write,
-    (uint32_t)__box_box1_write,
-    (uint32_t)__box_busfault_handler,
-    (uint32_t)__box_memmanage_handler,
-    (uint32_t)__box_usagefault_handler,
-};
-
-extern const uint32_t __box_box1_jumptable[];
-
-#define __BOX_COUNT 1
-const uint32_t *const __box_jumptables[__BOX_COUNT+1] = {
-    __box_sys_jumptable,
-    __box_box1_jumptable,
-};
-
-const struct __box_mpuregions __box_sys_mpuregions = {
-    .count = 0,
-    .regions = {},
-};
-
-const struct __box_mpuregions __box_box1_mpuregions = {
-    .count = 2,
-    .regions = {
-        {0x000fe000, 0x02000019},
-        {0x2003e000, 0x13000019},
-    },
-};
-
-const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
-    &__box_sys_mpuregions,
-    &__box_box1_mpuregions,
-};
-__attribute__((used))
-void __box_box1_fault(int err) {}
-
-void (*const __box_faults[__BOX_COUNT+1])(int err) = {
-    &__box_abort,
-    &__box_box1_fault,
-};
-
-// Box state
-struct __box_state {
-    uint32_t caller;
-    uint32_t lr;
-    uint32_t *sp;
-};
-
-struct __box_state __box_sys_state;
-struct __box_state __box_box1_state;
-
-struct __box_state *const __box_state[__BOX_COUNT+1] = {
-    &__box_sys_state,
-    &__box_box1_state,
-};
-
-// Dispach logic
-struct __box_frame {
-    uint32_t *fp;
-    uint32_t lr;
-    uint32_t *sp;
-};
-
-// foward declaration of fault wrapper, may be called directly
-// in other handlers, but only in other handlers! (needs isr context)
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err);
-
-#define __BOX_ASSERT(test, code) do {   \
-        if (!(test)) {                  \
-            __box_faulthandler(code);   \
-        }                               \
-    } while (0)
-
-__attribute__((used))
-uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
-        uint32_t op, uint32_t *fp) {
-    // save lr + sp
-    struct __box_state *state = __box_state[__box_active];
-    struct __box_frame *frame = (struct __box_frame*)sp;
-    frame->fp = fp;
-    frame->lr = state->lr;
-    frame->sp = state->sp;
-    state->lr = lr;
-    state->sp = sp;
-
-    uint32_t path = (op & 0xffffff)/4;
-    uint32_t caller = __box_active;
-    __box_active = path % (__BOX_COUNT+1);
-    const uint32_t *targetjumptable = __box_jumptables[__box_active];
-    struct __box_state *targetstate = __box_state[__box_active];
-    uint32_t targetlr = targetstate->lr;
-    uint32_t *targetsp = targetstate->sp;
-    // keep track of caller
-    targetstate->caller = caller;
-    // don't allow returns while executing
-    targetstate->lr = 0;
-    // need sp to fixup instruction aborts
-    targetstate->sp = targetsp;
-    uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // setup new call frame
-    targetsp -= 8;
-    targetsp[0] = fp[0];        // r0 = arg0
-    targetsp[1] = fp[1];        // r1 = arg1
-    targetsp[2] = fp[2];        // r2 = arg2
-    targetsp[3] = fp[3];        // r3 = arg3
-    targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = 0x1f000000 + 1; // lr = __box_ret
-    targetsp[6] = targetpc;     // pc = targetpc
-    targetsp[7] = fp[7];        // psr = psr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
-    __asm__ volatile (
-        // keep track of args
-        "mov r3, r1 \n\t"
-        // save core registers
-        "stmdb r1!, {r4-r11} \n\t"
-        // save fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vstmdbeq r1!, {s16-s31} \n\t"
-        // make space to save state
-        "sub r1, r1, #3*4 \n\t"
-        // sp == msp?
-        "tst r0, #0x4 \n\t"
-        "it eq \n\t"
-        "moveq sp, r1 \n\t"
-        // ah! reserve a frame in case we're calling this
-        // interrupts stack from another stack
-        "sub sp, sp, #8*4 \n\t"
-        // call into c now that we have stack control
-        "bl __box_callsetup \n\t"
-        // update new sp
-        "tst r0, #0x4 \n\t"
-        "itee eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // drop reserved frame?
-        "subne sp, sp, #8*4 \n\t"
-        // return to call
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((used))
-uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
-        uint32_t op, uint32_t *fp) {
-    // save lr + sp
-    struct __box_state *state = __box_state[__box_active];
-    // drop exception frame and fixup instruction aborts
-    sp = state->sp;
-    state->lr = lr;
-    state->sp = sp;
-
-    __box_active = state->caller;
-    struct __box_state *targetstate = __box_state[__box_active];
-    uint32_t targetlr = targetstate->lr;
-    __BOX_ASSERT(targetlr, BOX_ERR_FAULT); // in call?
-    uint32_t *targetsp = targetstate->sp;
-    struct __box_frame *targetframe = (struct __box_frame*)targetsp;
-    uint32_t *targetfp = targetframe->fp;
-    targetstate->lr = targetframe->lr;
-    targetstate->sp = targetframe->sp;
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // copy return frame
-    targetfp[0] = fp[0];       // r0 = arg0
-    targetfp[1] = fp[1];       // r1 = arg1
-    targetfp[2] = fp[2];       // r2 = arg2
-    targetfp[3] = fp[3];       // r3 = arg3
-    targetfp[6] = targetfp[5]; // pc = lr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
-    __asm__ volatile (
-        // keep track of rets
-        "mov r3, r1 \n\t"
-        // call into c new that we have stack control
-        "bl __box_retsetup \n\t"
-        // drop saved state
-        "add r1, r1, #3*4 \n\t"
-        // restore fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vldmiaeq r1!, {s16-s31} \n\t"
-        // restore core registers
-        "ldmia r1!, {r4-r11} \n\t"
-        // update sp
-        "tst r0, #0x4 \n\t"
-        "ite eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // return
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((used))
-uint64_t __box_faultsetup(int32_t err) {
-    // invoke user handler, may not return
-    // TODO should we set this up to be called in non-isr context?
-    __box_faults[__box_active](err);
-
-    struct __box_state *state = __box_state[__box_active];
-    struct __box_state *targetstate = __box_state[state->caller];
-    uint32_t targetlr = targetstate->lr;
-    uint32_t *targetsp = targetstate->sp;
-    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
-    uint32_t *targetfp = targetbf->fp;
-    // in call?
-    if (!targetlr) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // check if our return target supports erroring
-    uint32_t op = targetfp[6];
-    if (!(op & 2)) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // we can return an error
-    __box_active = state->caller;
-    targetstate->lr = targetbf->lr;
-    targetstate->sp = targetbf->sp;
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // copy return frame
-    targetfp[0] = err;         // r0 = arg0
-    targetfp[1] = 0;           // r1 = arg1
-    targetfp[2] = 0;           // r2 = arg2
-    targetfp[3] = 0;           // r3 = arg3
-    targetfp[6] = targetfp[5]; // pc = lr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err) {
-    __asm__ volatile (
-        // call into c with stack control
-        "bl __box_faultsetup \n\t"
-        // drop saved state
-        "add r1, r1, #3*4 \n\t"
-        // restore fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vldmiaeq r1!, {s16-s31} \n\t"
-        // restore core registers
-        "ldmia r1!, {r4-r11} \n\t"
-        // update sp
-        "tst r0, #0x4 \n\t"
-        "ite eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // return
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((alias("__box_mpu_handler")))
-void __box_usagefault_handler(void);
-__attribute__((alias("__box_mpu_handler")))
-void __box_busfault_handler(void);
-__attribute__((alias("__box_mpu_handler")))
-void __box_memmanage_handler(void);
-__attribute__((naked))
-void __box_mpu_handler(void) {
-    __asm__ volatile (
-        // get lr
-        "mov r0, lr \n\t"
-        "tst r0, #0x4 \n\t"
-        // get sp
-        "ite eq \n\t"
-        "mrseq r1, msp \n\t"
-        "mrsne r1, psp \n\t"
-        // get pc
-        "ldr r2, [r1, #6*4] \n\t"
-        // call?
-        "ldr r3, =#0x1e000000 \n\t"
-        "sub r3, r2, r3 \n\t"
-        "lsrs r3, r3, #25-1 \n\t"
-        "beq __box_callhandler \n\t"
-        // ret?
-        "ldr r3, =#0x1f000000 \n\t"
-        "subs r3, r2, r3 \n\t"
-        "beq __box_rethandler \n\t"
-        // fallback to fault handler
-        // explicit fault?
-        "ldr r3, =#0x1f000000 + 1*4 \n\t"
-        "subs r3, r2, r3 \n\t"
-        "ite eq \n\t"
-        "ldreq r0, [r1, #0] \n\t"
-        "ldrne r0, =%0 \n\t"
-        "b __box_faulthandler \n\t"
-        :
-        : "i"(BOX_ERR_FAULT)
-    );
-}
 
 //// box1 init ////
 

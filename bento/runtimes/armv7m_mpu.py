@@ -4,8 +4,8 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Fn, Section, Region
-from ..runtimes.write_glue import WriteGlue
-from ..runtimes.abort_glue import AbortGlue
+from ..glue.write_glue import WriteGlue
+from ..glue.abort_glue import AbortGlue
 
 # utility functions in C
 BOX_INIT = """
@@ -445,7 +445,16 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         assert self._call_region.addr % self._call_region.size == 0, (
             "MPU call region is not aligned to size %s"
                 % self._call_region)
-        self.pushattrs(
+        parent.pushattrs(
+            callprefix=self._call_region.addr,
+            callmask=(self._call_region.size//2)-1,
+            retprefix=self._call_region.addr + self._call_region.size//2,
+            retmask=(self._call_region.size//2)-1,
+            callregionaddr=self._call_region.addr,
+            callregionsize=self._call_region.size,
+            callregionlog2=int(math.log2(self._call_region.size)),
+            mpuregions=self._mpu_regions)
+        box.pushattrs(
             callprefix=self._call_region.addr,
             callmask=(self._call_region.size//2)-1,
             retprefix=self._call_region.addr + self._call_region.size//2,
@@ -474,7 +483,10 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
             target=box.name, source=self.__name)
 
-    def box_box(self, box):
+        super().box_parent(parent, box)
+
+    def box(self, box):
+        super().box(box)
         self._jumptable.alloc(box, 'r')
         # plumbing
         box.addexport(
@@ -490,8 +502,6 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         self._write_plug = box.addexport(
             '__box_write', 'fn(i32, u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True)
-
-        super().box_box(box)
 
     # overridable
     def build_mpu_dispatch(self, output, sys):
@@ -560,7 +570,8 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         with out.pushindent():
             out.printf('(uint32_t)NULL, // no stack for sys')
             for export in sys.exports:
-                out.printf('(uint32_t)%(export)s,', export=export.alias)
+                if export.target != sys:
+                    out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.write('};')
 
         out = output.decls.append()
@@ -662,7 +673,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         output.decls.append('//// %(box)s init ////')
         output.decls.append(BOX_SYS_INIT)
 
-    def build_box_ld(self, output, box):
+    def build_ld(self, output, box):
         # create box calls for imports
         out = output.decls.append(doc='box calls')
         for import_ in box.imports:
@@ -699,10 +710,10 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('. = ALIGN(%(align)d);')
             out.printf('__jumptable_end = .;')
 
-        super().build_box_ld(output, box)
+        super().build_ld(output, box)
 
-    def build_box_c(self, output, box):
-        super().build_box_c(output, box)
+    def build_c(self, output, box):
+        super().build_c(output, box)
 
         output.decls.append('//// jumptable implementation ////')
         output.decls.append(BOX_INIT)
