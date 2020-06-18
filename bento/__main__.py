@@ -4,6 +4,7 @@ import os.path
 import collections as co
 import itertools as it
 import textwrap
+import re
 from .box import Box
 from .argstuff import ArgumentParser
 
@@ -182,6 +183,50 @@ class OptionsCommand:
         parser = ArgumentParser()
         Box.scan.__argparse__(parser)
         parser.parse_args(['-h'])
+
+@command
+class RuntimesCommand:
+    """
+    List the available runtimes and their help text.
+    """
+    __argname__ = "runtimes"
+    __arghelp__ = __doc__
+    def __init__(self):
+        from .runtimes import RUNTIMES
+        print("available runtimes:")
+        for Runtime in RUNTIMES.values():
+            if len(Runtime.__argname__) > 19:
+                print(4*' '+Runtime.__argname__)
+            for i, line in enumerate(textwrap.wrap(
+                    re.sub(r'\s+', ' ', Runtime.__arghelp__.strip()),
+                    width=78-24)):
+                print(4*' '+'%(name)-19s %(line)s' % dict(
+                    name=Runtime.__argname__
+                        if len(Runtime.__argname__) <= 19 and i == 0 else
+                        '',
+                    line=line))
+
+@command
+class LoadersCommand:
+    """
+    List the available loaders and their help text.
+    """
+    __argname__ = "loaders"
+    __arghelp__ = __doc__
+    def __init__(self):
+        from .loaders import LOADERS
+        print("available loaders:")
+        for Loader in LOADERS.values():
+            if len(Loader.__argname__) > 19:
+                print(4*' '+Loader.__argname__)
+            for i, line in enumerate(textwrap.wrap(
+                    re.sub(r'\s+', ' ', Loader.__arghelp__.strip()),
+                    width=78-24)):
+                print(4*' '+'%(name)-19s %(line)s' % dict(
+                    name=Loader.__argname__
+                        if len(Loader.__argname__) <= 19 and i == 0 else
+                        '',
+                    line=line))
 
 @command
 class HooksCommand:

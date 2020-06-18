@@ -52,10 +52,10 @@ def test_build(name, path):
     subprocess.check_call(['bento', 'build'])
 
 @pytest.mark.parametrize('name, path', EXAMPLES, ids=EXAMPLES_IDS)
-def test_build_make(name, path):
+def test_build_make_debug(name, path):
     os.chdir(path)
     # build artifacts
-    subprocess.check_call(['bento', 'build'])
+    subprocess.check_call(['bento', 'build', '--all.debug=true'])
     # try to compile
     subprocess.check_call(['make', 'clean', 'build', 'CFLAGS+=-Werror'])
 
@@ -67,10 +67,11 @@ def test_build_make_nolto(name, path):
     # try to compile
     subprocess.check_call(['make', 'clean', 'build', 'CFLAGS+=-Werror'])
 
+# in this order so we end up with a clean build
 @pytest.mark.parametrize('name, path', EXAMPLES, ids=EXAMPLES_IDS)
-def test_build_make_debug(name, path):
+def test_build_make(name, path):
     os.chdir(path)
     # build artifacts
-    subprocess.check_call(['bento', 'build', '--all.debug=true'])
+    subprocess.check_call(['bento', 'build'])
     # try to compile
     subprocess.check_call(['make', 'clean', 'build', 'CFLAGS+=-Werror'])
