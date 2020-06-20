@@ -173,7 +173,12 @@ impl Hist {
         let mut decode_table: Vec<u32> = (0..bound as u32).collect();
         decode_table.sort_by_key(|&k| Reverse(self.get_bounded(k, bound)));
 
-        self.set_table(&decode_table);
+        // strip symbols with no hits
+        let size = decode_table.iter()
+            .position(|&k| self.get_bounded(k, bound) == 0)
+            .unwrap_or(decode_table.len());
+
+        self.set_table(&decode_table[..size]);
     }
 
     pub fn set_table<U: Sym>(&mut self, decode_table: &[U]) {
@@ -183,7 +188,8 @@ impl Hist {
             .collect();
 
         // invert for encode table
-        let mut encode_table = vec![0; decode_table.len()];
+        let size = *decode_table.iter().max().unwrap_or(&0) + 1;
+        let mut encode_table = vec![0; size as usize];
         for (i, &n) in decode_table.iter().enumerate() {
             encode_table[n as usize] = i as u32;
         }

@@ -14,11 +14,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 use std::thread;
 use std::cmp::min;
-use std::collections::HashMap;
 use std::process;
+use std::convert::TryInto;
 
-use num_derive::FromPrimitive;    
-use num_traits::FromPrimitive;
 use error_chain::bail;
 
 use structopt::StructOpt;
@@ -28,17 +26,25 @@ use indicatif::MultiProgress;
 use indicatif::HumanBytes;
 use indicatif::HumanDuration;
 
-const MAGIC: &[u8] = b"\0glz\x01\0\0\0";
+// Magic info
+// [--  32  --][8|8|- 16 -]
+//       ^      ^ ^    ^- flags
+//       |      | '------ minor version
+//       |      '-------- major version
+//       '--------------- magic string "\0glz"
+//
+const MAGIC: [u8; 4] = *b"\0glz";
+const VERSION_MAJOR: u8 = 1;
+const VERSION_MINOR: u8 = 0;
+const VERSION: [u8; 2] = [VERSION_MAJOR, VERSION_MINOR];
 
-#[derive(Debug, PartialEq, Eq, Hash, FromPrimitive, Clone, Copy)]
-enum Field {
-    K = 2,
-    TABLE = 3,
-    L = 4,
-    M = 5,
-    NAMES = 1,
-    BLOB = 0,
-}
+// Flags
+const FLAG_ARCHIVE : u16 = 0x2000;
+const FLAG_INDEX   : u16 = 0x1000;
+const FLAG_LEN     : u16 = 0x0400;
+const FLAG_K       : u16 = 0x0200;
+const FLAG_TABLE   : u16 = 0x0100;
+const FLAG_LEB128  : u16 = 0x0001;
 
 #[derive(Debug, StructOpt)]
 #[structopt(rename_all = "kebab")]
@@ -58,11 +64,13 @@ struct CommonOpt {
     #[structopt(long, default_value = "1")]
     passes: u32,
 
-    /// Width of reference length in bits.
+    /// Max width of reference length in bits. This places an upper-bound
+    /// on the size of the Golomb-Rice table (2^8+2^l).
     #[structopt(short = "L", default_value = "5")]
     l: usize,
 
-    /// Width of reference offset nibbles in bits.
+    /// Width of reference offset nibbles in bits. Note, changing this will
+    /// likely break things.
     #[structopt(short = "M", default_value = "4")]
     m: usize,
 
@@ -74,10 +82,41 @@ struct CommonOpt {
     #[structopt(long)]
     print_table: bool,
 
-    /// Don't use headers in compressed files. This requires that both
-    /// -K and --table be provided when decompressing.
+    /// Archive mode. Includes filenames in compressed blob and prepends
+    /// a list of filename + offset + length triplets. This enables
+    /// decompresion via filename.
+    #[structopt(short = "A", long)]
+    archive: bool,
+
+    /// Index mode. Prepends a list of offset + length tuples. This enables
+    /// decompression via index.
+    #[structopt(short = "I", long)]
+    index: bool,
+
+    /// Don't prepend with magic string, version, and flags used to identify
+    /// the file type.
+    #[structopt(short = "n", long)]
+    no_magic: bool,
+
+    /// Don't prepend with the length of the file after decompression. The
+    /// length is only prepended in normal mode, where it is needed to
+    /// decompress the file.
     #[structopt(long)]
-    no_headers: bool,
+    no_len: bool,
+
+    /// Don't prepend the K constant. This is needed for decompression.
+    #[structopt(long)]
+    no_k: bool,
+
+    /// Don't prepend the Golomb-Rice table. This is needed for
+    /// decompression.
+    #[structopt(long)]
+    no_table: bool,
+
+    /// Use LEB128 encoding for any metadata fields. This can reduce the
+    /// file size a bit, but requires more complex support at decompression.
+    #[structopt(long)]
+    leb128: bool,
 }
 
 #[derive(Debug, StructOpt)]
@@ -103,7 +142,7 @@ struct DecodeOpt {
     input: PathBuf,
 
     /// File to decompress. This is only available when
-    /// headers are included.
+    /// in archive mode.
     #[structopt(short, long)]
     file: Option<String>,
 
@@ -200,7 +239,7 @@ where
         let mprog = thread::spawn(move || mprog.join().unwrap());
 
         let r = f((
-            &mut paths.iter().zip(inputs),
+            &mut paths.iter().cycle().zip(inputs),
             &mut |(path, input)| {
                 prog1.inc(prog2.position());
 
@@ -256,80 +295,78 @@ where
     with_prog_all(msg, quiet, &[], &[inputs], |(_, _, prog)| f(prog))
 }
 
-// field reader/writers
-trait FieldWrite {
-    fn write_field(
+// Bit reader/writers
+trait WriteBits {
+    fn write_bits(
         &mut self,
-        field: Field,
-        bits: &BitSlice,
+        bits: &BitSlice
+    ) -> Result<()>;
+
+    fn write_size(
+        &mut self,
+        flags: u16,
+        size: usize
     ) -> Result<()>;
 }
 
-impl<T: Write> FieldWrite for T {
-    fn write_field(
+impl<T: Write> WriteBits for T {
+    fn write_bits(
         &mut self,
-        field: Field,
         bits: &BitSlice
     ) -> Result<()> {
-        let res: Result<_> = (|| {
-            let mut bits = BitVec::from(bits);
-            bits.resize(((bits.len()+8-1)/8)*8, false);
-            let bytes = 8usize.decode::<u8>(&bits)?;
+        let mut bits = BitVec::from(bits);
+        bits.resize(((bits.len()+8-1)/8)*8, false);
+        let bytes = 8usize.decode::<u8>(&bits)?;
+        self.write_all(&bytes)?;
+        Ok(())
+    }
 
-            self.write_all(&[field as u8])?;
-            self.write_all(&8usize.decode::<u8>(
-                &LEB128.encode_u32(bytes.len() as u32)?
-            )?)?;
-            self.write_all(&bytes)?;
-            Ok(())
-        })();
-        res.chain_err(|| format!("could not write field {:?}", field))
+    fn write_size(
+        &mut self,
+        flags: u16,
+        size: usize
+    ) -> Result<()> {
+        if flags & FLAG_LEB128 != 0 {
+            self.write_bits(&LEB128.encode_u32(size as u32)?)?
+        } else {
+            self.write_all(&(size as u32).to_le_bytes())?
+        }
+        Ok(())
     }
 }
 
-trait FieldRead {
-    fn read_fields<'a>(
+trait ReadBits {
+    fn read_size(
         &mut self,
-        buf: &'a mut Vec<u8>,
-    ) -> Result<HashMap<Field, &'a BitSlice>>;
+        flags: u16,
+    ) -> Result<usize>;
 }
 
-impl<T: Read> FieldRead for T {
-    fn read_fields<'a>(
+impl<T: Read> ReadBits for T {
+    fn read_size(
         &mut self,
-        buf: &'a mut Vec<u8>,
-    ) -> Result<HashMap<Field, &'a BitSlice>> {
-        let res: Result<_> = (|buf: &'a mut _| {
-            let mut fields: HashMap<Field, &BitSlice> = HashMap::new();
-
-            self.read_to_end(buf)?;
-            let bits: &BitSlice = buf.as_bitslice();
-
-            let mut off = 0;
-            while off < bits.len() {
-                let (field, diff) = LEB128.decode_u32_at(bits, off)?;
-                off += diff;
-                let (len, diff) = LEB128.decode_u32_at(bits, off)?;
-                let len = len as usize;
-                off += diff;
-
-                if let Some(field) = Field::from_u32(field) {
-                    if off+8*len > bits.len() {
-                        bail!("found truncated field {:?}", field);
-                    }
-                    fields.insert(field, &bits[off..off+8*len]);
-                } else {
-                    println!("unknown field 0x{:x}", field);
+        flags: u16,
+    ) -> Result<usize> {
+        if flags & FLAG_LEB128 != 0 {
+            let mut buf: Vec<u8> = Vec::new();
+            loop {
+                let mut c = [0; 1];
+                self.read_exact(&mut c)?;
+                buf.push(c[0]);
+                if c[0] & 0x80 == 0 {
+                    break;
                 }
-                off += 8*len;
             }
-
-            Ok(fields)
-        })(buf);
-        res.chain_err(|| "could not read fields")
+            Ok(LEB128.decode_u32(&8.encode::<u8>(&buf)?)?.0 as usize)
+        } else {
+            let mut buf = [0; 4];
+            self.read_exact(&mut buf)?;
+            Ok(u32::from_le_bytes(buf) as usize)
+        }
     }
 }
 
+// Estimator for finding file size without writing anything
 enum EstimatorFile {
     Some(File),
     None(u64),
@@ -363,15 +400,137 @@ impl Write for EstimatorFile {
     }
 }
 
+// Some helpers
+fn mkflags(opt: &CommonOpt, mut flags: u16) -> u16 {
+    if opt.archive      { flags |= FLAG_ARCHIVE; }
+    if opt.index        { flags |= FLAG_INDEX; }
+    if flags & (FLAG_ARCHIVE | FLAG_INDEX) == 0 && !opt.no_len
+                        { flags |= FLAG_LEN; }
+    if !opt.no_k        { flags |= FLAG_K; }
+    if !opt.no_table    { flags |= FLAG_TABLE; }
+    if opt.leb128       { flags |= FLAG_LEB128; }
+    flags
+}
+
+fn read_flags<R: Read>(opt: &CommonOpt, f: &mut R) -> Result<u16> {
+    // determine flags
+    let mut flags = 0u16;
+    if !opt.no_magic {
+        let mut magic = [0u8; 8];
+        f.read_exact(&mut magic)?;
+        if &magic[0..4] != MAGIC {
+            bail!("bad magic number");
+        }
+        if &magic[4..6] != VERSION {
+            println!("version mismatch (v{}.{} != v{}.{}), \
+                trying anyways...",
+                magic[4], magic[5],
+                VERSION_MAJOR, VERSION_MINOR);
+        }
+
+        // set flags with what we find
+        flags |= u16::from_le_bytes(magic[6..8].try_into().unwrap());
+    }
+
+    // override with explicit flags
+    Ok(mkflags(opt, flags))
+}
+
+fn print_k(_opt: &CommonOpt, k: usize) {
+    println!("K: {}", k);
+}
+
+fn print_table(opt: &CommonOpt, table: &[u32]) {
+    print!("table: [");
+    if opt.print_table {
+        println!();
+        for i in (0..table.len()).step_by(8) {
+            print!("    ");
+            for j in 0..8 {
+                if let Some(x) = table.get(i+j) {
+                    print!("0x{:03x}, ", x);
+                } else {
+                    break;
+                }
+            }
+            println!();
+        }
+    } else if table.len() < 6 {
+        for i in 0..table.len() {
+            print!("0x{:03x}{}", table[i],
+                    if i != table.len()-1 { ", " } else { "" });
+        }
+    } else {
+        print!("0x{:03x}, 0x{:03x}, 0x{:03x} ... \
+                0x{:03x}, 0x{:03x}, 0x{:03x}",
+            table[0],
+            table[1],
+            table[2],
+            table[table.len()-3],
+            table[table.len()-2],
+            table[table.len()-1],
+        );
+    }
+    println!("]");
+}
+
+fn print_files(
+    _opt: &CommonOpt,
+    files: &[(String, usize, usize)],
+    blob_size: usize,
+) {
+    // sort to find the "effective" compression,
+    // this isn't perfect but gives a good idea
+    let mut files_after = vec![0; files.len()];
+    let mut offs: Vec<_> = files.iter()
+        .enumerate()
+        .map(|(j, (name, off, _))| (off, name, j))
+        .collect();
+    offs.sort();
+    for i in 0..offs.len() {
+        let (off, _, j) = offs[i];
+        let noff = offs.get(i+1)
+            .map(|(noff, _, _)| *noff)
+            .unwrap_or(&blob_size);
+        files_after[j] = (noff - off + 8-1) / 8;
+    }
+
+    println!("files:");
+    let namewidth = files.iter()
+        .map(|(name, _, _)| name.len())
+        .max()
+        .map(|width| width+1);
+    for ((name, off, before), after) in files.iter().zip(files_after) {
+        println!("{:>8} {:<namewidth$} -> {} @ {} ({}%)",
+            format!("{}", HumanBytes(*before as u64)),
+            name,
+            format!("{}", HumanBytes(after as u64)),
+            off,
+            (100*(*before as i32 - after as i32)) / *before as i32,
+            namewidth=namewidth.unwrap()
+        );
+    }
+}
+
+// High-level commands start here
 fn encode(opt: &EncodeOpt) -> Result<()> {
     // time ourselves
     let time = Instant::now();
 
     // read all files into buffers
     let paths: &[PathBuf] = &opt.input;
-    let inputs: Vec<Vec<u8>> = paths.iter()
+    let mut inputs: Vec<Vec<u8>> = paths.iter()
         .map(|path| fs::read(path))
         .collect::<io::Result<_>>()?;
+
+    // if we're archiving we need to put our paths in the blob as well
+    if opt.common.archive {
+        for path in paths {
+            let path = path.to_string_lossy();
+            inputs.push(Vec::from(path.as_bytes()));
+        }
+    }
+
     let inputs: Vec<&[u8]> = inputs.iter()
         .map(|data| data.as_slice())
         .collect();
@@ -429,41 +588,11 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
 
     let k = glz.k();
     let table = glz.decode_table::<u32>()?;
-    println!("K = {}", k);
-    if l != GLZ::DEFAULT_L {
-        println!("L = {}", l);
-    }
-    if m != GLZ::DEFAULT_M {
-        println!("M = {}", m);
-    }
-    print!("table = [");
-    if opt.common.print_table || table.len() < 6 {
-        println!();
-        for i in (0..table.len()).step_by(8) {
-            print!("    ");
-            for j in 0..8 {
-                if let Some(x) = table.get(i+j) {
-                    print!("0x{:03x}, ", x);
-                } else {
-                    break;
-                }
-            }
-            println!();
-        }
-    } else {
-        print!("0x{:03x}, 0x{:03x}, 0x{:03x} ... \
-                0x{:03x}, 0x{:03x}, 0x{:03x}",
-            table[0],
-            table[1],
-            table[2],
-            table[table.len()-3],
-            table[table.len()-2],
-            table[table.len()-1],
-        );
-    }
-    println!("]");
+    print_k(&opt.common, k);
+    print_table(&opt.common, &table);
 
-    let (output, ranges) = with_prog_all(
+    // compress!
+    let (output, mut ranges) = with_prog_all(
         "compressing...",
         opt.common.quiet,
         &paths,
@@ -473,56 +602,93 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
         }
     )?;
 
+    // adjust offsets for start-of-table?
+    if !opt.common.no_table {
+        for (off, _) in ranges.iter_mut() {
+            *off += (1+GLZ::WIDTH) * table.len();
+        }
+    }
+
+    let files: Vec<(String, usize, usize)> = paths.iter()
+        .zip(ranges.iter())
+        .map(|(path, (poff, plen))| (
+            String::from(path.to_string_lossy()),
+            *poff,
+            *plen
+        ))
+        .collect();
+    print_files(&opt.common, &files,
+        if !opt.common.no_table { (1+GLZ::WIDTH)*table.len() + output.len() }
+        else { output.len() });
+
     let mut f = if let Some(ref outfile) = opt.output {
         EstimatorFile::Some(File::create(outfile)?)
     } else {
         EstimatorFile::None(0)
     };
 
-    if !opt.common.no_headers {
+    let flags = mkflags(&opt.common, 0);
+    if !opt.common.no_magic {
         f.write_all(&MAGIC)?;
-        f.write_field(Field::NAMES,
-            &paths.iter().zip(ranges).map(|(path, (off, len))| {
-                    let path = path.to_string_lossy();
-                    let path = path.as_bytes();
-                    Ok(
-                        LEB128.encode_u32(path.len() as u32)?.iter()
-                            .chain(8.encode::<u8>(path)?)
-                            .chain(LEB128.encode_u32(off as u32)?)
-                            .chain(LEB128.encode_u32(len as u32)?)
-                            .collect::<BitVec>()
-                    )
-                })
-                .collect::<Result<Vec<_>>>()?
-                .iter().flatten().collect::<BitVec>()
-        )?;
-        f.write_field(Field::K,
-            &LEB128.encode_u32(k as u32)?
-        )?;
-        if l != GLZ::DEFAULT_L {
-            f.write_field(Field::L,
-                &LEB128.encode_u32(l as u32)?
-            )?;
-        }
-        if m != GLZ::DEFAULT_M {
-            f.write_field(Field::M,
-                &LEB128.encode_u32(m as u32)?
-            )?;
-        }
-        f.write_field(Field::TABLE,
-            &(1+GLZ::WIDTH).encode(&table)?
-        )?;
+        f.write_all(&VERSION)?;
+        f.write_all(&flags.to_le_bytes())?;
     }
-    f.write_field(Field::BLOB, &output)?;
 
-    let before = inputs.iter().fold(0, |s, a| s+a.len());
+    if flags & FLAG_ARCHIVE != 0 {
+        f.write_size(flags, paths.len())?;
+        for ((_path, (poff, plen)), (off, len)) in
+                paths.iter()
+                    .zip(&ranges[paths.len()..])
+                    .zip(&ranges[..paths.len()]) {
+            f.write_size(flags, *plen)?;
+            f.write_size(flags, *poff)?;
+            f.write_size(flags, *len)?;
+            f.write_size(flags, *off)?;
+        }
+    }
+
+    if flags & FLAG_INDEX != 0 {
+        f.write_size(flags, paths.len())?;
+        for (_path, (off, len)) in paths.iter().zip(ranges) {
+            f.write_size(flags, len)?;
+            f.write_size(flags, off)?;
+        } 
+    }
+
+    if flags & FLAG_LEN != 0 {
+        f.write_size(flags, inputs.iter()
+            .map(|x| x.len())
+            .sum())?;
+    }
+
+    if flags & FLAG_TABLE != 0 {
+        let len = table.len() * (1+GLZ::WIDTH);
+        if flags & FLAG_LEB128 != 0 {
+            if flags & FLAG_K != 0 { f.write_size(flags, k)?; }
+            f.write_size(flags, len)?;
+        } else {
+            let mut x = 0u32;
+            if flags & FLAG_K != 0 { x |= (k as u32) << 24; }
+            x |= len as u32;
+            f.write_size(flags, x as usize)?;
+        }
+
+        f.write_bits(&(1+GLZ::WIDTH).encode(&table)?
+                .iter().chain(&output)
+                .collect::<BitVec>())?;
+    } else {
+        if flags & FLAG_K != 0 { f.write_size(flags, k)?; }
+        f.write_bits(&output)?;
+    }
+
+    let before = inputs[..paths.len()].iter().fold(0, |s, a| s+a.len());
     let after = f.len()?;
-    println!("compressed {} -> {} ({}%)",
+    println!("compressed {} -> {} ({}%) in ~{}",
         HumanBytes(before as u64),
         HumanBytes(after as u64),
-        (100*(before as i32 - after as i32)) / before as i32
+        (100*(before as i32 - after as i32)) / before as i32,
+        HumanDuration(time.elapsed())
     );
-    println!("in ~{}", HumanDuration(time.elapsed()));
 
     Ok(())
 }
@@ -531,147 +697,127 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     // time ourselves
     let time = Instant::now();
 
-    // read file into buffer
+    // parse file
     let mut f = File::open(&opt.input)?;
-    let mut buf = vec![0u8; 8];
-    if !opt.common.no_headers {
-        f.read_exact(&mut buf)?;
-        if &buf[0..8] != MAGIC {
-            bail!("bad magic number in \"{}\"",
-                opt.input.to_string_lossy());
+    let flags = read_flags(&opt.common, &mut f)?;
+
+    // load files?
+    let mut archive_files: Vec<((usize, usize), (usize, usize))> = Vec::new();
+    if flags & FLAG_ARCHIVE != 0 {
+        let len = f.read_size(flags)?;
+        for _ in 0..len {
+            let plen = f.read_size(flags)?;
+            let poff = f.read_size(flags)?;
+            let len = f.read_size(flags)?;
+            let off = f.read_size(flags)?;
+            archive_files.push(((poff, plen), (off, len)));
         }
     }
 
-    buf.clear();
-    let fields: HashMap<Field, &BitSlice> = if opt.common.no_headers {
-        let mut fields: HashMap<Field, &BitSlice> = HashMap::new();
+    let mut index_files: Vec<(usize, usize)> = Vec::new();
+    if flags & FLAG_INDEX != 0 {
+        let len = f.read_size(flags)?;
+        for _ in 0..len {
+            let len = f.read_size(flags)?;
+            let off = f.read_size(flags)?;
+            index_files.push((off, len));
+        }
+    }
+
+    let mut size: Option<usize> = None;
+    if flags & FLAG_LEN != 0 {
+        size = Some(f.read_size(flags)?);
+    }
+
+    // load k/table/blob?
+    let mut k: Option<usize> = None;
+    let table: Vec<u32>;
+    let mut buf: Vec<u8> = Vec::new();
+    let blob: &BitSlice;
+    let off: usize;
+    if flags & FLAG_TABLE != 0 {
+        let size;
+        if flags & FLAG_LEB128 != 0 {
+            if flags & FLAG_K != 0 { k = Some(f.read_size(flags)?); }
+            size = f.read_size(flags)?;
+        } else {
+            let x = f.read_size(flags)? as u32;
+            if flags & FLAG_K != 0 { k = Some((x >> 24) as usize); }
+            size = (x & 0x00ffffff) as usize;
+        }
+
         f.read_to_end(&mut buf)?;
-        fields.insert(Field::BLOB, &buf.as_bitslice());
-        fields
+        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..size])?;
+        blob = buf.as_bitslice();
+        off = size;
     } else {
-        f.read_fields(&mut buf)?
-    };
+        if flags & FLAG_K != 0 { k = Some(f.read_size(flags)? as usize); }
+        table = Vec::new();
 
-    // get relevant options and defaults
-    let l = if let Some(bits) = fields.get(&Field::L) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else {
-        opt.common.l
-    };
-
-    let m = if let Some(bits) = fields.get(&Field::M) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else {
-        opt.common.m
-    };
-
-    let k = if let Some(bits) = fields.get(&Field::K) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else if let Some(k) = opt.common.k {
-        k
-    } else {
-        bail!("unknown K, provide -K?")
-    };
-
-    let mut table = if let Some(bits) = fields.get(&Field::TABLE) {
-        let align_len = bits.len() - bits.len() % (1+GLZ::WIDTH);
-        (1+GLZ::WIDTH).decode(&bits[..align_len])?
-    } else if opt.common.table.len() > 0 {
-        opt.common.table.clone()
-    } else {
-        bail!("unknown table, provide --table?")
-    };
-    while table.len() < (1 << GLZ::WIDTH) + (1 << l) {
-        table.push(0);
+        f.read_to_end(&mut buf)?;
+        blob = buf.as_bitslice();
+        off = 0;
     }
 
-    let (off, len, name) = if let (Some(off), Some(len)) = (opt.off, opt.len) {
-        (off, len, format!("{}..{}", off, len))
-    } else if let Some(name) = &opt.file {
-        let bits = fields.get(&Field::NAMES).ok_or_else(||
-            format!("can't find file \"{}\"", name)
-        )?;
-
-        // find our file
-        let mut i = 0;
-        loop {
-            if !(i < bits.len()) {
-                bail!("can't find file \"{}\"", name)
-            }
-
-            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
-            let namelen = namelen as usize;
-            i += diff;
-
-            let foundname = String::from_utf8(
-                8.decode::<u8>(&bits[i..i+8*namelen])?
-            ).chain_err(|| "utf8 error in name field")?;
-            i += 8*namelen;
-
-            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
-            let off = off as usize;
-            i += diff;
-            let (len, diff) = LEB128.decode_u32_at(bits, i)?;
-            let len = len as usize;
-            i += diff;
-
-            if name == &foundname {
-                break (off, len, foundname)
-            }
-        }
-    } else {
-        bail!("what am I decompressing? \
-            need either --file or --off and --len");
+    let k = match (k, opt.common.k) {
+        (_, Some(k)) => k,
+        (Some(k), _) => k,
+        _ => bail!("unknown K, provide -K?"),
+    };
+    let table = match (&table, &opt.common.table) {
+        (_, table) if table.len() > 0 => table,
+        (table, _) if table.len() > 0 => table,
+        _ => bail!("unknown table, provide --table?"),
     };
 
-    let input = if let Some(bits) = fields.get(&Field::BLOB) {
-        bits
-    } else {
-        bail!("no blob?")
-    };
+    print_k(&opt.common, k);
+    print_table(&opt.common, table);
+    let glz = GLZ::with_table(k, opt.common.l, opt.common.m, table);
 
-    println!("K = {}", k);
-    if l != GLZ::DEFAULT_L {
-        println!("L = {}", l);
-    }
-    if m != GLZ::DEFAULT_M {
-        println!("M = {}", m);
-    }
-    print!("table = [");
-    if opt.common.print_table {
-        println!();
-        for i in (0..table.len()).step_by(8) {
-            print!("    ");
-            for j in 0..8 {
-                if let Some(x) = table.get(i+j) {
-                    print!("0x{:03x}, ", x);
-                } else {
-                    break;
+    // lookup what we want to decompress
+    let (target_off, target_len): (usize, usize) = 'target: loop {
+        match (opt.off, opt.len, &opt.file, size) {
+            (Some(off), Some(len), _, _) => {
+                break 'target (off, len);
+            },
+            (_, _, Some(file), _) => {
+                for ((poff, plen), (off, len)) in archive_files {
+                    let name = String::from_utf8(
+                        glz.decode_at(&blob, poff, plen)?
+                    ).chain_err(|| "utf8 error in name field")?;
+
+                    if &name == file {
+                        break 'target (off, len);
+                    }
                 }
-            }
-            println!();
-        }
-    } else {
-        print!("0x{:03x}, 0x{:03x}, 0x{:03x} ... \
-                0x{:03x}, 0x{:03x}, 0x{:03x}",
-            table[0],
-            table[1],
-            table[2],
-            table[table.len()-3],
-            table[table.len()-2],
-            table[table.len()-1],
-        );
-    }
-    println!("]");
-    println!("file = (\"{}\", {}, {})", name, off, len);
 
-    let glz = GLZ::with_table(k, l, m, &table);
+                for (i, (off, len)) in index_files.iter().enumerate() {
+                    if &format!("{}", i) == file {
+                        break 'target (*off, *len);
+                    }
+                }
+
+                bail!("file {} not found?", file);
+            },
+            (_, _, _, Some(size)) => {
+                break 'target (off, size);
+            },
+            _ => {
+                bail!("what am I decompressing? \
+                    need either --file or --off and --len");
+            }
+        }
+    };
+    println!("found file: {} @ {}",
+        HumanBytes(target_off as u64),
+        target_len);
+
     let output: Vec<u8> = with_prog(
         "decompressing...",
         opt.common.quiet,
-        len,
+        target_len,
         |prog| {
-            glz.decode_at_with_prog(input, off, len, prog)
+            glz.decode_at_with_prog(blob, target_off, target_len, prog)
         }
     )?;
 
@@ -680,208 +826,113 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
     }
 
     let after = output.len();
-    println!("decompressed {}",
+    println!("decompressed {} in ~{}",
         HumanBytes(after as u64),
+        HumanDuration(time.elapsed()),
     );
-    println!("in ~{}", HumanDuration(time.elapsed()));
 
     Ok(())
 }
 
 fn ls(opt: &LsOpt) -> Result<()> {
-    // read file into buffer
+    // parse file
     let mut f = File::open(&opt.input)?;
-    let mut buf = vec![0u8; 8];
-    if !opt.common.no_headers {
-        f.read_exact(&mut buf)?;
-        if &buf[0..8] != MAGIC {
-            bail!("bad magic number in \"{}\"",
-                opt.input.to_string_lossy());
+    let flags = read_flags(&opt.common, &mut f)?;
+
+    // load files?
+    let mut archive_files: Vec<((usize, usize), (usize, usize))> = Vec::new();
+    if flags & FLAG_ARCHIVE != 0 {
+        let len = f.read_size(flags)?;
+        for _ in 0..len {
+            let plen = f.read_size(flags)?;
+            let poff = f.read_size(flags)?;
+            let len = f.read_size(flags)?;
+            let off = f.read_size(flags)?;
+            archive_files.push(((poff, plen), (off, len)));
         }
     }
 
-    buf.clear();
-    let fields: HashMap<Field, &BitSlice> = if opt.common.no_headers {
-        let mut fields: HashMap<Field, &BitSlice> = HashMap::new();
+    let mut index_files: Vec<(usize, usize)> = Vec::new();
+    if flags & FLAG_INDEX != 0 {
+        let len = f.read_size(flags)?;
+        for _ in 0..len {
+            let len = f.read_size(flags)?;
+            let off = f.read_size(flags)?;
+            index_files.push((off, len));
+        }
+    }
+
+    let mut size: Option<usize> = None;
+    if flags & FLAG_LEN != 0 {
+        size = Some(f.read_size(flags)?);
+    }
+
+    // load k/table/blob?
+    let mut k: Option<usize> = None;
+    let table: Vec<u32>;
+    let mut buf: Vec<u8> = Vec::new();
+    let blob: &BitSlice;
+    let off: usize;
+    if flags & FLAG_TABLE != 0 {
+        let size;
+        if flags & FLAG_LEB128 != 0 {
+            if flags & FLAG_K != 0 { k = Some(f.read_size(flags)?); }
+            size = f.read_size(flags)?;
+        } else {
+            let x = f.read_size(flags)? as u32;
+            if flags & FLAG_K != 0 { k = Some((x >> 24) as usize); }
+            size = (x & 0x00ffffff) as usize;
+        }
+
         f.read_to_end(&mut buf)?;
-        fields.insert(Field::BLOB, &buf.as_bitslice());
-        fields
+        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..size])?;
+        blob = buf.as_bitslice();
+        off = size;
     } else {
-        f.read_fields(&mut buf)?
-    };
+        if flags & FLAG_K != 0 { k = Some(f.read_size(flags)? as usize); }
+        table = Vec::new();
 
-    // get relevant options and defaults
-    let l = if let Some(bits) = fields.get(&Field::L) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else {
-        opt.common.l
-    };
-
-    let m = if let Some(bits) = fields.get(&Field::M) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else {
-        opt.common.m
-    };
-
-    let k = if let Some(bits) = fields.get(&Field::K) {
-        LEB128.decode_u32(bits)?.0 as usize
-    } else if let Some(k) = opt.common.k {
-        k
-    } else {
-        bail!("unknown K, provide -K?")
-    };
-
-    let mut table = if let Some(bits) = fields.get(&Field::TABLE) {
-        let align_len = bits.len() - bits.len() % (1+GLZ::WIDTH);
-        (1+GLZ::WIDTH).decode(&bits[..align_len])?
-    } else if opt.common.table.len() > 0 {
-        opt.common.table.clone()
-    } else {
-        bail!("unknown table, provide --table?")
-    };
-    while table.len() < (1 << GLZ::WIDTH) + (1 << l) {
-        table.push(0);
+        f.read_to_end(&mut buf)?;
+        blob = buf.as_bitslice();
+        off = 0;
     }
 
-    let input = if let Some(bits) = fields.get(&Field::BLOB) {
-        bits
-    } else {
-        bail!("no blob?")
+    let k = match (k, opt.common.k) {
+        (_, Some(k)) => k,
+        (Some(k), _) => k,
+        _ => bail!("unknown K, provide -K?"),
+    };
+    let table = match (&table, &opt.common.table) {
+        (_, table) if table.len() > 0 => table,
+        (table, _) if table.len() > 0 => table,
+        _ => bail!("unknown table, provide --table?"),
     };
 
-    let mut files = Vec::<(String, usize, usize)>::new();
-    if let Some(bits) = fields.get(&Field::NAMES) {
-        let mut i = 0;
-        while i < bits.len() {
-            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
-            let namelen = namelen as usize;
-            i += diff;
+    print_k(&opt.common, k);
+    print_table(&opt.common, table);
+    let glz = GLZ::with_table(k, opt.common.l, opt.common.m, table);
 
-            let foundname = String::from_utf8(
-                8.decode::<u8>(&bits[i..i+8*namelen])?
-            ).chain_err(|| "utf8 error in name field")?;
-            i += 8*namelen;
-
-            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
-            let off = off as usize;
-            i += diff;
-            let (len, diff) = LEB128.decode_u32_at(bits, i)?;
-            let len = len as usize;
-            i += diff;
-
-            files.push((foundname, off, len));
-        }
-    }
-    files.sort_by(|(name1, off1, _), (name2, off2, _)| {
-        (off1, name1).cmp(&(off2, name2))
-    });
-
-
-
-
-//    let mut files = Vec<()>::create()
-//    let files = fields.get(&Field::Names).map(|Some(bits)| {
-//        
-//
-//    });
-//    // print out our file
-//    println!("files:");
-//    let mut total = 0;
-//    if let Some(bits) = fields.get(&Field::NAMES) {
-//        let mut i = 0;
-//        while i < bits.len() {
-//            let (namelen, diff) = LEB128.decode_u32_at(bits, i)?;
-//            let namelen = namelen as usize;
-//            i += diff;
-//
-//            let foundname = String::from_utf8(
-//                8.decode::<u8>(&bits[i..i+8*namelen])?
-//            ).chain_err(|| "utf8 error in name field")?;
-//            i += 8*namelen;
-//
-//            let (off, diff) = LEB128.decode_u32_at(bits, i)?;
-//            let off = off as usize;
-//            i += diff;
-//            let (before, diff) = LEB128.decode_u32_at(bits, i)?;
-//            let before = before as usize;
-//            i += diff;
-//
-//            // seek ahead to estimate compressed size
-//            let after = (if i < bits.len() {
-//                let (nnamelen, ndiff) = LEB128.decode_u32_at(bits, i)?;
-//                let ni = i + ndiff + 8*nnamelen as usize;
-//                let (noff, _) = LEB128.decode_u32_at(bits, ni)?;
-//                noff as usize
-//            } else {
-//                input.len()
-//            } - off + 8-1) / 8;
-//
-//            println!("{:>8} {:<42} -> {} @ {} ({}%)",
-//                format!("{}", HumanBytes(before as u64)),
-//                foundname,
-//                format!("{}", HumanBytes(after as u64)),
-//                off,
-//                (100*(before as i32 - after as i32)) / before as i32
-//            );
-//
-//            total += after;
-//        }
-//    } else {
-//        bail!("no file field");
-//    };
-
-    println!("K = {}", k);
-    if l != GLZ::DEFAULT_L {
-        println!("L = {}", l);
-    }
-    if m != GLZ::DEFAULT_M {
-        println!("M = {}", l);
-    }
-    print!("table = [");
-    if opt.common.print_table {
-        println!();
-        for i in (0..table.len()).step_by(8) {
-            print!("    ");
-            for j in 0..8 {
-                if let Some(x) = table.get(i+j) {
-                    print!("0x{:03x}, ", x);
-                } else {
-                    break;
-                }
-            }
-            println!();
-        }
-    } else {
-        print!("0x{:03x}, 0x{:03x}, 0x{:03x} ... \
-                0x{:03x}, 0x{:03x}, 0x{:03x}",
-            table[0],
-            table[1],
-            table[2],
-            table[table.len()-3],
-            table[table.len()-2],
-            table[table.len()-1],
-        );
-    }
-    println!("]");
-
-    // print out our file
-    println!("files:");
-    let namewidth = files.iter().map(|(name, _, _)| name.len()).max()
-        .map(|width| width+1);
-    for (i, (name, off, len)) in files.iter().enumerate() {
-        let before = *len;
-        let after = (files.get(i+1).map_or(input.len(), |(_, off, _)| *off)
-            - off + 8-1) / 8;
-
-        println!("{:>8} {:<namewidth$} -> {} @ {} ({}%)",
-            format!("{}", HumanBytes(before as u64)),
-            name,
-            format!("{}", HumanBytes(after as u64)),
+    // decompress path info
+    let mut files: Vec<(String, usize, usize)> = Vec::new();
+    for ((poff, plen), (off, len)) in archive_files {
+        files.push((
+            String::from_utf8(
+                glz.decode_at(&blob, poff, plen)?
+            ).chain_err(|| "utf8 error in name field")?,
             off,
-            (100*(before as i32 - after as i32)) / before as i32,
-            namewidth=namewidth.unwrap()
-        );
+            len
+        ));
     }
+
+    for (off, len) in index_files {
+        files.push((format!("{}", off), off, len));
+    }
+
+    if let Some(size) = size {
+        files.push((format!("0"), off, size));
+    }
+
+    print_files(&opt.common, &files, blob.len());
 
     let before: usize = files.iter().map(|(_, _, len)| len).sum();
     let after = EstimatorFile::Some(f).len()?;
@@ -894,6 +945,7 @@ fn ls(opt: &LsOpt) -> Result<()> {
     Ok(())
 }
 
+// Entry point
 fn main() {
     let err: Result<()> = match Opt::from_args() {
         Opt::Encode{encode: ref opt} => encode(opt),
