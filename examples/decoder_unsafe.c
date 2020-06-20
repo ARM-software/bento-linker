@@ -35,7 +35,7 @@ typedef int32_t glz_ssize_t;
 
 
 // GLZ decode logic
-int glz_decode(const uint8_t *blob, glz_size_t blob_size, uint8_t k,
+int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
         uint8_t *output, glz_size_t size, uint32_t off) {
     // glz "stack"
     glz_off_t poff = 0;
@@ -136,7 +136,7 @@ glz_soff_t glz_getoff(const uint8_t *blob, glz_size_t blob_size) {
             ((uint32_t)blob[6] << 16);
 }
 
-int8_t glz_getk(const uint8_t *blob, glz_size_t blob_size) {
+int glz_getk(const uint8_t *blob, glz_size_t blob_size) {
     if (blob_size < 8) {
         return GLZ_ERR_INVAL;
     }
@@ -150,9 +150,14 @@ int glz_decode_all(const uint8_t *blob, glz_size_t blob_size,
         return GLZ_ERR_INVAL;
     }
 
+    glz_size_t nsize = glz_getsize(blob, blob_size);
+    if (nsize < size) {
+        size = nsize;
+    }
+
     glz_off_t off = glz_getoff(blob, blob_size);
     uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(blob+8, blob_size-8, k, output, size, off);
+    return glz_decode(k, blob+8, blob_size-8, output, size, off);
 }
 
 int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
@@ -162,7 +167,7 @@ int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
     }
 
     uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(blob+8, blob_size-8, k, output, size, off);
+    return glz_decode(k, blob+8, blob_size-8, output, size, off);
 }
 
 

@@ -1,5 +1,7 @@
 override TARGETS += decoder
 override TARGETS += decoder_unsafe
+override TARGETS += decoder_stream
+override TARGETS += decoder_seek
 
 all build: $(TARGETS)
 

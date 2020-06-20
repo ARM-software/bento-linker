@@ -1,6 +1,9 @@
 /*
  * Minimal implementation of a GLZ decoder, operates in
  * constant RAM and linear time.
+ *
+ * This version uses a "write" callback for output, allowing
+ * decompression without any RAM allocation.
  */
 #include <sys/types.h>
 #include <stdint.h>
@@ -11,6 +14,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 
@@ -33,7 +37,8 @@ typedef int32_t glz_ssize_t;
 
 // GLZ decode logic
 int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
-        uint8_t *output, glz_size_t size, uint32_t off) {
+        glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
+        void *ctx, glz_size_t size, uint32_t off) {
     // glz "stack"
     glz_off_t poff = 0;
     glz_size_t psize = 0;
@@ -70,7 +75,10 @@ int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
 
         // indirect reference or literal?
         if (rice < 0x100) {
-            *output++ = rice;
+            ssize_t res = write(ctx, &rice, 1);
+            if (res < 0) {
+                return res;
+            }
             size -= 1;
         } else {
             glz_size_t nsize = (rice & 0xff) + 2;
@@ -158,7 +166,8 @@ int glz_getk(const uint8_t *blob, glz_size_t blob_size) {
 }
 
 int glz_decode_all(const uint8_t *blob, glz_size_t blob_size,
-        uint8_t *output, glz_size_t size) {
+        glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
+        void *ctx, glz_size_t size) {
     if (blob_size < 8) {
         return GLZ_ERR_INVAL;
     }
@@ -170,21 +179,31 @@ int glz_decode_all(const uint8_t *blob, glz_size_t blob_size,
 
     glz_off_t off = glz_getoff(blob, blob_size);
     uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(k, blob+8, blob_size-8, output, size, off);
+    return glz_decode(k, blob+8, blob_size-8, write, ctx, size, off);
 }
 
 int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
-        uint8_t *output, glz_size_t size, glz_off_t off) {
+        glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
+        void *ctx, glz_size_t size, glz_off_t off) {
     if (blob_size < 2*sizeof(uint32_t)) {
         return GLZ_ERR_INVAL;
     }
 
     uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(k, blob+8, blob_size-8, output, size, off);
+    return glz_decode(k, blob+8, blob_size-8, write, ctx, size, off);
 }
 
-
 // main isn't needed, just presents a CLI for decompression
+glz_ssize_t main_write(void *ctx, const void *buf, glz_size_t size) {
+    int fd = (intptr_t)ctx;
+    ssize_t res = write(fd, buf, size);
+    if (res < 0) {
+        fprintf(stderr, "could not write?\n");
+        return -errno;
+    }
+    return res;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 4) {
         fprintf(stderr, "usage: %s <file> [<offset> <size>]\n", argv[0]);
@@ -235,44 +254,21 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // create output buffer
-    glz_ssize_t size;
-    if (slice) {
-        size = slice_size;
-    } else {
-        size = glz_getsize(blob, blob_size);
-        if (size < 0) {
-            fprintf(stderr, "decode failure %d :(\n", size);
-            return 2;
-        }
-    }
-
-    uint8_t *output = malloc(size);
-    if (!output) {
-        fprintf(stderr, "could not allocated output (%d bytes)\n", size);
-        return 3;
-    }
-
     // decode!
     if (!slice) {
-        err = glz_decode_all(blob, blob_size, output, size);
+        err = glz_decode_all(blob, blob_size,
+                main_write, (void*)1, -1);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
         }
     } else {
-        err = glz_decode_slice(blob, blob_size, output, size, slice_off);
+        err = glz_decode_slice(blob, blob_size,
+                main_write, (void*)1, slice_size, slice_off);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
         }
-    }
-
-    // dump
-    ssize_t res = write(1, output, size);
-    if (res < 0) {
-        fprintf(stderr, "could not write?\n");
-        return 3;
     }
 
     return 0;
