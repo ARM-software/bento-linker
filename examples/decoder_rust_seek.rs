@@ -6,11 +6,14 @@
 //
 #[allow(non_camel_case_types)]
 type _usize = usize; // workaround until rust v1.43
+#[allow(non_camel_case_types)]
+type _isize = isize; // workaround until rust v1.43
 
 pub mod glz {
     use std::error;
     use std::fmt;
     use std::cmp;
+    use std::io;
     use std::convert::{TryFrom, TryInto};
 
     // error type
@@ -18,6 +21,7 @@ pub mod glz {
     #[non_exhaustive]
     pub enum Error {
         Inval = -22,
+        IO    = -5,
     }
 
     impl error::Error for Error {}
@@ -25,6 +29,7 @@ pub mod glz {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 Self::Inval => write!(f, "Invalid input"),
+                Self::IO    => write!(f, "I/O Error"),
             }
         }
     }
@@ -35,6 +40,8 @@ pub mod glz {
     pub type usize = ::_usize;
     #[allow(non_camel_case_types)]
     pub type uoff = ::_usize;
+    #[allow(non_camel_case_types)]
+    pub type ioff = ::_isize;
 
     // GLZ's M constant (width of reference nibbles)
     const M: usize = 4;
@@ -45,26 +52,33 @@ pub mod glz {
     // the compiled size with nm
     #[export_name="glz_decode"]
     #[inline(never)]
-    pub fn decode(
+    pub fn decode<R: io::Read+io::Seek, W: io::Write>(
         k: u8,
-        blob: &[u8],
-        output: &mut [u8],
+        input: &mut R,
+        output: &mut W,
+        size: usize,
         off: uoff
     ) -> Result<(), Error> {
-        let mut output = output.iter_mut();
         // glz "stack"
         let mut pushed: (usize, uoff) = (0, 0);
-        let mut size = output.len();
+        let mut size = size;
         let mut off = off;
+        let mut buf = [0u8; 2];
 
         while size > 0 {
             // decode rice code
             let mut rice: u16 = 0;
             loop {
-                let x = blob.get(off/8)
-                    .map(|x| x >> (7-off%8))
-                    .ok_or(Error::Inval)?;
-                if x & 1 == 0 {
+                input.seek(io::SeekFrom::Start((off/8) as u64))
+                    .and_then(|_| input.read_exact(&mut buf[..1]))
+                    .map(|_| buf[0] >>= 7-off%8)
+                    .map_err(|err| if err.kind() ==
+                            io::ErrorKind::UnexpectedEof {
+                        Error::Inval
+                    } else {
+                        Error::IO
+                    })?;
+                if buf[0] & 1 == 0 {
                     off += 1;
                     break;
                 }
@@ -73,29 +87,36 @@ pub mod glz {
                 off += 1;
             }
             for _ in 0..k {
-                let x = blob.get(off/8)
-                    .map(|x| x >> (7-off%8))
-                    .ok_or(Error::Inval)?;
-                rice = (rice << 1) | u16::from(1 & x);
+                input.seek(io::SeekFrom::Start((off/8) as u64))
+                    .and_then(|_| input.read_exact(&mut buf[..1]))
+                    .map(|_| buf[0] >>= 7-off%8)
+                    .map_err(|err| if err.kind() ==
+                            io::ErrorKind::UnexpectedEof {
+                        Error::Inval
+                    } else {
+                        Error::IO
+                    })?;
+                rice = (rice << 1) | u16::from(1 & buf[0]);
                 off += 1;
             }
 
             // map through table
-            let rice = match blob.get(
-                    (9*uoff::from(rice))/8..(9*uoff::from(rice))/8+2) {
-                Some(&[x0, x1]) => {
-                    0x1ff & (
-                        (u16::from(x0) << 8) |
-                        (u16::from(x1) << 0)) >> (7-(9*rice)%8)
-                },
-                _ => {
-                    Err(Error::Inval)?
-                },
-            };
+            input.seek(io::SeekFrom::Start((9*uoff::from(rice)/8) as u64))
+                .and_then(|_| input.read_exact(&mut buf[..2]))
+                .map_err(|err| if err.kind() ==
+                        io::ErrorKind::UnexpectedEof {
+                    Error::Inval
+                } else {
+                    Error::IO
+                })?;
+            let rice = 0x1ff & (
+                (u16::from(buf[0]) << 8) |
+                (u16::from(buf[1]) << 0)) >> (7-(9*rice)%8);
 
             // indirect reference or literal?
             if let Ok(rice) = u8::try_from(rice) {
-                *output.next().unwrap() = rice;
+                output.write(&[rice])
+                    .map_err(|_| Error::IO)?;
                 size -= 1;
             } else {
                 let nsize = usize::from(rice & 0xff) + 2;
@@ -103,10 +124,16 @@ pub mod glz {
                 loop {
                     let mut n: uoff = 0;
                     for _ in 0..M+1 {
-                        let x = blob.get(off/8)
-                            .map(|x| x >> (7-off%8))
-                            .ok_or(Error::Inval)?;
-                        n = (n << 1) | uoff::from(1 & x);
+                        input.seek(io::SeekFrom::Start((off/8) as u64))
+                            .and_then(|_| input.read_exact(&mut buf[..1]))
+                            .map(|_| buf[0] >>= 7-off%8)
+                            .map_err(|err| if err.kind() ==
+                                    io::ErrorKind::UnexpectedEof {
+                                Error::Inval
+                            } else {
+                                Error::IO
+                            })?;
+                        n = (n << 1) | uoff::from(1 & buf[0]);
                         off += 1;
                     }
 
@@ -146,48 +173,95 @@ pub mod glz {
     //       |         '------ table size in bits
     //       '---------------- size of output blob
     //
-    pub fn getsize(blob: &[u8]) -> Result<usize, Error> {
-        let buf = blob.get(0..4).ok_or(Error::Inval)?
-            .try_into().map_err(|_| Error::Inval)?;
+    pub fn getsize<R: io::Read+io::Seek>(
+        input: &mut R
+    ) -> Result<usize, Error> {
+        let mut buf = [0u8; 4];
+        input.seek(io::SeekFrom::Start(0))
+            .and_then(|_| input.read_exact(&mut buf))
+            .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
+                Error::Inval
+            } else {
+                Error::IO
+            })?;
         let size = u32::from_le_bytes(buf)
             .try_into().map_err(|_| Error::Inval)?;
         Ok(size)
     }
 
-    pub fn getoff(blob: &[u8]) -> Result<uoff, Error> {
-        let buf = blob.get(4..8).ok_or(Error::Inval)?
-            .try_into().map_err(|_| Error::Inval)?;
+    pub fn getoff<R: io::Read+io::Seek>(
+        input: &mut R
+    ) -> Result<uoff, Error> {
+        let mut buf = [0u8; 4];
+        input.seek(io::SeekFrom::Start(4))
+            .and_then(|_| input.read_exact(&mut buf))
+            .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
+                Error::Inval
+            } else {
+                Error::IO
+            })?;
         let off = (0x00ffffff & u32::from_le_bytes(buf))
             .try_into().map_err(|_| Error::Inval)?;
         Ok(off)
     }
 
-    pub fn getk(blob: &[u8]) -> Result<u8, Error> {
-        let k = blob.get(7).ok_or(Error::Inval)?;
-        Ok(*k)
+    pub fn getk<R: io::Read+io::Seek>(
+        input: &mut R
+    ) -> Result<u8, Error> {
+        let mut buf = [0u8; 1];
+        input.seek(io::SeekFrom::Start(7))
+            .and_then(|_| input.read_exact(&mut buf))
+            .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
+                Error::Inval
+            } else {
+                Error::IO
+            })?;
+        Ok(buf[0])
     }
 
-    pub fn decode_all(
-        blob: &[u8],
-        output: &mut [u8]
+    struct ReadSeekSlice<'a, R: io::Read+io::Seek> {
+        input: &'a mut R,
+        off: ioff,
+    }
+
+    impl<R: io::Read+io::Seek> io::Read for ReadSeekSlice<'_, R> {
+        fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+            self.input.read(buf)
+        }
+    }
+
+    impl<R: io::Read+io::Seek> io::Seek for ReadSeekSlice<'_, R> {
+        fn seek(&mut self, off: io::SeekFrom) -> Result<u64, io::Error> {
+            self.input.seek(match off {
+                io::SeekFrom::Start(off) => io::SeekFrom::Start(
+                    ((off as i64)-(self.off as i64)) as u64),
+                off => off,
+            })
+        }
+    }
+
+    pub fn decode_all<R: io::Read+io::Seek, W: io::Write>(
+        input: &mut R,
+        output: &mut W,
+        size: Option<usize>,
     ) -> Result<(), Error> {
-        let size = cmp::min(
-            getsize(blob)?,
-            output.len());
-        let off = getoff(blob)?;
-        let k = getk(blob)?;
-        let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, &mut output[..size], off)
+        let size = match (getsize(input)?, size) {
+            (blob_size, Some(size)) => cmp::min(blob_size, size),
+            (blob_size, _) => blob_size,
+        };
+        let off = getoff(input)?;
+        let k = getk(input)?;
+        decode(k, &mut ReadSeekSlice{input: input, off: -8}, output, size, off)
     }
     
-    pub fn decode_slice(
-        blob: &[u8],
-        output: &mut [u8],
+    pub fn decode_slice<R: io::Read+io::Seek, W: io::Write>(
+        input: &mut R,
+        output: &mut W,
+        size: usize,
         off: uoff
     ) -> Result<(), Error> {
-        let k = getk(blob)?;
-        let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, output, off)
+        let k = getk(input)?;
+        decode(k, &mut ReadSeekSlice{input: input, off: -8}, output, size, off)
     }
 }
 
@@ -197,7 +271,6 @@ use std::env;
 use std::process;
 use std::fs;
 use std::io;
-use std::io::Write;
 
 macro_rules! uparse {
     // need this because how else do we emulate strtol(..., 0)?
@@ -244,7 +317,7 @@ fn main() {
     };
 
     // read file
-    let blob = match fs::read(&args[1]) {
+    let mut input = match fs::File::open(&args[1]) {
         Ok(input) => input,
         _ => {
             eprintln!("could not read file \"{}\"?", args[1]);
@@ -252,24 +325,10 @@ fn main() {
         }
     };
 
-    // create output buffer
-    let size = match slice {
-        Some((size, _)) => size,
-        _ => match glz::getsize(&blob) {
-            Ok(size) => size,
-            Err(err) => {
-                eprintln!("decode failure ({}) :(", err);
-                process::exit(2);
-            }
-        }
-    };
-
-    let mut output = vec![0; size];
-
     // decode!
     match slice {
-        Some((_, off)) => {
-            match glz::decode_slice(&blob, &mut output, off) {
+        Some((size, off)) => {
+            match glz::decode_slice(&mut input, &mut io::stdout(), size, off) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);
@@ -278,22 +337,13 @@ fn main() {
             }
         }
         _ => {
-            match glz::decode_all(&blob, &mut output) {
+            match glz::decode_all(&mut input, &mut io::stdout(), None) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);
                     process::exit(2);
                 }
             }
-        }
-    }
-
-    // dump
-    match io::stdout().write_all(&output) {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!("could not write?");
-            process::exit(3);
         }
     }
 }

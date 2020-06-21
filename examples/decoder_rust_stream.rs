@@ -11,6 +11,7 @@ pub mod glz {
     use std::error;
     use std::fmt;
     use std::cmp;
+    use std::io;
     use std::convert::{TryFrom, TryInto};
 
     // error type
@@ -18,6 +19,7 @@ pub mod glz {
     #[non_exhaustive]
     pub enum Error {
         Inval = -22,
+        IO    = -5,
     }
 
     impl error::Error for Error {}
@@ -25,6 +27,7 @@ pub mod glz {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self {
                 Self::Inval => write!(f, "Invalid input"),
+                Self::IO    => write!(f, "I/O Error"),
             }
         }
     }
@@ -45,16 +48,16 @@ pub mod glz {
     // the compiled size with nm
     #[export_name="glz_decode"]
     #[inline(never)]
-    pub fn decode(
+    pub fn decode<W: io::Write>(
         k: u8,
         blob: &[u8],
-        output: &mut [u8],
+        output: &mut W,
+        size: usize,
         off: uoff
     ) -> Result<(), Error> {
-        let mut output = output.iter_mut();
         // glz "stack"
         let mut pushed: (usize, uoff) = (0, 0);
-        let mut size = output.len();
+        let mut size = size;
         let mut off = off;
 
         while size > 0 {
@@ -95,7 +98,8 @@ pub mod glz {
 
             // indirect reference or literal?
             if let Ok(rice) = u8::try_from(rice) {
-                *output.next().unwrap() = rice;
+                output.write(&[rice])
+                    .map_err(|_| Error::IO)?;
                 size -= 1;
             } else {
                 let nsize = usize::from(rice & 0xff) + 2;
@@ -167,27 +171,30 @@ pub mod glz {
         Ok(*k)
     }
 
-    pub fn decode_all(
+    pub fn decode_all<W: io::Write>(
         blob: &[u8],
-        output: &mut [u8]
+        output: &mut W,
+        size: Option<usize>,
     ) -> Result<(), Error> {
-        let size = cmp::min(
-            getsize(blob)?,
-            output.len());
+        let size = match (getsize(blob)?, size) {
+            (blob_size, Some(size)) => cmp::min(blob_size, size),
+            (blob_size, _) => blob_size,
+        };
         let off = getoff(blob)?;
         let k = getk(blob)?;
         let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, &mut output[..size], off)
+        decode(k, blob, output, size, off)
     }
     
-    pub fn decode_slice(
+    pub fn decode_slice<W: io::Write>(
         blob: &[u8],
-        output: &mut [u8],
+        output: &mut W,
+        size: usize,
         off: uoff
     ) -> Result<(), Error> {
         let k = getk(blob)?;
         let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, output, off)
+        decode(k, blob, output, size, off)
     }
 }
 
@@ -197,7 +204,6 @@ use std::env;
 use std::process;
 use std::fs;
 use std::io;
-use std::io::Write;
 
 macro_rules! uparse {
     // need this because how else do we emulate strtol(..., 0)?
@@ -252,24 +258,10 @@ fn main() {
         }
     };
 
-    // create output buffer
-    let size = match slice {
-        Some((size, _)) => size,
-        _ => match glz::getsize(&blob) {
-            Ok(size) => size,
-            Err(err) => {
-                eprintln!("decode failure ({}) :(", err);
-                process::exit(2);
-            }
-        }
-    };
-
-    let mut output = vec![0; size];
-
     // decode!
     match slice {
-        Some((_, off)) => {
-            match glz::decode_slice(&blob, &mut output, off) {
+        Some((size, off)) => {
+            match glz::decode_slice(&blob, &mut io::stdout(), size, off) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);
@@ -278,22 +270,13 @@ fn main() {
             }
         }
         _ => {
-            match glz::decode_all(&blob, &mut output) {
+            match glz::decode_all(&blob, &mut io::stdout(), None) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);
                     process::exit(2);
                 }
             }
-        }
-    }
-
-    // dump
-    match io::stdout().write_all(&output) {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!("could not write?");
-            process::exit(3);
         }
     }
 }
