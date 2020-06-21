@@ -38,8 +38,8 @@ typedef int32_t glz_ssize_t;
 int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
         uint8_t *output, glz_size_t size, uint32_t off) {
     // glz "stack"
-    glz_off_t poff = 0;
     glz_size_t psize = 0;
+    glz_off_t poff = 0;
 
     while (size > 0) {
         // decode rice code
@@ -85,21 +85,21 @@ int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
 
             // tail recurse?
             if (nsize >= size) {
-                off = off + noff;
                 size = size;
-            } else {
-                poff = off;
-                psize = size - nsize;
                 off = off + noff;
+            } else {
+                psize = size - nsize;
+                poff = off;
                 size = nsize;
+                off = off + noff;
             }
         }
 
         if (size == 0) {
-            off = poff;
             size = psize;
-            poff = 0;
+            off = poff;
             psize = 0;
+            poff = 0;
         }
     }
 
@@ -171,32 +171,31 @@ int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
 }
 
 
-// main isn't needed, just presents a CLI for decompression
+// main isn't needed, just presents a CLI for testing/benchmarking
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 4) {
-        fprintf(stderr, "usage: %s <file> [<offset> <size>]\n", argv[0]);
+        fprintf(stderr, "usage: %s <file> [<size> <off>]\n", argv[0]);
         return 1;
     }
 
     bool slice = false;
-    glz_off_t slice_off;
     glz_off_t slice_size;
+    glz_off_t slice_off;
 
     // requesting slice?
     if (argc == 4) {
         char *end;
-        slice_off = strtol(argv[2], &end, 0);
-        if (*end != '\0') {
-            fprintf(stderr, "bad offset \"%s\"?\n", argv[2]);
-            return 1;
-        }
-
         slice_size = strtol(argv[3], &end, 0);
         if (*end != '\0') {
             fprintf(stderr, "bad size \"%s\"?\n", argv[3]);
             return 1;
         }
 
+        slice_off = strtol(argv[2], &end, 0);
+        if (*end != '\0') {
+            fprintf(stderr, "bad offset \"%s\"?\n", argv[2]);
+            return 1;
+        }
 
         slice = true;
     }
@@ -241,14 +240,14 @@ int main(int argc, char **argv) {
     }
 
     // decode!
-    if (!slice) {
-        err = glz_decode_all(blob, blob_size, output, size);
+    if (slice) {
+        err = glz_decode_slice(blob, blob_size, output, size, slice_off);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
         }
     } else {
-        err = glz_decode_slice(blob, blob_size, output, size, slice_off);
+        err = glz_decode_all(blob, blob_size, output, size);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;

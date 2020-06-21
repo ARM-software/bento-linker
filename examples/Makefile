@@ -2,6 +2,7 @@ override TARGETS += decoder
 override TARGETS += decoder_unsafe
 override TARGETS += decoder_stream
 override TARGETS += decoder_seek
+override TARGETS += decoder_rust
 
 all build: $(TARGETS)
 
@@ -19,3 +20,6 @@ ifdef DEBUG
 else
 	gcc -Os -std=c99 -pedantic -Wno-format $< -o $@
 endif
+
+%: %.rs
+	rustc -C opt-level=s $< -o $@
