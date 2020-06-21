@@ -8,6 +8,9 @@ use std::iter;
 use std::fmt;
 use std::fmt::Debug;
 use std::rc::Rc;
+use std::mem;
+
+use error_chain::ensure;
 
 
 // Simple histogram class for Sym types
@@ -173,12 +176,23 @@ impl Hist {
         let mut decode_table: Vec<u32> = (0..bound as u32).collect();
         decode_table.sort_by_key(|&k| Reverse(self.get_bounded(k, bound)));
 
-        // strip symbols with no hits
-        let size = decode_table.iter()
-            .position(|&k| self.get_bounded(k, bound) == 0)
-            .unwrap_or(decode_table.len());
+        self.set_table(&decode_table);
+    }
 
-        self.set_table(&decode_table[..size]);
+    pub fn compact(&mut self) {
+        self.compact_bounded(self.bound());
+    }
+
+    pub fn compact_bounded(&mut self, bound: usize) {
+        let mut table = mem::replace(&mut self.table, None);
+
+        if let Some((_, ref mut decode_table)) = table {
+            // strip symbols with no hits
+            let size = decode_table.iter()
+                .position(|&k| self.get_bounded(k, bound) == 0)
+                .unwrap_or(decode_table.len());
+            self.set_table(&decode_table[..size]);
+        }
     }
 
     pub fn set_table<U: Sym>(&mut self, decode_table: &[U]) {
@@ -190,6 +204,7 @@ impl Hist {
         // invert for encode table
         let size = *decode_table.iter().max().unwrap_or(&0) + 1;
         let mut encode_table = vec![0; size as usize];
+
         for (i, &n) in decode_table.iter().enumerate() {
             encode_table[n as usize] = i as u32;
         }
@@ -259,10 +274,17 @@ pub trait Biject {
 impl Biject for Hist {
     fn map_encode<U: Sym>(&self, n: U) -> Result<U> {
         if let Some((table, _)) = &self.table {
+            let oldn = n;
+
             let n = u32::cast(n)?;
             let (m, n) = (n - n % table.len() as u32, n % table.len() as u32);
             let n = table.get(n as usize).unwrap_or(&n);
-            U::cast(m + n)
+            let newn = U::cast(m + n)?;
+
+            ensure!(self.map_decode(newn)? == oldn,
+                "biject encoded symbol can not be decoded");
+
+            Ok(newn)
         } else {
             Ok(n)
         }

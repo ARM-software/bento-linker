@@ -65,8 +65,8 @@ struct CommonOpt {
     passes: u32,
 
     /// Max width of reference length in bits. This places an upper-bound
-    /// on the size of the Golomb-Rice table (2^8+2^l).
-    #[structopt(short = "L", default_value = "5")]
+    /// on the size of the Golomb-Rice table (2^8+2^L).
+    #[structopt(short = "L", default_value = "4")]
     l: usize,
 
     /// Width of reference offset nibbles in bits. Note, changing this will

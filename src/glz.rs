@@ -33,11 +33,11 @@ use error_chain::ensure;
 //
 // immediate:
 // [0xxxxxxxx]
-//       '-- 8-bit immediate
+//       ^-- 8-bit immediate
 //
 // reference:
 // [1000yyyyy|1xxx|1xxx|0xxx]
-//        |   \-----------/
+//        ^   \-----------/
 //        |          '-- M*i-bit offset - sum(2^(M*i)) + 1
 //        '------------- L-bit length - 2
 //
@@ -110,6 +110,7 @@ impl GLZ {
         // use hist as bijecter to map probabilities to best rice code
         let mut hist = hist.clone();
         hist.sort();
+        hist.compact();
 
         let rice = if let Some(k) = k {
             GolombRice::new(k)
@@ -303,7 +304,7 @@ impl GLZ {
                 patterns.push(imm);
                 forceimm = false;
 
-                // add every refix to dictionary since last match, note we
+                // add every prefix to dictionary since last match, note we
                 // also update the substrings of our original match, which
                 // should improve offset locality. This is worst case O(n^2)
                 // if no repetition is ever found.
