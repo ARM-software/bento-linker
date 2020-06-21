@@ -13,7 +13,6 @@
 
 #include <stdio.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -191,9 +190,8 @@ int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
 
 // main isn't needed, just presents a CLI for testing/benchmarking
 glz_ssize_t main_write(void *ctx, const void *buf, glz_size_t size) {
-    int fd = (intptr_t)ctx;
-    ssize_t res = write(fd, buf, size);
-    if (res < 0) {
+    size_t res = fwrite(buf, 1, size, ctx);
+    if (ferror(ctx)) {
         fprintf(stderr, "could not write?\n");
         return -errno;
     }
@@ -252,14 +250,14 @@ int main(int argc, char **argv) {
     // decode!
     if (slice) {
         err = glz_decode_slice(blob, blob_size,
-                main_write, (void*)1, slice_size, slice_off);
+                main_write, stdout, slice_size, slice_off);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
         }
     } else {
         err = glz_decode_all(blob, blob_size,
-                main_write, (void*)1, -1);
+                main_write, stdout, -1);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;

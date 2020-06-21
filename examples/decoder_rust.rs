@@ -6,6 +6,8 @@
 //
 #[allow(non_camel_case_types)]
 type _usize = usize; // workaround until rust v1.43
+#[allow(non_camel_case_types)]
+type _isize = isize; // workaround until rust v1.43
 
 pub mod glz {
     use std::error;
@@ -32,9 +34,11 @@ pub mod glz {
     // types used by GLZ, no idea how to do this idiomatically
     // needed to make comparison against C reasonable
     #[allow(non_camel_case_types)]
-    pub type usize = ::_usize;
+    pub type usize = super::_usize;
     #[allow(non_camel_case_types)]
-    pub type uoff = ::_usize;
+    pub type uoff = super::_usize;
+    #[allow(non_camel_case_types)]
+    pub type ioff = super::_isize;
 
     // GLZ's M constant (width of reference nibbles)
     const M: usize = 4;

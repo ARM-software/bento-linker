@@ -672,7 +672,7 @@ mod tests {
         let phrase = b"hhhhh hhhhh hhhhh hhhhh hhhhh!";
         let glz = GLZ::from_seed(None, 5, 3, phrase.iter().copied());
         assert_eq!(glz.k(), 0);
-        assert_eq!(glz.encode(phrase)?.len(), 43);
+        assert_eq!(glz.encode(phrase)?.len(), 49);
         assert_eq!(
             glz.decode::<u8>(&glz.encode(phrase)?)?,
             phrase.to_vec()

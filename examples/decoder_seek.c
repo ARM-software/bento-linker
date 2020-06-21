@@ -13,8 +13,6 @@
 #include <stdlib.h>
 
 #include <stdio.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -323,9 +321,8 @@ int glz_decode_slice(
 
 // main isn't needed, just presents a CLI for testing/benchmarking
 glz_ssize_t main_read(void *ctx, void *buf, glz_size_t size) {
-    int fd = (intptr_t)ctx;
-    ssize_t res = read(fd, buf, size);
-    if (res < 0) {
+    size_t res = fread(buf, 1, size, ctx);
+    if (ferror(ctx)) {
         fprintf(stderr, "could not read?\n");
         return -errno;
     }
@@ -333,19 +330,17 @@ glz_ssize_t main_read(void *ctx, void *buf, glz_size_t size) {
 }
 
 glz_soff_t main_seek(void *ctx, glz_off_t off) {
-    int fd = (intptr_t)ctx;
-    off_t res = lseek(fd, off, SEEK_SET);
-    if (off < 0) {
+    int err = fseek(ctx, off, SEEK_SET);
+    if (err) {
         fprintf(stderr, "could not seek?\n");
         return -errno;
     }
-    return res;
+    return ftell(ctx);
 }
 
 glz_ssize_t main_write(void *ctx, const void *buf, glz_size_t size) {
-    int fd = (intptr_t)ctx;
-    ssize_t res = write(fd, buf, size);
-    if (res < 0) {
+    size_t res = fwrite(buf, 1, size, ctx);
+    if (ferror(ctx)) {
         fprintf(stderr, "could not write?\n");
         return -errno;
     }
@@ -381,8 +376,8 @@ int main(int argc, char **argv) {
     }
 
     // mmap file
-    int fd = open(argv[1], O_RDONLY, 0);
-    if (fd < 0) {
+    FILE *input = fopen(argv[1], "r");
+    if (!input) {
         fprintf(stderr, "could not open file \"%s\"?\n", argv[1]);
         return 1;
     }
@@ -390,16 +385,16 @@ int main(int argc, char **argv) {
     // decode!
     if (slice) {
         int err = glz_decode_slice(
-                main_read, (void*)(intptr_t)fd, main_seek, (void*)(intptr_t)fd,
-                main_write, (void*)1, slice_size, slice_off);
+                main_read, input, main_seek, input,
+                main_write, stdout, slice_size, slice_off);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
         }
     } else {
         int err = glz_decode_all(
-                main_read, (void*)(intptr_t)fd, main_seek, (void*)(intptr_t)fd,
-                main_write, (void*)1, -1);
+                main_read, input, main_seek, input,
+                main_write, stdout, -1);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;
