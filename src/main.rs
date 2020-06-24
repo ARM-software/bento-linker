@@ -13,7 +13,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::time::Instant;
 use std::thread;
-use std::cmp::min;
+use std::cmp;
 use std::process;
 use std::convert::TryInto;
 
@@ -39,12 +39,13 @@ const VERSION_MINOR: u8 = 0;
 const VERSION: [u8; 2] = [VERSION_MAJOR, VERSION_MINOR];
 
 // Flags
-const FLAG_ARCHIVE : u16 = 0x2000;
-const FLAG_INDEX   : u16 = 0x1000;
-const FLAG_LEN     : u16 = 0x0400;
-const FLAG_K       : u16 = 0x0200;
-const FLAG_TABLE   : u16 = 0x0100;
-const FLAG_LEB128  : u16 = 0x0001;
+const FLAG_LEB128   : u16 = 0x0001;
+
+// Type
+const TYPE_NONE     : u8 = 0x0;
+const TYPE_LEN      : u8 = 0x1;
+const TYPE_INDEX    : u8 = 0x2;
+const TYPE_ARCHIVE  : u8 = 0x3;
 
 #[derive(Debug, StructOpt)]
 #[structopt(rename_all = "kebab")]
@@ -78,7 +79,7 @@ struct CommonOpt {
     #[structopt(short, long)]
     quiet: bool,
 
-    /// Print full Golomb-Rice table, can be useful with --no_headers.
+    /// Print full Golomb-Rice table, can be useful with --no-table.
     #[structopt(long)]
     print_table: bool,
 
@@ -104,9 +105,15 @@ struct CommonOpt {
     #[structopt(long)]
     no_len: bool,
 
-    /// Don't prepend the K constant. This is needed for decompression.
+    /// Don't prepend any headers, including the K-constant and offsets
+    /// required for decompression. Note that the golomb-Rice table is still
+    /// prepended unless you specify --no-table.
     #[structopt(long)]
-    no_k: bool,
+    no_headers: bool,
+//
+//    /// Don't prepend the K constant. This is needed for decompression.
+//    #[structopt(long)]
+//    no_k: bool,
 
     /// Don't prepend the Golomb-Rice table. This is needed for
     /// decompression.
@@ -142,7 +149,7 @@ struct DecodeOpt {
     input: PathBuf,
 
     /// File to decompress. This is only available when
-    /// in archive mode.
+    /// in archive or index mode.
     #[structopt(short, long)]
     file: Option<String>,
 
@@ -244,7 +251,7 @@ where
                 prog1.inc(prog2.position());
 
                 let path = path.to_string_lossy();
-                prog2.set_message(&path[path.len()-min(path.len(), 20)..]);
+                prog2.set_message(&path[path.len()-cmp::min(path.len(), 20)..]);
                 prog2.set_length(*input as u64);
                 prog2.reset();
             },
@@ -295,145 +302,16 @@ where
     with_prog_all(msg, quiet, &[], &[inputs], |(_, _, prog)| f(prog))
 }
 
-// Bit reader/writers
-trait WriteBits {
-    fn write_bits(
-        &mut self,
-        bits: &BitSlice
-    ) -> Result<()>;
-
-    fn write_size(
-        &mut self,
-        flags: u16,
-        size: usize
-    ) -> Result<()>;
-}
-
-impl<T: Write> WriteBits for T {
-    fn write_bits(
-        &mut self,
-        bits: &BitSlice
-    ) -> Result<()> {
-        let mut bits = BitVec::from(bits);
-        bits.resize(((bits.len()+8-1)/8)*8, false);
-        let bytes = 8usize.decode::<u8>(&bits)?;
-        self.write_all(&bytes)?;
-        Ok(())
-    }
-
-    fn write_size(
-        &mut self,
-        flags: u16,
-        size: usize
-    ) -> Result<()> {
-        if flags & FLAG_LEB128 != 0 {
-            self.write_bits(&LEB128.encode_u32(size as u32)?)?
-        } else {
-            self.write_all(&(size as u32).to_le_bytes())?
-        }
-        Ok(())
-    }
-}
-
-trait ReadBits {
-    fn read_size(
-        &mut self,
-        flags: u16,
-    ) -> Result<usize>;
-}
-
-impl<T: Read> ReadBits for T {
-    fn read_size(
-        &mut self,
-        flags: u16,
-    ) -> Result<usize> {
-        if flags & FLAG_LEB128 != 0 {
-            let mut buf: Vec<u8> = Vec::new();
-            loop {
-                let mut c = [0; 1];
-                self.read_exact(&mut c)?;
-                buf.push(c[0]);
-                if c[0] & 0x80 == 0 {
-                    break;
-                }
-            }
-            Ok(LEB128.decode_u32(&8.encode::<u8>(&buf)?)?.0 as usize)
-        } else {
-            let mut buf = [0; 4];
-            self.read_exact(&mut buf)?;
-            Ok(u32::from_le_bytes(buf) as usize)
-        }
-    }
-}
-
-// Estimator for finding file size without writing anything
-enum EstimatorFile {
-    Some(File),
-    None(u64),
-}
-
-impl EstimatorFile {
-    fn len(&self) -> io::Result<u64> {
-        match self {
-            EstimatorFile::Some(f) => Ok(f.metadata()?.len()),
-            EstimatorFile::None(s) => Ok(*s)
-        }
-    }
-}
-
-impl Write for EstimatorFile {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            EstimatorFile::Some(ref mut f) => f.write(buf),
-            EstimatorFile::None(ref mut s) => {
-                *s += buf.len() as u64;
-                Ok(buf.len())
-            }
-        }
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self {
-            EstimatorFile::Some(ref mut f) => f.flush(),
-            EstimatorFile::None(_) => Ok(())
-        }
-    }
-}
-
 // Some helpers
-fn mkflags(opt: &CommonOpt, mut flags: u16) -> u16 {
-    if opt.archive      { flags |= FLAG_ARCHIVE; }
-    if opt.index        { flags |= FLAG_INDEX; }
-    if flags & (FLAG_ARCHIVE | FLAG_INDEX) == 0 && !opt.no_len
-                        { flags |= FLAG_LEN; }
-    if !opt.no_k        { flags |= FLAG_K; }
-    if !opt.no_table    { flags |= FLAG_TABLE; }
-    if opt.leb128       { flags |= FLAG_LEB128; }
-    flags
+fn mkflags(opt: &CommonOpt, flags: u16) -> u16 {
+    flags | if opt.leb128 { FLAG_LEB128 } else { 0 }
 }
 
-fn read_flags<R: Read>(opt: &CommonOpt, f: &mut R) -> Result<u16> {
-    // determine flags
-    let mut flags = 0u16;
-    if !opt.no_magic {
-        let mut magic = [0u8; 8];
-        f.read_exact(&mut magic)?;
-        if &magic[0..4] != MAGIC {
-            bail!("bad magic number");
-        }
-        if &magic[4..6] != VERSION {
-            println!("version mismatch (v{}.{} != v{}.{}), \
-                trying anyways...",
-                magic[4], magic[5],
-                VERSION_MAJOR, VERSION_MINOR);
-        }
-
-        // set flags with what we find
-        flags |= u16::from_le_bytes(magic[6..8].try_into().unwrap());
-    }
-
-    // override with explicit flags
-    Ok(mkflags(opt, flags))
+fn mktype(opt: &CommonOpt, _flags: u16) -> u8 {
+    if opt.archive      { TYPE_ARCHIVE }
+    else if opt.index   { TYPE_INDEX }
+    else if !opt.no_len { TYPE_LEN }
+    else                { TYPE_NONE }
 }
 
 fn print_k(_opt: &CommonOpt, k: usize) {
@@ -509,6 +387,206 @@ fn print_files(
             (100*(*before as i32 - after as i32)) / *before as i32,
             namewidth=namewidth.unwrap()
         );
+    }
+}
+
+// Bit reader/writers
+trait WriteBits {
+    fn write_bits(
+        &mut self,
+        bits: &BitSlice
+    ) -> Result<()>;
+
+    fn write_size(
+        &mut self,
+        flags: u16,
+        size: usize
+    ) -> Result<()>;
+
+    fn write_meta(
+        &mut self,
+        opt: &CommonOpt,
+        flags: u16,
+        type_: u8,
+        k: usize,
+        size: usize
+    ) -> Result<()>;
+}
+
+impl<T: Write> WriteBits for T {
+    fn write_bits(
+        &mut self,
+        bits: &BitSlice
+    ) -> Result<()> {
+        let mut bits = BitVec::from(bits);
+        bits.resize(((bits.len()+8-1)/8)*8, false);
+        let bytes = 8usize.decode::<u8>(&bits)?;
+        self.write_all(&bytes)?;
+        Ok(())
+    }
+
+    fn write_size(
+        &mut self,
+        flags: u16,
+        size: usize
+    ) -> Result<()> {
+        if flags & FLAG_LEB128 != 0 {
+            self.write_bits(&LEB128.encode_u32(size as u32)?)?
+        } else {
+            self.write_all(&(size as u32).to_le_bytes())?
+        }
+        Ok(())
+    }
+
+    fn write_meta(
+        &mut self,
+        opt: &CommonOpt,
+        flags: u16,
+        type_: u8,
+        k: usize,
+        size: usize
+    ) -> Result<()> {
+        assert!(!opt.no_headers);
+
+        if !opt.no_magic {
+            self.write_all(&MAGIC)?;
+            self.write_all(&VERSION)?;
+            self.write_all(&flags.to_le_bytes())?;
+        }
+
+        if flags & FLAG_LEB128 != 0 {
+            self.write_size(flags,
+                (usize::from(type_) << 4) |
+                k)?;
+            self.write_size(flags, size)?;
+        } else {
+            self.write_size(flags, 
+                (usize::from(type_) << 28) |
+                (k << 24) |
+                size)?;
+        }
+
+        Ok(())
+    }
+}
+
+trait ReadBits {
+    fn read_size(
+        &mut self,
+        flags: u16,
+    ) -> Result<usize>;
+
+    fn read_meta(
+        &mut self,
+        opt: &CommonOpt,
+    ) -> Result<(u16, u8, Option<usize>, usize)>;
+}
+
+impl<T: Read> ReadBits for T {
+    fn read_size(
+        &mut self,
+        flags: u16,
+    ) -> Result<usize> {
+        if flags & FLAG_LEB128 != 0 {
+            let mut buf: Vec<u8> = Vec::new();
+            loop {
+                let mut c = [0; 1];
+                self.read_exact(&mut c)?;
+                buf.push(c[0]);
+                if c[0] & 0x80 == 0 {
+                    break;
+                }
+            }
+            Ok(LEB128.decode_u32(&8.encode::<u8>(&buf)?)?.0 as usize)
+        } else {
+            let mut buf = [0; 4];
+            self.read_exact(&mut buf)?;
+            Ok(u32::from_le_bytes(buf) as usize)
+        }
+    }
+
+    fn read_meta(
+        &mut self,
+        opt: &CommonOpt,
+    ) -> Result<(u16, u8, Option<usize>, usize)> {
+        let flags = mkflags(opt, if !opt.no_headers && !opt.no_magic {
+            let mut meta = [0u8; 8];
+            self.read_exact(&mut meta)?;
+            if &meta[0..4] != MAGIC {
+                bail!("bad magic number");
+            }
+            if &meta[4..6] != VERSION {
+                println!("version mismatch (v{}.{} != v{}.{}), \
+                    trying anyways...",
+                    meta[4], meta[5],
+                    VERSION_MAJOR, VERSION_MINOR);
+            }
+            u16::from_le_bytes(meta[6..8].try_into().unwrap())
+        } else {
+            0
+        });
+
+        let (type_, k, len) = match (!opt.no_headers, flags & FLAG_LEB128) {
+            (true, 0) => {
+                let mut meta = [0u8; 4];
+                self.read_exact(&mut meta)?;
+                let x = u32::from_le_bytes(meta);
+                (
+                    (0xf & (x >> 28)) as u8,
+                    Some((0xf & (x >> 24)) as usize),
+                    (0x00ffffff & x) as usize
+                )
+            },
+            (true, FLAG_LEB128) => {
+                let x = self.read_size(flags)?;
+                let size = self.read_size(flags)?;
+                (
+                    (0xf & (x >> 4)) as u8,
+                    Some((0xf & (x >> 0)) as usize),
+                    size
+                )
+            },
+            _ => {
+                (TYPE_NONE, None, 0)
+            },
+            
+        };
+
+        Ok((flags, type_, k, len))
+    }
+}
+
+// Estimator for finding file size without writing anything
+enum EstimatorFile {
+    Some(File),
+    None(u64),
+}
+
+impl EstimatorFile {
+    fn len(&self) -> io::Result<u64> {
+        match self {
+            EstimatorFile::Some(f) => Ok(f.metadata()?.len()),
+            EstimatorFile::None(s) => Ok(*s)
+        }
+    }
+}
+
+impl Write for EstimatorFile {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            EstimatorFile::Some(ref mut f) => f.write(buf),
+            EstimatorFile::None(ref mut s) => {
+                *s += buf.len() as u64;
+                Ok(buf.len())
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            EstimatorFile::Some(ref mut f) => f.flush(),
+            EstimatorFile::None(_) => Ok(())
+        }
     }
 }
 
@@ -628,56 +706,59 @@ fn encode(opt: &EncodeOpt) -> Result<()> {
     };
 
     let flags = mkflags(&opt.common, 0);
-    if !opt.common.no_magic {
-        f.write_all(&MAGIC)?;
-        f.write_all(&VERSION)?;
-        f.write_all(&flags.to_le_bytes())?;
-    }
+    let type_ = mktype(&opt.common, flags);
 
-    if flags & FLAG_ARCHIVE != 0 {
-        f.write_size(flags, paths.len())?;
-        for ((_path, (poff, plen)), (off, len)) in
-                paths.iter()
-                    .zip(&ranges[paths.len()..])
-                    .zip(&ranges[..paths.len()]) {
-            f.write_size(flags, *plen)?;
-            f.write_size(flags, *poff)?;
-            f.write_size(flags, *len)?;
-            f.write_size(flags, *off)?;
+    if !opt.common.no_headers {
+        match type_ {
+            TYPE_ARCHIVE => {
+                f.write_meta(&opt.common, flags, type_, k, paths.len())?;
+                for ((_path, (poff, plen)), (off, len)) in
+                        paths.iter()
+                            .zip(&ranges[paths.len()..])
+                            .zip(&ranges[..paths.len()]) {
+                    f.write_size(flags, *poff)?;
+                    f.write_size(flags, *plen)?;
+                    f.write_size(flags, *off)?;
+                    f.write_size(flags, *len)?;
+                }
+            },
+            TYPE_INDEX => {
+                f.write_meta(&opt.common, flags, type_, k, paths.len())?;
+                for (_path, (off, len)) in paths.iter().zip(ranges) {
+                    f.write_size(flags, off)?;
+                    f.write_size(flags, len)?;
+                } 
+            },
+            TYPE_LEN => {
+                f.write_meta(&opt.common, flags, type_, k,
+                    if !opt.common.no_table {
+                        table.len() * (1+GLZ::WIDTH)
+                    } else {
+                        0
+                    })?;
+                f.write_size(flags, inputs.iter()
+                    .map(|x| x.len())
+                    .sum())?;
+            },
+            TYPE_NONE => {
+                f.write_meta(&opt.common, flags, type_, k,
+                    if !opt.common.no_table {
+                        table.len() * (1+GLZ::WIDTH)
+                    } else {
+                        0
+                    })?;
+            },
+            _ => {
+                bail!("unknown type {}?", type_);
+            },
         }
     }
 
-    if flags & FLAG_INDEX != 0 {
-        f.write_size(flags, paths.len())?;
-        for (_path, (off, len)) in paths.iter().zip(ranges) {
-            f.write_size(flags, len)?;
-            f.write_size(flags, off)?;
-        } 
-    }
-
-    if flags & FLAG_LEN != 0 {
-        f.write_size(flags, inputs.iter()
-            .map(|x| x.len())
-            .sum())?;
-    }
-
-    if flags & FLAG_TABLE != 0 {
-        let len = table.len() * (1+GLZ::WIDTH);
-        if flags & FLAG_LEB128 != 0 {
-            if flags & FLAG_K != 0 { f.write_size(flags, k)?; }
-            f.write_size(flags, len)?;
-        } else {
-            let mut x = 0u32;
-            if flags & FLAG_K != 0 { x |= (k as u32) << 24; }
-            x |= len as u32;
-            f.write_size(flags, x as usize)?;
-        }
-
+    if !opt.common.no_table {
         f.write_bits(&(1+GLZ::WIDTH).encode(&table)?
                 .iter().chain(&output)
                 .collect::<BitVec>())?;
     } else {
-        if flags & FLAG_K != 0 { f.write_size(flags, k)?; }
         f.write_bits(&output)?;
     }
 
@@ -699,66 +780,77 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
 
     // parse file
     let mut f = File::open(&opt.input)?;
-    let flags = read_flags(&opt.common, &mut f)?;
+    let (flags, type_, k, len) = f.read_meta(&opt.common)?;
 
     // load files?
     let mut archive_files: Vec<((usize, usize), (usize, usize))> = Vec::new();
-    if flags & FLAG_ARCHIVE != 0 {
-        let len = f.read_size(flags)?;
-        for _ in 0..len {
-            let plen = f.read_size(flags)?;
-            let poff = f.read_size(flags)?;
-            let len = f.read_size(flags)?;
-            let off = f.read_size(flags)?;
-            archive_files.push(((poff, plen), (off, len)));
-        }
-    }
-
     let mut index_files: Vec<(usize, usize)> = Vec::new();
-    if flags & FLAG_INDEX != 0 {
-        let len = f.read_size(flags)?;
-        for _ in 0..len {
-            let len = f.read_size(flags)?;
-            let off = f.read_size(flags)?;
-            index_files.push((off, len));
+    let mut size: Option<usize> = None;
+    let mut table_size: Option<usize> = None;
+    if !opt.common.no_headers {
+        match type_ {
+            TYPE_ARCHIVE => {
+                for _ in 0..len {
+                    let poff = f.read_size(flags)?;
+                    let plen = f.read_size(flags)?;
+                    let off = f.read_size(flags)?;
+                    let len = f.read_size(flags)?;
+                    archive_files.push(((poff, plen), (off, len)));
+
+                    table_size = Some(
+                        if let Some(size) = table_size {
+                            cmp::min(cmp::min(poff, off), size)
+                        } else {
+                            cmp::min(poff, off)
+                        });
+                }
+            },
+            TYPE_INDEX => {
+                for _ in 0..len {
+                    let off = f.read_size(flags)?;
+                    let len = f.read_size(flags)?;
+                    index_files.push((off, len));
+
+                    table_size = Some(
+                        if let Some(size) = table_size {
+                            cmp::min(off, size)
+                        } else {
+                            off
+                        });
+                }
+            },
+            TYPE_LEN => {
+                size = Some(f.read_size(flags)?);
+                table_size = Some(len);
+            },
+            TYPE_NONE => {
+                table_size = Some(len);
+            },
+            _ => {
+                bail!("unknown type {}?", type_);
+            }
         }
     }
 
-    let mut size: Option<usize> = None;
-    if flags & FLAG_LEN != 0 {
-        size = Some(f.read_size(flags)?);
-    }
-
-    // load k/table/blob?
-    let mut k: Option<usize> = None;
-    let table: Vec<u32>;
+    // load table/blob?
     let mut buf: Vec<u8> = Vec::new();
+    let table: Vec<u32>;
     let blob: &BitSlice;
     let off: usize;
-    if flags & FLAG_TABLE != 0 {
-        let size;
-        if flags & FLAG_LEB128 != 0 {
-            if flags & FLAG_K != 0 { k = Some(f.read_size(flags)?); }
-            size = f.read_size(flags)?;
-        } else {
-            let x = f.read_size(flags)? as u32;
-            if flags & FLAG_K != 0 { k = Some((x >> 24) as usize); }
-            size = (x & 0x00ffffff) as usize;
-        }
-
+    if !opt.common.no_table {
+        let table_size = table_size.ok_or_else(|| "unknown table size?")?;
         f.read_to_end(&mut buf)?;
-        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..size])?;
+        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..table_size])?;
         blob = buf.as_bitslice();
-        off = size;
+        off = table_size;
     } else {
-        if flags & FLAG_K != 0 { k = Some(f.read_size(flags)? as usize); }
-        table = Vec::new();
-
         f.read_to_end(&mut buf)?;
+        table = Vec::new();
         blob = buf.as_bitslice();
         off = 0;
     }
 
+    // have everything we need?
     let k = match (k, opt.common.k) {
         (_, Some(k)) => k,
         (Some(k), _) => k,
@@ -837,66 +929,77 @@ fn decode(opt: &DecodeOpt) -> Result<()> {
 fn ls(opt: &LsOpt) -> Result<()> {
     // parse file
     let mut f = File::open(&opt.input)?;
-    let flags = read_flags(&opt.common, &mut f)?;
+    let (flags, type_, k, len) = f.read_meta(&opt.common)?;
 
     // load files?
     let mut archive_files: Vec<((usize, usize), (usize, usize))> = Vec::new();
-    if flags & FLAG_ARCHIVE != 0 {
-        let len = f.read_size(flags)?;
-        for _ in 0..len {
-            let plen = f.read_size(flags)?;
-            let poff = f.read_size(flags)?;
-            let len = f.read_size(flags)?;
-            let off = f.read_size(flags)?;
-            archive_files.push(((poff, plen), (off, len)));
-        }
-    }
-
     let mut index_files: Vec<(usize, usize)> = Vec::new();
-    if flags & FLAG_INDEX != 0 {
-        let len = f.read_size(flags)?;
-        for _ in 0..len {
-            let len = f.read_size(flags)?;
-            let off = f.read_size(flags)?;
-            index_files.push((off, len));
+    let mut size: Option<usize> = None;
+    let mut table_size: Option<usize> = None;
+    if !opt.common.no_headers {
+        match type_ {
+            TYPE_ARCHIVE => {
+                for _ in 0..len {
+                    let poff = f.read_size(flags)?;
+                    let plen = f.read_size(flags)?;
+                    let off = f.read_size(flags)?;
+                    let len = f.read_size(flags)?;
+                    archive_files.push(((poff, plen), (off, len)));
+
+                    table_size = Some(
+                        if let Some(size) = table_size {
+                            cmp::min(cmp::min(poff, off), size)
+                        } else {
+                            cmp::min(poff, off)
+                        });
+                }
+            },
+            TYPE_INDEX => {
+                for _ in 0..len {
+                    let off = f.read_size(flags)?;
+                    let len = f.read_size(flags)?;
+                    index_files.push((off, len));
+
+                    table_size = Some(
+                        if let Some(size) = table_size {
+                            cmp::min(off, size)
+                        } else {
+                            off
+                        });
+                }
+            },
+            TYPE_LEN => {
+                size = Some(f.read_size(flags)?);
+                table_size = Some(len);
+            },
+            TYPE_NONE => {
+                table_size = Some(len);
+            },
+            _ => {
+                bail!("unknown type {}?", type_);
+            }
         }
     }
 
-    let mut size: Option<usize> = None;
-    if flags & FLAG_LEN != 0 {
-        size = Some(f.read_size(flags)?);
-    }
-
-    // load k/table/blob?
-    let mut k: Option<usize> = None;
-    let table: Vec<u32>;
+    // load table/blob?
     let mut buf: Vec<u8> = Vec::new();
+    let table: Vec<u32>;
     let blob: &BitSlice;
     let off: usize;
-    if flags & FLAG_TABLE != 0 {
-        let size;
-        if flags & FLAG_LEB128 != 0 {
-            if flags & FLAG_K != 0 { k = Some(f.read_size(flags)?); }
-            size = f.read_size(flags)?;
-        } else {
-            let x = f.read_size(flags)? as u32;
-            if flags & FLAG_K != 0 { k = Some((x >> 24) as usize); }
-            size = (x & 0x00ffffff) as usize;
-        }
-
+    if !opt.common.no_table {
+        let table_size = table_size.ok_or_else(|| "unknown table size?")?;
         f.read_to_end(&mut buf)?;
-        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..size])?;
+        table = (1+GLZ::WIDTH).decode(&buf.as_bitslice()[..table_size])?;
         blob = buf.as_bitslice();
-        off = size;
+        off = table_size;
     } else {
-        if flags & FLAG_K != 0 { k = Some(f.read_size(flags)? as usize); }
-        table = Vec::new();
-
         f.read_to_end(&mut buf)?;
+        table = Vec::new();
         blob = buf.as_bitslice();
         off = 0;
     }
 
+    // have everything we need?
     let k = match (k, opt.common.k) {
         (_, Some(k)) => k,
         (Some(k), _) => k,

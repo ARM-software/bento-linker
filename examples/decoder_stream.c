@@ -35,12 +35,13 @@ typedef int32_t glz_ssize_t;
 
 
 // GLZ decode logic
-int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
+int glz_decode(uint8_t k,
+        const uint8_t *blob, glz_size_t blob_size, glz_off_t off,
         glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
-        void *ctx, glz_size_t size, uint32_t off) {
+        void *ctx, glz_size_t size) {
     // glz "stack"
-    glz_size_t psize = 0;
     glz_off_t poff = 0;
+    glz_size_t psize = 0;
 
     while (size > 0) {
         // decode rice code
@@ -101,21 +102,21 @@ int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
 
             // tail recurse?
             if (nsize >= size) {
+                off = off + noff;
                 size = size;
-                off = off + noff;
             } else {
-                psize = size - nsize;
                 poff = off;
-                size = nsize;
+                psize = size - nsize;
                 off = off + noff;
+                size = nsize;
             }
         }
 
         if (size == 0) {
-            size = psize;
             off = poff;
-            psize = 0;
+            size = psize;
             poff = 0;
+            psize = 0;
         }
     }
 
@@ -125,21 +126,21 @@ int glz_decode(uint8_t k, const uint8_t *blob, glz_size_t blob_size,
 
 // helper functions that also decode limited
 // GLZ metadata (size/k/table) from the blob
-// [--  32  --|-  24  -|8][--  ...  --]
-//       ^         ^    ^       ^- compressed blob
-//       |         |    '- k
-//       |         '------ table size in bits
-//       '---------------- size of output blob
-//
+// [- 24 -|4|4|--  32  --][--  ...  --]
+//     ^   ^ ^      ^           ^- compressed blob
+//     |   | |      '- size of output in bytes
+//     |   | '-------- k constant
+//     |   '---------- 1 (glz format)
+//     '-------------- offset from table in bits
 glz_ssize_t glz_getsize(const uint8_t *blob, glz_size_t blob_size) {
     if (blob_size < 8) {
         return GLZ_ERR_INVAL;
     }
 
-    return ((uint32_t)blob[0] << 0) |
-            ((uint32_t)blob[1] << 8) |
-            ((uint32_t)blob[2] << 16) |
-            ((uint32_t)blob[3] << 24);
+    return ((uint32_t)blob[4] << 0) |
+            ((uint32_t)blob[5] << 8) |
+            ((uint32_t)blob[6] << 16) |
+            ((uint32_t)blob[7] << 24);
 }
 
 glz_soff_t glz_getoff(const uint8_t *blob, glz_size_t blob_size) {
@@ -147,9 +148,9 @@ glz_soff_t glz_getoff(const uint8_t *blob, glz_size_t blob_size) {
         return GLZ_ERR_INVAL;
     }
 
-    return ((uint32_t)blob[4] << 0) |
-            ((uint32_t)blob[5] << 8) |
-            ((uint32_t)blob[6] << 16);
+    return ((uint32_t)blob[0] << 0) |
+            ((uint32_t)blob[1] << 8) |
+            ((uint32_t)blob[2] << 16);
 }
 
 int glz_getk(const uint8_t *blob, glz_size_t blob_size) {
@@ -157,7 +158,7 @@ int glz_getk(const uint8_t *blob, glz_size_t blob_size) {
         return GLZ_ERR_INVAL;
     }
 
-    return blob[7];
+    return 0xf & blob[3];
 }
 
 int glz_decode_all(const uint8_t *blob, glz_size_t blob_size,
@@ -167,25 +168,26 @@ int glz_decode_all(const uint8_t *blob, glz_size_t blob_size,
         return GLZ_ERR_INVAL;
     }
 
+    glz_off_t off = glz_getoff(blob, blob_size);
+    uint8_t k = glz_getk(blob, blob_size);
+
     glz_size_t nsize = glz_getsize(blob, blob_size);
     if (nsize < size) {
         size = nsize;
     }
 
-    glz_off_t off = glz_getoff(blob, blob_size);
-    uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(k, blob+8, blob_size-8, write, ctx, size, off);
+    return glz_decode(k, blob+8, blob_size-8, off, write, ctx, size);
 }
 
-int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size,
+int glz_decode_slice(const uint8_t *blob, glz_size_t blob_size, glz_off_t off,
         glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
-        void *ctx, glz_size_t size, glz_off_t off) {
-    if (blob_size < 2*sizeof(uint32_t)) {
+        void *ctx, glz_size_t size) {
+    if (blob_size < 8) {
         return GLZ_ERR_INVAL;
     }
 
     uint8_t k = glz_getk(blob, blob_size);
-    return glz_decode(k, blob+8, blob_size-8, write, ctx, size, off);
+    return glz_decode(k, blob+8, blob_size-8, off, write, ctx, size);
 }
 
 // main isn't needed, just presents a CLI for testing/benchmarking
@@ -200,26 +202,26 @@ glz_ssize_t main_write(void *ctx, const void *buf, glz_size_t size) {
 
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 4) {
-        fprintf(stderr, "usage: %s <file> [<size> <off>]\n", argv[0]);
+        fprintf(stderr, "usage: %s <file> [<off> <size>]\n", argv[0]);
         return 1;
     }
 
     bool slice = false;
-    glz_off_t slice_size;
     glz_off_t slice_off;
+    glz_off_t slice_size;
 
     // requesting slice?
     if (argc == 4) {
         char *end;
-        slice_size = strtol(argv[3], &end, 0);
-        if (*end != '\0') {
-            fprintf(stderr, "bad size \"%s\"?\n", argv[3]);
-            return 1;
-        }
-
         slice_off = strtol(argv[2], &end, 0);
         if (*end != '\0') {
             fprintf(stderr, "bad offset \"%s\"?\n", argv[2]);
+            return 1;
+        }
+
+        slice_size = strtol(argv[3], &end, 0);
+        if (*end != '\0') {
+            fprintf(stderr, "bad size \"%s\"?\n", argv[3]);
             return 1;
         }
 
@@ -249,8 +251,8 @@ int main(int argc, char **argv) {
 
     // decode!
     if (slice) {
-        err = glz_decode_slice(blob, blob_size,
-                main_write, stdout, slice_size, slice_off);
+        err = glz_decode_slice(blob, blob_size, slice_off,
+                main_write, stdout, slice_size);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;

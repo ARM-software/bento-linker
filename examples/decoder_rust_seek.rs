@@ -37,11 +37,11 @@ pub mod glz {
     // types used by GLZ, no idea how to do this idiomatically
     // needed to make comparison against C reasonable
     #[allow(non_camel_case_types)]
-    pub type usize = super::_usize;
-    #[allow(non_camel_case_types)]
     pub type uoff = super::_usize;
     #[allow(non_camel_case_types)]
     pub type ioff = super::_isize;
+    #[allow(non_camel_case_types)]
+    pub type usize = super::_usize;
 
     // GLZ's M constant (width of reference nibbles)
     const M: usize = 4;
@@ -55,14 +55,14 @@ pub mod glz {
     pub fn decode<R: io::Read+io::Seek, W: io::Write>(
         k: u8,
         input: &mut R,
+        off: uoff,
         output: &mut W,
         size: usize,
-        off: uoff
     ) -> Result<(), Error> {
         // glz "stack"
-        let mut pushed: (usize, uoff) = (0, 0);
-        let mut size = size;
+        let mut pushed: (uoff, usize) = (0, 0);
         let mut off = off;
+        let mut size = size;
         let mut buf = [0u8; 2];
 
         while size > 0 {
@@ -146,18 +146,18 @@ pub mod glz {
 
                 // tail recurse?
                 if nsize >= size {
+                    off = off + noff;
                     size = size;
-                    off = off + noff;
                 } else {
-                    pushed = (size - nsize, off);
-                    size = nsize;
+                    pushed = (off, size - nsize);
                     off = off + noff;
+                    size = nsize;
                 }
             }
 
             if size == 0 {
-                size = pushed.0;
-                off = pushed.1;
+                off = pushed.0;
+                size = pushed.1;
                 pushed = (0, 0);
             }
         }
@@ -165,19 +165,19 @@ pub mod glz {
         Ok(())
     }
 
-    // // helper functions that also decode limited
+    // helper functions that also decode limited
     // GLZ metadata (size/k/table) from the blob
-    // [--  32  --|-  24  -|8][--  ...  --]
-    //       ^         ^    ^       ^- compressed blob
-    //       |         |    '- k
-    //       |         '------ table size in bits
-    //       '---------------- size of output blob
-    //
+    // [- 24 -|4|4|--  32  --][--  ...  --]
+    //     ^   ^ ^      ^           ^- compressed blob
+    //     |   | |      '- size of output in bytes
+    //     |   | '-------- k constant
+    //     |   '---------- 1 (glz format)
+    //     '-------------- offset from table in bits
     pub fn getsize<R: io::Read+io::Seek>(
         input: &mut R
     ) -> Result<usize, Error> {
         let mut buf = [0u8; 4];
-        input.seek(io::SeekFrom::Start(0))
+        input.seek(io::SeekFrom::Start(4))
             .and_then(|_| input.read_exact(&mut buf))
             .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
                 Error::Inval
@@ -193,7 +193,7 @@ pub mod glz {
         input: &mut R
     ) -> Result<uoff, Error> {
         let mut buf = [0u8; 4];
-        input.seek(io::SeekFrom::Start(4))
+        input.seek(io::SeekFrom::Start(0))
             .and_then(|_| input.read_exact(&mut buf))
             .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
                 Error::Inval
@@ -209,14 +209,14 @@ pub mod glz {
         input: &mut R
     ) -> Result<u8, Error> {
         let mut buf = [0u8; 1];
-        input.seek(io::SeekFrom::Start(7))
+        input.seek(io::SeekFrom::Start(3))
             .and_then(|_| input.read_exact(&mut buf))
             .map_err(|err| if err.kind() == io::ErrorKind::UnexpectedEof {
                 Error::Inval
             } else {
                 Error::IO
             })?;
-        Ok(buf[0])
+        Ok(0xf & buf[0])
     }
 
     struct ReadSeekSlice<'a, R: io::Read+io::Seek> {
@@ -245,23 +245,23 @@ pub mod glz {
         output: &mut W,
         size: Option<usize>,
     ) -> Result<(), Error> {
+        let off = getoff(input)?;
+        let k = getk(input)?;
         let size = match (getsize(input)?, size) {
             (blob_size, Some(size)) => cmp::min(blob_size, size),
             (blob_size, _) => blob_size,
         };
-        let off = getoff(input)?;
-        let k = getk(input)?;
-        decode(k, &mut ReadSeekSlice{input: input, off: -8}, output, size, off)
+        decode(k, &mut ReadSeekSlice{input: input, off: -8}, off, output, size)
     }
     
     pub fn decode_slice<R: io::Read+io::Seek, W: io::Write>(
         input: &mut R,
+        off: uoff,
         output: &mut W,
         size: usize,
-        off: uoff
     ) -> Result<(), Error> {
         let k = getk(input)?;
-        decode(k, &mut ReadSeekSlice{input: input, off: -8}, output, size, off)
+        decode(k, &mut ReadSeekSlice{input: input, off: -8}, off, output, size)
     }
 }
 
@@ -289,29 +289,29 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 && args.len() != 4 {
-        eprintln!("usage: {} <file> [<size> <offset>]", args[0]);
+        eprintln!("usage: {} <file> [<offset> <size>]", args[0]);
         process::exit(1);
     }
 
     // requesting slice?
     let slice = if args.len() == 4 {
-        let size = match uparse!(glz::usize, &args[2]) {
-            Ok(size) => size,
-            _ => {
-                eprintln!("bad size \"{}\"?", args[2]);
-                process::exit(1);
-            }
-        };
-
-        let off = match uparse!(glz::uoff, &args[3]) {
+        let off = match uparse!(glz::uoff, &args[2]) {
             Ok(off) => off,
             _ => {
-                eprintln!("bad offset \"{}\"?", args[3]);
+                eprintln!("bad offset \"{}\"?", args[2]);
                 process::exit(1);
             }
         };
 
-        Some((size, off))
+        let size = match uparse!(glz::usize, &args[3]) {
+            Ok(size) => size,
+            _ => {
+                eprintln!("bad size \"{}\"?", args[3]);
+                process::exit(1);
+            }
+        };
+
+        Some((off, size))
     } else {
         None
     };
@@ -327,8 +327,8 @@ fn main() {
 
     // decode!
     match slice {
-        Some((size, off)) => {
-            match glz::decode_slice(&mut input, &mut io::stdout(), size, off) {
+        Some((off, size)) => {
+            match glz::decode_slice(&mut input, off, &mut io::stdout(), size) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);

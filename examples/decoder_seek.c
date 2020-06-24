@@ -40,12 +40,13 @@ int glz_decode(uint8_t k,
         void *read_ctx,
         glz_soff_t (*seek)(void *ctx, glz_off_t off),
         void *seek_ctx,
+        glz_off_t off,
         glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
         void *write_ctx,
-        glz_size_t size, uint32_t off) {
+        glz_size_t size) {
     // glz "stack"
-    glz_size_t psize = 0;
     glz_off_t poff = 0;
+    glz_size_t psize = 0;
     // buffer
     glz_ssize_t res;
     uint8_t buf[2];
@@ -141,21 +142,21 @@ int glz_decode(uint8_t k,
 
             // tail recurse?
             if (nsize >= size) {
+                off = off + noff;
                 size = size;
-                off = off + noff;
             } else {
-                psize = size - nsize;
                 poff = off;
-                size = nsize;
+                psize = size - nsize;
                 off = off + noff;
+                size = nsize;
             }
         }
 
         if (size == 0) {
-            size = psize;
             off = poff;
-            psize = 0;
+            size = psize;
             poff = 0;
+            psize = 0;
         }
     }
 
@@ -165,18 +166,18 @@ int glz_decode(uint8_t k,
 
 // helper functions that also decode limited
 // GLZ metadata (size/k/table) from the blob
-// [--  32  --|-  24  -|8][--  ...  --]
-//       ^         ^    ^       ^- compressed blob
-//       |         |    '- k
-//       |         '------ table size in bits
-//       '---------------- size of output blob
-//
+// [- 24 -|4|4|--  32  --][--  ...  --]
+//     ^   ^ ^      ^           ^- compressed blob
+//     |   | |      '- size of output in bytes
+//     |   | '-------- k constant
+//     |   '---------- 1 (glz format)
+//     '-------------- offset from table in bits
 glz_ssize_t glz_getsize(
         glz_ssize_t (*read)(void *ctx, void *buf, glz_size_t size),
         void *read_ctx,
         glz_soff_t (*seek)(void *ctx, glz_off_t off),
         void *seek_ctx) {
-    glz_soff_t res = seek(seek_ctx, 0);
+    glz_soff_t res = seek(seek_ctx, 4);
     if (res < 0) {
         return res;
     }
@@ -201,7 +202,7 @@ glz_soff_t glz_getoff(
         void *read_ctx,
         glz_soff_t (*seek)(void *ctx, glz_off_t off),
         void *seek_ctx) {
-    glz_soff_t res = seek(seek_ctx, 4);
+    glz_soff_t res = seek(seek_ctx, 0);
     if (res < 0) {
         return res;
     }
@@ -225,7 +226,7 @@ int glz_getk(
         void *read_ctx,
         glz_soff_t (*seek)(void *ctx, glz_off_t off),
         void *seek_ctx) {
-    glz_soff_t res = seek(seek_ctx, 7);
+    glz_soff_t res = seek(seek_ctx, 3);
     if (res < 0) {
         return res;
     }
@@ -239,7 +240,7 @@ int glz_getk(
         return GLZ_ERR_INVAL;
     }
 
-    return buf[0];
+    return 0xf & buf[0];
 }
 
 struct glz_decode_all_seek_ctx {
@@ -282,22 +283,24 @@ int glz_decode_all(
         return GLZ_ERR_INVAL;
     }
 
-    glz_size_t nsize = ((uint32_t)buf[0] << 0) |
+    glz_soff_t off = ((uint32_t)buf[0] << 0) |
             ((uint32_t)buf[1] << 8) |
-            ((uint32_t)buf[2] << 16) |
-            ((uint32_t)buf[3] << 24);
+            ((uint32_t)buf[2] << 16);
+    uint8_t k = 0xf & buf[3];
+
+    glz_size_t nsize = ((uint32_t)buf[4] << 0) |
+            ((uint32_t)buf[5] << 8) |
+            ((uint32_t)buf[6] << 16) |
+            ((uint32_t)buf[7] << 24);
     if (nsize < size) {
         size = nsize;
     }
 
-    glz_soff_t off = ((uint32_t)buf[4] << 0) |
-            ((uint32_t)buf[5] << 8) |
-            ((uint32_t)buf[6] << 16);
-    uint8_t k = buf[7];
     return glz_decode(k, read, read_ctx,
             glz_decode_all_seek,
             &(struct glz_decode_all_seek_ctx){seek, read_ctx, -8},
-            write, write_ctx, size, off);
+            off,
+            write, write_ctx, size);
 }
 
 int glz_decode_slice(
@@ -305,9 +308,10 @@ int glz_decode_slice(
         void *read_ctx,
         glz_soff_t (*seek)(void *ctx, glz_off_t off),
         void *seek_ctx,
+        glz_off_t off,
         glz_ssize_t (*write)(void *ctx, const void *buf, glz_size_t size),
         void *write_ctx,
-        glz_size_t size, glz_off_t off) {
+        glz_size_t size) {
     int k = glz_getk(read, read_ctx, seek, seek_ctx);
     if (k < 0) {
         return k;
@@ -316,7 +320,8 @@ int glz_decode_slice(
     return glz_decode(k, read, read_ctx,
             glz_decode_all_seek,
             &(struct glz_decode_all_seek_ctx){seek, read_ctx, -8},
-            write, write_ctx, size, off);
+            off,
+            write, write_ctx, size);
 }
 
 // main isn't needed, just presents a CLI for testing/benchmarking
@@ -349,26 +354,26 @@ glz_ssize_t main_write(void *ctx, const void *buf, glz_size_t size) {
 
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 4) {
-        fprintf(stderr, "usage: %s <file> [<size> <off>]\n", argv[0]);
+        fprintf(stderr, "usage: %s <file> [<off> <size>]\n", argv[0]);
         return 1;
     }
 
     bool slice = false;
-    glz_off_t slice_size;
     glz_off_t slice_off;
+    glz_off_t slice_size;
 
     // requesting slice?
     if (argc == 4) {
         char *end;
-        slice_size = strtol(argv[3], &end, 0);
-        if (*end != '\0') {
-            fprintf(stderr, "bad size \"%s\"?\n", argv[3]);
-            return 1;
-        }
-
         slice_off = strtol(argv[2], &end, 0);
         if (*end != '\0') {
             fprintf(stderr, "bad offset \"%s\"?\n", argv[2]);
+            return 1;
+        }
+
+        slice_size = strtol(argv[3], &end, 0);
+        if (*end != '\0') {
+            fprintf(stderr, "bad size \"%s\"?\n", argv[3]);
             return 1;
         }
 
@@ -385,8 +390,8 @@ int main(int argc, char **argv) {
     // decode!
     if (slice) {
         int err = glz_decode_slice(
-                main_read, input, main_seek, input,
-                main_write, stdout, slice_size, slice_off);
+                main_read, input, main_seek, input, slice_off,
+                main_write, stdout, slice_size);
         if (err) {
             fprintf(stderr, "decode failure %d :(\n", err);
             return 2;

@@ -37,11 +37,11 @@ pub mod glz {
     // types used by GLZ, no idea how to do this idiomatically
     // needed to make comparison against C reasonable
     #[allow(non_camel_case_types)]
-    pub type usize = super::_usize;
-    #[allow(non_camel_case_types)]
     pub type uoff = super::_usize;
     #[allow(non_camel_case_types)]
     pub type ioff = super::_isize;
+    #[allow(non_camel_case_types)]
+    pub type usize = super::_usize;
 
     // GLZ's M constant (width of reference nibbles)
     const M: usize = 4;
@@ -55,14 +55,14 @@ pub mod glz {
     pub fn decode<W: io::Write>(
         k: u8,
         blob: &[u8],
+        off: uoff,
         output: &mut W,
         size: usize,
-        off: uoff
     ) -> Result<(), Error> {
         // glz "stack"
-        let mut pushed: (usize, uoff) = (0, 0);
-        let mut size = size;
+        let mut pushed: (uoff, usize) = (0, 0);
         let mut off = off;
+        let mut size = size;
 
         while size > 0 {
             // decode rice code
@@ -127,18 +127,18 @@ pub mod glz {
 
                 // tail recurse?
                 if nsize >= size {
+                    off = off + noff;
                     size = size;
-                    off = off + noff;
                 } else {
-                    pushed = (size - nsize, off);
-                    size = nsize;
+                    pushed = (off, size - nsize);
                     off = off + noff;
+                    size = nsize;
                 }
             }
 
             if size == 0 {
-                size = pushed.0;
-                off = pushed.1;
+                off = pushed.0;
+                size = pushed.1;
                 pushed = (0, 0);
             }
         }
@@ -146,16 +146,16 @@ pub mod glz {
         Ok(())
     }
 
-    // // helper functions that also decode limited
+    // helper functions that also decode limited
     // GLZ metadata (size/k/table) from the blob
-    // [--  32  --|-  24  -|8][--  ...  --]
-    //       ^         ^    ^       ^- compressed blob
-    //       |         |    '- k
-    //       |         '------ table size in bits
-    //       '---------------- size of output blob
-    //
+    // [- 24 -|4|4|--  32  --][--  ...  --]
+    //     ^   ^ ^      ^           ^- compressed blob
+    //     |   | |      '- size of output in bytes
+    //     |   | '-------- k constant
+    //     |   '---------- 1 (glz format)
+    //     '-------------- offset from table in bits
     pub fn getsize(blob: &[u8]) -> Result<usize, Error> {
-        let buf = blob.get(0..4).ok_or(Error::Inval)?
+        let buf = blob.get(4..8).ok_or(Error::Inval)?
             .try_into().map_err(|_| Error::Inval)?;
         let size = u32::from_le_bytes(buf)
             .try_into().map_err(|_| Error::Inval)?;
@@ -163,7 +163,7 @@ pub mod glz {
     }
 
     pub fn getoff(blob: &[u8]) -> Result<uoff, Error> {
-        let buf = blob.get(4..8).ok_or(Error::Inval)?
+        let buf = blob.get(0..4).ok_or(Error::Inval)?
             .try_into().map_err(|_| Error::Inval)?;
         let off = (0x00ffffff & u32::from_le_bytes(buf))
             .try_into().map_err(|_| Error::Inval)?;
@@ -171,8 +171,8 @@ pub mod glz {
     }
 
     pub fn getk(blob: &[u8]) -> Result<u8, Error> {
-        let k = blob.get(7).ok_or(Error::Inval)?;
-        Ok(*k)
+        let k = blob.get(3).ok_or(Error::Inval)?;
+        Ok(0xf & *k)
     }
 
     pub fn decode_all<W: io::Write>(
@@ -180,25 +180,25 @@ pub mod glz {
         output: &mut W,
         size: Option<usize>,
     ) -> Result<(), Error> {
+        let off = getoff(blob)?;
+        let k = getk(blob)?;
         let size = match (getsize(blob)?, size) {
             (blob_size, Some(size)) => cmp::min(blob_size, size),
             (blob_size, _) => blob_size,
         };
-        let off = getoff(blob)?;
-        let k = getk(blob)?;
         let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, output, size, off)
+        decode(k, blob, off, output, size)
     }
     
     pub fn decode_slice<W: io::Write>(
         blob: &[u8],
+        off: uoff,
         output: &mut W,
         size: usize,
-        off: uoff
     ) -> Result<(), Error> {
         let k = getk(blob)?;
         let blob = blob.get(8..).ok_or(Error::Inval)?;
-        decode(k, blob, output, size, off)
+        decode(k, blob, off, output, size)
     }
 }
 
@@ -226,29 +226,29 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 && args.len() != 4 {
-        eprintln!("usage: {} <file> [<size> <offset>]", args[0]);
+        eprintln!("usage: {} <file> [<offset> <size>]", args[0]);
         process::exit(1);
     }
 
     // requesting slice?
     let slice = if args.len() == 4 {
-        let size = match uparse!(glz::usize, &args[2]) {
-            Ok(size) => size,
-            _ => {
-                eprintln!("bad size \"{}\"?", args[2]);
-                process::exit(1);
-            }
-        };
-
-        let off = match uparse!(glz::uoff, &args[3]) {
+        let off = match uparse!(glz::uoff, &args[2]) {
             Ok(off) => off,
             _ => {
-                eprintln!("bad offset \"{}\"?", args[3]);
+                eprintln!("bad offset \"{}\"?", args[2]);
                 process::exit(1);
             }
         };
 
-        Some((size, off))
+        let size = match uparse!(glz::usize, &args[3]) {
+            Ok(size) => size,
+            _ => {
+                eprintln!("bad size \"{}\"?", args[3]);
+                process::exit(1);
+            }
+        };
+
+        Some((off, size))
     } else {
         None
     };
@@ -264,8 +264,8 @@ fn main() {
 
     // decode!
     match slice {
-        Some((size, off)) => {
-            match glz::decode_slice(&blob, &mut io::stdout(), size, off) {
+        Some((off, size)) => {
+            match glz::decode_slice(&blob, off, &mut io::stdout(), size) {
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("decode failure ({}) :(", err);
