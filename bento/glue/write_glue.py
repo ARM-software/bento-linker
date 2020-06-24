@@ -326,9 +326,10 @@ class WriteGlue(runtimes.Runtime):
         super().build_mk(output, box)
 
         if box.emit_stdlib_hooks:
-            output.decls.append('### __box_write glue ###')
-            output.decls.append('override LFLAGS += -Wl,--wrap,printf')
-            output.decls.append('override LFLAGS += -Wl,--wrap,vprintf')
-            output.decls.append('override LFLAGS += -Wl,--wrap,fprintf')
-            output.decls.append('override LFLAGS += -Wl,--wrap,vfprintf')
-            output.decls.append('override LFLAGS += -Wl,--wrap,fflush')
+            out = output.decls.append()
+            out.printf('### __box_write glue ###')
+            out.printf('override LFLAGS += -Wl,--wrap,printf')
+            out.printf('override LFLAGS += -Wl,--wrap,vprintf')
+            out.printf('override LFLAGS += -Wl,--wrap,fprintf')
+            out.printf('override LFLAGS += -Wl,--wrap,vfprintf')
+            out.printf('override LFLAGS += -Wl,--wrap,fflush')

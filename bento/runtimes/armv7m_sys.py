@@ -74,7 +74,7 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     __name = __argname__
     def box(self, box):
         super().box(box)
-        self._isr_vector.alloc(box, 'r')
+        self._isr_vector.alloc(box, 'rp')
 
         if self._emit_startup:
             # allow overloading main, but default to using main if available

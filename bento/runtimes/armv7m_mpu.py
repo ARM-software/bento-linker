@@ -454,6 +454,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
 
         # we collect hooks here because we need to handle them all at once
         self._fault_hooks = []
+        self._load_hooks = []
         self._write_hooks = []
         for child in parent.boxes:
             if child.runtime == self:
@@ -463,6 +464,11 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     doc="Called when this box faults, either due to an illegal "
                         "memory access or other failure. the error code is "
                         "provided as an argument."))
+                self._load_hooks.append(parent.addimport(
+                    '__box_%s_load' % child.name, 'fn() -> err32',
+                    target=parent.name, source=self.__name,
+                    doc="Called to load the box during init. Normally provided "
+                        "by the loader but can be overriden."))
                 self._write_hooks.append(parent.addimport(
                     '__box_%s_write' % child.name, 'fn(err32) -> void',
                     target=parent.name, source=self.__name, weak=True,
@@ -517,7 +523,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
 
     def box(self, box):
         super().box(box)
-        self._jumptable.alloc(box, 'r')
+        self._jumptable.alloc(box, 'rp')
         # plumbing
         box.addexport(
             '__box_init', 'fn() -> err32',
@@ -605,7 +611,14 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         out = output.decls.append(doc='System state')
         out.printf('uint32_t __box_active = 0;')
 
-        # redirect writes if necessary
+        # redirect hooks if necessary
+        if any(not load_hook.link for load_hook in self._load_hooks):
+            out = output.decls.append(doc='Redirected __box_loads')
+            for load_hook in self._load_hooks:
+                if not load_hook.link:
+                    out.printf('#define %(load_hook)s __box_load',
+                        load_hook=load_hook.linkname)
+
         if any(not write_hook.link for write_hook in self._write_hooks):
             out = output.decls.append(doc='Redirected __box_writes')
             for write_hook in self._write_hooks:

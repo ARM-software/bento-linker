@@ -1,4 +1,4 @@
-memory.flash = 'rx 0x00000000-0x000fffff'
+memory.flash = 'rxp 0x00000000-0x000fffff'
 memory.ram   = 'rw 0x20000000-0x2003ffff'
 stack = 0x800
 heap = 0x800
@@ -32,7 +32,7 @@ import.box1_hello = 'fn() -> err32'
 
 [box.box1]
 runtime = 'armv7m_mpu'
-memory.flash = 'rx 0x2000'
+memory.flash = 'rxp 0x2000'
 memory.ram = 'rw 0x2000'
 stack = 0x800
 heap = 0x800

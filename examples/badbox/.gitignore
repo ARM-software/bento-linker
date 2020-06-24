@@ -4,3 +4,4 @@ tags
 *.d
 *.elf
 *.bin
+*.box

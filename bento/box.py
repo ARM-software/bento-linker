@@ -65,13 +65,17 @@ class Section:
     def __bool__(self):
         return self.size is not None
 
-    def alloc(self, box, mode='rwx', reverse=False):
+    def alloc(self, box, mode='rwxp', reverse=False):
         """
         Find best memory given parameters and assign this section to it.
         This updates Section's memory field as well as adds ourselfe to
         the Memory's list of sections.
         """
-        memory = box.consume(mode, section=self, reverse=reverse)
+        memory = box.consume(mode,
+            size=self.size,
+            align=self.align,
+            memory=self.memory,
+            reverse=reverse)
         assert memory is not None, (
             "Not enough memory found that satisfies mode=%s size=%d:\n"
             "%s\n"
@@ -193,7 +197,7 @@ class Memory(Region):
     """
     Description of a memory region named MEMORY.
     """
-    MODEFLAGS = ['r', 'w', 'x']
+    MODEFLAGS = ['r', 'w', 'x', 'p']
 
     __argname__ = "memory"
     __arghelp__ = __doc__
@@ -288,11 +292,7 @@ class Memory(Region):
     def unused(self):
         return self._size
 
-    def consume(self, size=None, align=None, section=None, reverse=False):
-        if section is not None:
-            size = section.size
-            align = section.align
-
+    def consume(self, size=None, align=None, reverse=False):
         assert align is None, "TODO" # TODO
         assert size <= self._size, ("Not enough memory in %s "
             "for size=%#010x" % (self.name, size))
@@ -307,12 +307,7 @@ class Memory(Region):
             return Memory(self, mode=self.mode,
                 addr=self._addr + self._size, size=size, align=None)
 
-    def iscompatible(self, mode='rwx', size=None, align=None,
-            section=None, memory=None):
-        if section is not None:
-            size = section.size
-            align = section.align
-            memory = section.memory
+    def iscompatible(self, mode='rwxp', size=None, align=None, memory=None):
         if isinstance(memory, Memory):
             memory = memory.name
         assert align is None, "TODO" # TODO
@@ -323,8 +318,8 @@ class Memory(Region):
             (size is None or size <= self._size))
 
     @staticmethod
-    def bestkey(mode='rwx', size=None, align=None,
-            section=None, memory=None, reverse=False):
+    def keybest(mode='rwxp', size=None, align=None, memory=None,
+            reverse=False):
         def key(self):
             return (
                 len(self.mode - set(mode)),
@@ -686,7 +681,7 @@ class Box:
             memory=None, stack=None, heap=None,
             text=None, data=None, bss=None,
             export={}, box={}, **kwargs):
-        self.name = name or 'system'
+        self.name = name or 'sys'
         self.parent = parent
         self.path = path
         self.recipe = recipe
@@ -771,30 +766,43 @@ class Box:
     def __lt__(self, other):
         return self.name < other.name
 
-    def bestmemories(self, mode='rwx', size=None, align=None,
-            section=None, memory=None, reverse=False):
+    def bestmemories(self, mode='rwxp', size=None, align=None, memory=None,
+            reverse=False):
+        constraints = dict(
+            mode=set(mode),
+            size=size,
+            align=align,
+            memory=memory.name if isinstance(memory, Memory) else memory)
+        self.loader.constraints(constraints)
+        mode   = constraints.get('mode', None)
+        size   = constraints.get('size', None)
+        align  = constraints.get('align', None)
+        memory = constraints.get('memory', None)
+
         return sorted((
                 m for m in self.memoryslices
-                if m.iscompatible(mode=mode, size=size, align=align,
-                    section=section, memory=memory)),
-            key=Memory.bestkey(mode=mode, size=size, align=align,
-                section=section, memory=memory, reverse=reverse))
+                if m.iscompatible(mode=mode,
+                    size=size, align=align, memory=memory)),
+            key=Memory.keybest(mode=mode,
+                size=size, align=align, memory=memory,
+                reverse=reverse))
 
-    def bestmemory(self, mode='rwx', size=None, align=None,
-            section=None, memory=None, reverse=False):
-        compatible = self.bestmemories(mode=mode, size=size, align=align,
-            section=section, memory=memory, reverse=reverse)
+    def bestmemory(self, mode='rwxp', size=None, align=None, memory=None,
+            reverse=False):
+        compatible = self.bestmemories(mode=mode,
+            size=size, align=align, memory=memory,
+            reverse=reverse)
         return compatible[0] if compatible else None
 
-    def consume(self, mode='rwx', size=None, align=None,
-            section=None, memory=None, reverse=False):
-        best = self.bestmemory(mode=mode, size=size, align=align,
-            section=section, memory=memory, reverse=reverse)
+    def consume(self, mode='rwxp', size=None, align=None, memory=None,
+            reverse=False):
+        best = self.bestmemory(mode=mode,
+            size=size, align=align, memory=memory,
+            reverse=reverse)
         if best is None:
             return None
 
-        return best.consume(size=size, align=align,
-            section=section, reverse=reverse)
+        return best.consume(size=size, align=align, reverse=reverse)
 
     def getroot(self):
         """

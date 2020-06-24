@@ -32,6 +32,22 @@ class Loader(Inherit(
         else:
             return self.name < other
 
+    def constraints(self, constraints):
+        """
+        Allow loaders to override memory constraints requested
+        during memory allocations.
+        """
+        return constraints
+
+    def box(self, box):
+        super().box(box)
+        box.text    .alloc(box, 'rxp')
+        box.stack   .alloc(box, 'rw')
+        box.data    .alloc(box, 'rw')
+        box.bss     .alloc(box, 'rw')
+        box.heap    .alloc(box, 'rw')
+
 # Runtime class imports
 # These must be imported here, since they depend on the above utilities
 from .noop import NoOpLoader
+from .glz import GLZLoader

@@ -9,7 +9,7 @@
 enum box_err {
     BOX_ERR_OK               = 0,    // No error
     BOX_ERR_GENERAL          = -1,   // General error
-    BOX_ERR_NOBOX            = -8,   // Box format error
+    BOX_ERR_NOEXEC           = -8,   // Box format error
     BOX_ERR_AGAIN            = -11,  // Try again
     BOX_ERR_NOMEM            = -12,  // Cannot allocate memory
     BOX_ERR_FAULT            = -14,  // Bad address

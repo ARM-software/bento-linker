@@ -35,7 +35,7 @@ class LDOutput(outputs.Output):
             out.pushattrs(
                 prefix=out.get('prefix', ''),
                 memory='%(prefix)s' + memory.name,
-                mode=''.join(sorted(memory.mode)),
+                mode=''.join(sorted(m for m in memory.mode if m in 'rwx')),
                 addr=memory.addr,
                 size=memory.size)
             out.writef('%(MEMORY)-16s (%(MODE)-3s) : '

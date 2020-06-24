@@ -67,7 +67,8 @@ class AbortGlue(runtimes.Runtime):
         super().build_mk(output, box)
 
         if box.emit_stdlib_hooks:
-            output.decls.append('### __box_abort glue ###')
-            output.decls.append('override LFLAGS += -Wl,--wrap,abort')
+            out = output.decls.append()
+            out.printf('### __box_abort glue ###')
+            out.printf('override LFLAGS += -Wl,--wrap,abort')
 
 
