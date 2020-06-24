@@ -1,4 +1,5 @@
 from .. import loaders
+import os
 
 @loaders.loader
 class NoOpLoader(loaders.Loader):

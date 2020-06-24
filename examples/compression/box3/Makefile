@@ -82,34 +82,6 @@ override LFLAGS += -Wl,--wrap,fprintf
 override LFLAGS += -Wl,--wrap,vfprintf
 override LFLAGS += -Wl,--wrap,fflush
 
-# target rule
-$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
-	$(CC) $(OBJ) $(BOXES) $(LFLAGS) -o $@
-
-# a .box is a .elf containing a single section for each loadable memory region
-%.box: %.elf %.box.glz
-	$(strip $(OBJCOPY) $< $@ \
-	    -I binary \
-	    -O elf32-littlearm \
-	    -B arm \
-	    --strip-all \
-	    --remove-section=* \
-	    --add-section .box.box3.flash=$(word 2,$^) \
-	    --change-section-address .box.box3.flash=0x000fa000 \
-	    --set-section-flags .box.box3.flash=contents,alloc,load,readonly,data)
-%.box.glz: %.box.ram
-	$(GLZ) encode $(GLZFLAGS) $^ -o $@
-
-%.box.ram: %.elf
-	$(strip $(OBJCOPY) $< $@ \
-	    --only-section .text \
-	    --only-section .stack \
-	    --only-section .data \
-	    --only-section .bss \
-	    --only-section .heap \
-	    --only-section .jumptable \
-	    -O binary)
-
 ### rules ###
 
 # default rule
@@ -119,19 +91,8 @@ all build: $(TARGET)
 # computing size size is a bit complicated as each .elf includes its boxes, we
 # want independent sizes.
 .PHONY: size
-size: $(TARGET)
-	$(strip ( $(SIZE) $< ) | awk '\
-	        function f(t, d, b, n) {printf \
-	            "%7d %7d %7d %7d %7x %s\n", \
-	            t, d, b, t+d+b, t+d+b, n} \
-	        NR==1 {print} \
-	        NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \
-	        NR>3 && /^([ \t]+[0-9]+){3,}/ && !/TOTALS/ { \
-	           l[NR-4]=$$0; t-=$$1+$$2; b-=$$3+$$2; \
-	           tt+=$$1; td+=$$2; tb+=$$3} \
-	        END {f(t, d, b, n)} \
-	        END {for (i in l) print l[i]} \
-	        END {f(t+tt, d+td, b+tb, "(TOTALS)")}')
+size: $(TARGET) $(BOXES)
+	$(SIZE) $<
 
 .PHONY: debug
 debug: $(TARGET)
@@ -189,4 +150,32 @@ clean:
 	rm -f $(TARGET) $(BOXES)
 	rm -f $(OBJ)
 	rm -f $(DEP)
+
+# target rule
+$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
+	$(CC) $(OBJ) $(BOXES) $(LFLAGS) -o $@
+
+# a .box is a .elf containing a single section for each loadable memory region
+%.box: %.elf %.box.glz
+	$(strip $(OBJCOPY) $< $@ \
+	    -I binary \
+	    -O elf32-littlearm \
+	    -B arm \
+	    --strip-all \
+	    --remove-section=* \
+	    --add-section .box.box3.flash=$(word 2,$^) \
+	    --change-section-address .box.box3.flash=0x000fa000 \
+	    --set-section-flags .box.box3.flash=contents,alloc,load,readonly,data)
+%.box.glz: %.box.ram
+	$(GLZ) encode $(GLZFLAGS) $^ -o $@
+
+%.box.ram: %.elf
+	$(strip $(OBJCOPY) $< $@ \
+	    --only-section .text \
+	    --only-section .stack \
+	    --only-section .data \
+	    --only-section .bss \
+	    --only-section .heap \
+	    --only-section .jumptable \
+	    -O binary)
 

@@ -150,7 +150,8 @@ class LDOutput(outputs.Output):
         out.printf('__exidx_end = .;')
         out.printf()
         out.printf('. = ALIGN(%(align)d);')
-        out.printf('__data_init_start = .;')
+        if not box.runtime.data_init_hook.link:
+            out.printf('__data_init_start = .;')
 
         # write out ram sections
         if box.stack:
@@ -177,7 +178,8 @@ class LDOutput(outputs.Output):
             initmemory=box.text.memory.name)
         out.printf('. = ALIGN(%(align)d);')
         out.printf('__data_start = .;')
-        out.printf('%(section)s . : AT(__data_init_start) {')
+        out.printf('%(section)s . :%(at)s {',
+            at=(not box.runtime.data_init_hook.link)*' AT(__data_init_start)')
         with out.pushindent():
             out.printf('*(.data*)')
         out.printf('} > %(MEMORY)s')

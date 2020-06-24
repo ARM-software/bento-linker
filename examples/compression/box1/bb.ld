@@ -94,7 +94,6 @@ SECTIONS {
     __exidx_end = .;
 
     . = ALIGN(4);
-    __data_init_start = .;
 
     . = ALIGN(4);
     __stack_start = .;
@@ -107,7 +106,7 @@ SECTIONS {
 
     . = ALIGN(4);
     __data_start = .;
-    .data . : AT(__data_init_start) {
+    .data . : {
         *(.data*)
     } > RAM
     . = ALIGN(4);

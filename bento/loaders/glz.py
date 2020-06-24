@@ -252,6 +252,8 @@ class GLZLoader(loaders.Loader):
             out.printf('override GLZFLAGS += %s' % flag)
 
     def build_mk(self, output, box):
+        super().build_mk(output, box)
+
         # target rule
         out = output.rules.append(doc='target rule')
         out.printf('$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)')
@@ -318,8 +320,6 @@ class GLZLoader(loaders.Loader):
                         out.writef(' \\\n--only-section .%(section)s',
                             section=section)
                     out.printf(' \\\n-O binary)\n')
-
-        super().build_mk(output, box)
 
     def box_parent(self, parent, box):
         super().box_parent(parent, box)

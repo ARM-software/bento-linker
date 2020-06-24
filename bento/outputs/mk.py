@@ -203,28 +203,34 @@ class MKOutput(outputs.Output):
         out = self.rules.append(phony=True,
             doc="computing size size is a bit complicated as each .elf "
                 "includes its boxes, we want independent sizes.")
-        out.printf('size: $(TARGET)')
+        out.printf('size: $(TARGET) $(BOXES)')
         with out.indent():
-            out.writef('$(strip ( $(SIZE) $<')
-            with out.indent():
-                for child in box.boxes:
-                    path = os.path.relpath(child.path, box.path)
-                    out.writef(' ;\\\n$(MAKE) -s --no-print-directory '
-                        '-C %(path)s size', path=path)
-                out.writef(' ) | awk \'\\\n')
+            if not box.boxes:
+                # simpler form if we have no boxes
+                out.printf('$(SIZE) $<')
+            else:
+                out.writef('$(strip ( $(SIZE) $^')
                 with out.indent():
-                    out.writef(
-                        'function f(t, d, b, n) {printf \\\n'
-                        '    "%%7d %%7d %%7d %%7d %%7x %%s\\n", \\\n'
-                        '    t, d, b, t+d+b, t+d+b, n} \\\n'
-                        'NR==1 {print} \\\n'
-                        'NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \\\n'
-                        'NR>3 && /^([ \\t]+[0-9]+){3,}/ && !/TOTALS/ { \\\n'
-                        '   l[NR-4]=$$0; t-=$$1+$$2; b-=$$3+$$2; \\\n'
-                        '   tt+=$$1; td+=$$2; tb+=$$3} \\\n'
-                        'END {f(t, d, b, n)} \\\n'
-                        'END {for (i in l) print l[i]} \\\n'
-                        'END {f(t+tt, d+td, b+tb, "(TOTALS)")}\')')
+                    for child in box.boxes:
+                        path = os.path.relpath(child.path, box.path)
+                        out.writef(' ; \\\n$(MAKE) -s --no-print-directory '
+                            '-C %(path)s size', path=path)
+                    out.writef(' ) | awk \'\\\n')
+                    with out.indent():
+                        out.writef(
+                            'function f(t, d, b, n) { \\\n'
+                            '    printf "%%7d %%7d %%7d %%7d %%7x %%s\\n", \\\n'
+                            '    t, d, b, t+d+b, t+d+b, n} \\\n'
+                            'NR==1 {print} \\\n'
+                            'NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \\\n'
+                            'NR>=3 && NR<%(n)d {bt+=$$1} \\\n'
+                            'NR>=%(n)d && '
+                                '/^([ \\t]+[0-9]+){3,}/ && !/TOTALS/ { \\\n'
+                            '    l[NR-%(n)d]=$$0; bd+=$$2; bb+=$$3} \\\n'
+                            'END {f(t-bt, d, b, n)} \\\n'
+                            'END {for (i in l) print l[i]} \\\n'
+                            'END {f(t, d, b+bd+bb, "(TOTALS)")}\')',
+                            n=3+len(box.boxes))
 
         out = self.rules.append(phony=True)
         out.printf('debug: $(TARGET)')

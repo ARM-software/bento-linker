@@ -343,14 +343,7 @@ extern void main(void);
 
 // Reset Handler
 __attribute__((naked, noreturn))
-void __box_reset_handler(void) {
-    // zero bss
-    extern uint32_t __bss_start;
-    extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
-        *d = 0;
-    }
-
+int32_t __box_reset_handler(void) {
     // load data
     extern uint32_t __data_init_start;
     extern uint32_t __data_start;
@@ -358,6 +351,13 @@ void __box_reset_handler(void) {
     const uint32_t *s = &__data_init_start;
     for (uint32_t *d = &__data_start; d < &__data_end; d++) {
         *d = *s++;
+    }
+
+    // zero bss
+    extern uint32_t __bss_start;
+    extern uint32_t __bss_end;
+    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
+        *d = 0;
     }
 
     // init libc
@@ -371,6 +371,53 @@ void __box_reset_handler(void) {
     while (1) {
         __asm__ volatile ("wfi");
     }
+}
+
+//// Default handlers ////
+
+__attribute__((naked, noreturn))
+void __box_nmi_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_hardfault_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_memmanage_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_busfault_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_usagefault_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_svc_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_debugmon_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_pendsv_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_systick_handler(void) {
+    while (1) {}
 }
 
 __attribute__((naked, noreturn))
@@ -389,20 +436,20 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)&__stack_end,
     (uint32_t)&__box_reset_handler,
     // Exception handlers
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_nmi_handler,
+    (uint32_t)__box_hardfault_handler,
+    (uint32_t)__box_memmanage_handler,
+    (uint32_t)__box_busfault_handler,
+    (uint32_t)__box_usagefault_handler,
     (uint32_t)0,
     (uint32_t)0,
     (uint32_t)0,
     (uint32_t)0,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_svc_handler,
+    (uint32_t)__box_debugmon_handler,
     (uint32_t)0,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_pendsv_handler,
+    (uint32_t)__box_systick_handler,
     // External IRQ handlers
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,

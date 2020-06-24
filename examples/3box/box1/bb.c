@@ -336,13 +336,6 @@ int _write(int handle, char *buffer, int size) {
 //// jumptable implementation ////
 
 int32_t __box_init(void) {
-    // zero bss
-    extern uint32_t __bss_start;
-    extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
-        *d = 0;
-    }
-
     // load data
     extern uint32_t __data_init_start;
     extern uint32_t __data_start;
@@ -350,6 +343,13 @@ int32_t __box_init(void) {
     const uint32_t *s = &__data_init_start;
     for (uint32_t *d = &__data_start; d < &__data_end; d++) {
         *d = *s++;
+    }
+
+    // zero bss
+    extern uint32_t __bss_start;
+    extern uint32_t __bss_end;
+    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
+        *d = 0;
     }
 
     // init libc
@@ -367,8 +367,6 @@ __attribute__((used))
 const uint32_t __box_box1_jumptable[] = {
     (uint32_t)&__stack_end,
     (uint32_t)__box_init,
-    (uint32_t)__box_abort,
-    (uint32_t)__box_write,
     (uint32_t)box1_add2,
     (uint32_t)box1_hello,
 };
