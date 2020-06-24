@@ -9,32 +9,6 @@ from ..glue.abort_glue import AbortGlue
 from ..outputs import OutputBlob
 
 # utility functions in C
-BOX_INIT = """
-int32_t __box_init(void) {
-    // zero bss
-    extern uint32_t __bss_start;
-    extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
-        *d = 0;
-    }
-
-    // load data
-    extern uint32_t __data_init_start;
-    extern uint32_t __data_start;
-    extern uint32_t __data_end;
-    const uint32_t *s = &__data_init_start;
-    for (uint32_t *d = &__data_start; d < &__data_end; d++) {
-        *d = *s++;
-    }
-
-    // init libc
-    extern void __libc_init_array(void);
-    __libc_init_array();
-
-    return 0;
-}
-"""
-
 BOX_STRUCT_STATE = """
 struct __box_state {
     bool initialized;
@@ -394,6 +368,7 @@ int __box_%(box)s_init(void) {
         return err;
     }
 
+%(zero)s
     // load the box if unloaded
     err = __box_%(box)s_load();
     if (err) {
@@ -427,14 +402,19 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, **kwargs):
-        parser.add_argument("--mpu_regions", type=int,
+        parser.add_argument('--mpu_regions', type=int,
             help="Upper limit on the number of MPU regions to manage for "
                 "each box. Note the actual number of MPU regions will be "
                 "this plus one region for box calls. Defualts to 4.")
         parser.add_nestedparser('--jumptable', Section)
         parser.add_nestedparser('--call_region', Region)
+        parser.add_argument('--zero', type=bool,
+            help="Zero RAM before executing the box. This is useful if boxes "
+                "share RAM to avoid leaking data. This is not useful if the "
+                "box is the only box able to access its allocated RAM.")
 
-    def __init__(self, mpu_regions=None, jumptable=None, call_region=None):
+    def __init__(self, mpu_regions=None, jumptable=None,
+            call_region=None, zero=None):
         super().__init__()
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
         self._jumptable = Section('jumptable', **jumptable.__dict__)
@@ -442,6 +422,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             Region(**call_region.__dict__)
             if call_region.addr is not None else
             Region('0x1e000000-0x1fffffff'))
+        self._zero = zero or False
 
     __name = __argname__
     def box_parent_prologue(self, parent):
@@ -538,6 +519,10 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         self._write_plug = box.addexport(
             '__box_write', 'fn(i32, u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True)
+        if self._zero:
+            # zeroing takes care of bss
+            box.addexport('__box_boss_init', 'fn() -> void',
+                target=box.name, source=self.__argname__, weak=True)
 
     # overridable
     def build_mpu_dispatch(self, output, sys):
@@ -749,8 +734,25 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     out.printf('return err;')
                 out.printf('}')
 
+        zero = OutputBlob(indent=4, box=box.name)
+        out = zero
+        if self._zero:
+            out.printf('// zero')
+            for memory in box.memoryslices:
+                if 'w' in memory.mode:
+                    with out.pushattrs(memory=memory.name):
+                        out.printf('extern uint32_t '
+                            '__box_%(box)s_%(memory)s_start;')
+                        out.printf('extern uint32_t '
+                            '__box_%(box)s_%(memory)s_end;')
+                        out.printf('memset(&__box_%(box)s_%(memory)s_start,')
+                        out.printf('     0,')
+                        out.printf('     &__box_%(box)s_%(memory)s_end')
+                        out.printf('     - &__box_%(box)s_%(memory)s_start);')
+
         output.decls.append(BOX_SYS_INIT,
-            roommate_clobbers=roommate_clobbers)
+            roommate_clobbers=roommate_clobbers,
+            zero=zero)
 
         # build wrappers if needed
         for import_ in sys.imports:
@@ -826,7 +828,45 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         super().build_c(output, box)
 
         output.decls.append('//// jumptable implementation ////')
-        output.decls.append(BOX_INIT)
+        out = output.decls.append()
+        out.printf('int32_t __box_init(void) {')
+        with out.indent():
+            if self.data_init_hook.link:
+                out.printf('// data inited by %(hook)s',
+                    hook=self.data_init_hook.link.export.source)
+                out.printf()
+            else:
+                out.printf('// load data')
+                out.printf('extern uint32_t __data_init_start;')
+                out.printf('extern uint32_t __data_start;')
+                out.printf('extern uint32_t __data_end;')
+                out.printf('const uint32_t *s = &__data_init_start;')
+                out.printf('for (uint32_t *d = &__data_start; '
+                    'd < &__data_end; d++) {')
+                with out.indent():
+                    out.printf('*d = *s++;')
+                out.printf('}')
+                out.printf()
+            if self.bss_init_hook.link:
+                out.printf('// bss inited by %(hook)s',
+                    hook=self.bss_init_hook.link.export.source)
+                out.printf()
+            else:
+                out.printf('// zero bss')
+                out.printf('extern uint32_t __bss_start;')
+                out.printf('extern uint32_t __bss_end;')
+                out.printf('for (uint32_t *d = &__bss_start; '
+                    'd < &__bss_end; d++) {')
+                with out.indent():
+                    out.printf('*d = 0;')
+                out.printf('}')
+                out.printf()
+            out.printf('// init libc')
+            out.printf('extern void __libc_init_array(void);')
+            out.printf('__libc_init_array();')
+            out.printf()
+            out.printf('return 0;')
+        out.printf('}')
 
         output.decls.append('extern uint32_t __stack_end;')
         out = output.decls.append(doc='box-side jumptable')
@@ -837,6 +877,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             # special entries for the sp and __box_init
             out.printf('(uint32_t)&__stack_end,')
             for export in box.exports:
-                out.printf('(uint32_t)%(export)s,', export=export.alias)
+                if export.target != box:
+                    out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.printf('};')
 

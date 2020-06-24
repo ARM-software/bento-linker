@@ -1,0 +1,54 @@
+x dissallow ambiguous?
+x make arg names a bit more readable
+- allow short parsable strings in place of tables <- THIS!
+- add SI units (K, M, G), find old code for this?
+- add docs for import/exports
+- clean up __init__ inputs? make easier to make not arg's Namespace?
+
+- show argparse error during argparse failure?
+- automatic offset placement
+x section -> just heap+stack
+x explicit types (i32, u32, i8)
+x ordering?
+- change jumptable -> glue_c, glue_rust
+- unify - and _
+
+- outputs.c outputs.h outputs.mk outputs.ld outputs.partial_ld
+- all box attrs as ordered dicts?
+- pluralize args
+- clean up linker to use sections sizes
+- makefile output
+- move ls to main
+- assert on negative memory size?
+- warn on empty heap?
+- explicit declaration of sections
+- build -> apply, use currying to add box/parent/root (use args + kwargs?)
+- clean up argstuff, allow argtype in nestedparser + add_set?
+
+- fully deduplicate box+sys
+- allow both - and _
+- handle consumed entirely in linker, expect boxes to be fully encompased, no memory modification
+
+- TODO treat empty args as none?
+
+
+x fix --boxes.test1.boxes.test2
+x fix empty recursive sets? (empty leaf sets)
+x remove the '' entry?
+n enable no help text
+- enable auto-use of __argname__/__argparse__ attributes
+n forward set errors?
+
+
+export.n() functions would be nice
+- uh, typechecking?
+- mem... memchecking?
+x gc
+- bento ls -a => -p, add -B and -L for no box and no link
+
+- store_true on globs? for both immediate glob and branch
+
+- fix lto
+- make lto a box property
+- invert no_startup and friends?
+

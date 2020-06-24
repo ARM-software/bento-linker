@@ -76,7 +76,7 @@ int __box_box3_clobber(void);
 typedef uint32_t glz_size_t;
 typedef uint32_t glz_off_t;
 
-int __box_glzdecode(uint8_t k,
+int __box_glz_decode(uint8_t k,
         const uint8_t *blob, glz_size_t blob_size, glz_off_t off,
         uint8_t *output, glz_size_t size) {
     // glz "stack"
@@ -892,14 +892,7 @@ extern void main(void);
 
 // Reset Handler
 __attribute__((naked, noreturn))
-void __box_reset_handler(void) {
-    // zero bss
-    extern uint32_t __bss_start;
-    extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
-        *d = 0;
-    }
-
+int32_t __box_reset_handler(void) {
     // load data
     extern uint32_t __data_init_start;
     extern uint32_t __data_start;
@@ -907,6 +900,13 @@ void __box_reset_handler(void) {
     const uint32_t *s = &__data_init_start;
     for (uint32_t *d = &__data_start; d < &__data_end; d++) {
         *d = *s++;
+    }
+
+    // zero bss
+    extern uint32_t __bss_start;
+    extern uint32_t __bss_end;
+    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
+        *d = 0;
     }
 
     // init libc
@@ -920,6 +920,38 @@ void __box_reset_handler(void) {
     while (1) {
         __asm__ volatile ("wfi");
     }
+}
+
+//// Default handlers ////
+
+__attribute__((naked, noreturn))
+void __box_nmi_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_hardfault_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_svc_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_debugmon_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_pendsv_handler(void) {
+    while (1) {}
+}
+
+__attribute__((naked, noreturn))
+void __box_systick_handler(void) {
+    while (1) {}
 }
 
 __attribute__((naked, noreturn))
@@ -940,8 +972,8 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)&__stack_end,
     (uint32_t)&__box_reset_handler,
     // Exception handlers
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_nmi_handler,
+    (uint32_t)__box_hardfault_handler,
     (uint32_t)__box_memmanage_handler,
     (uint32_t)__box_busfault_handler,
     (uint32_t)__box_usagefault_handler,
@@ -949,11 +981,11 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)0,
     (uint32_t)0,
     (uint32_t)0,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_svc_handler,
+    (uint32_t)__box_debugmon_handler,
     (uint32_t)0,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)__box_pendsv_handler,
+    (uint32_t)__box_systick_handler,
     // External IRQ handlers
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -1200,23 +1232,29 @@ const uint32_t __isr_vector[256] = {
 //// box1 loading ////
 
 int __box_box1_load(void) {
-    extern const uint32_t __box_box1_blob_start[3];
-    extern const uint32_t __box_box1_blob_end;
-    extern uint8_t __box_box1_ram_start;
+    extern const uint32_t __box_box1_blob_start[];
+    extern const uint8_t __box_box1_blob_end;
+    extern uint32_t __box_box1_ram_start;
+    extern uint32_t __box_box1_ram_end;
 
     // load metadata
-    uint32_t off  = __box_box1_blob_start[0];
-    uint8_t k = 0xf & (off >> 24);
-    off = 0x00ffffff & off;
+    uint32_t x = __box_box1_blob_start[0];
+    uint8_t k = 0xf & (x >> 24);
+    uint32_t off = 0x00ffffff & x;
     uint32_t size = __box_box1_blob_start[1];
+    if (size > (uint8_t*)&__box_box1_ram_end
+            - (uint8_t*)&__box_box1_ram_start) {
+        // can't allow overwrites now can we
+        return BOX_ERR_NOEXEC;
+    }
 
     // decompress
-    int err = __box_glzdecode(k,
+    int err = __box_glz_decode(k,
             (const uint8_t*)&__box_box1_blob_start[2],
-            (const uint8_t*)&__box_box1_blob_end
+            &__box_box1_blob_end
                 - (const uint8_t*)&__box_box1_blob_start[2],
             off,
-            &__box_box1_ram_start, 
+            (uint8_t*)&__box_box1_ram_start, 
             size);
     if (err) {
         return BOX_ERR_NOEXEC;
@@ -1257,6 +1295,7 @@ int __box_box1_init(void) {
     if (err) {
         return err;
     }
+
 
     // load the box if unloaded
     err = __box_box1_load();
@@ -1307,23 +1346,29 @@ int box1_hello(void) {
 //// box2 loading ////
 
 int __box_box2_load(void) {
-    extern const uint32_t __box_box2_blob_start[3];
-    extern const uint32_t __box_box2_blob_end;
-    extern uint8_t __box_box2_ram_start;
+    extern const uint32_t __box_box2_blob_start[];
+    extern const uint8_t __box_box2_blob_end;
+    extern uint32_t __box_box2_ram_start;
+    extern uint32_t __box_box2_ram_end;
 
     // load metadata
-    uint32_t off  = __box_box2_blob_start[0];
-    uint8_t k = 0xf & (off >> 24);
-    off = 0x00ffffff & off;
+    uint32_t x = __box_box2_blob_start[0];
+    uint8_t k = 0xf & (x >> 24);
+    uint32_t off = 0x00ffffff & x;
     uint32_t size = __box_box2_blob_start[1];
+    if (size > (uint8_t*)&__box_box2_ram_end
+            - (uint8_t*)&__box_box2_ram_start) {
+        // can't allow overwrites now can we
+        return BOX_ERR_NOEXEC;
+    }
 
     // decompress
-    int err = __box_glzdecode(k,
+    int err = __box_glz_decode(k,
             (const uint8_t*)&__box_box2_blob_start[2],
-            (const uint8_t*)&__box_box2_blob_end
+            &__box_box2_blob_end
                 - (const uint8_t*)&__box_box2_blob_start[2],
             off,
-            &__box_box2_ram_start, 
+            (uint8_t*)&__box_box2_ram_start, 
             size);
     if (err) {
         return BOX_ERR_NOEXEC;
@@ -1364,6 +1409,7 @@ int __box_box2_init(void) {
     if (err) {
         return err;
     }
+
 
     // load the box if unloaded
     err = __box_box2_load();
@@ -1414,23 +1460,29 @@ int box2_hello(void) {
 //// box3 loading ////
 
 int __box_box3_load(void) {
-    extern const uint32_t __box_box3_blob_start[3];
-    extern const uint32_t __box_box3_blob_end;
-    extern uint8_t __box_box3_ram_start;
+    extern const uint32_t __box_box3_blob_start[];
+    extern const uint8_t __box_box3_blob_end;
+    extern uint32_t __box_box3_ram_start;
+    extern uint32_t __box_box3_ram_end;
 
     // load metadata
-    uint32_t off  = __box_box3_blob_start[0];
-    uint8_t k = 0xf & (off >> 24);
-    off = 0x00ffffff & off;
+    uint32_t x = __box_box3_blob_start[0];
+    uint8_t k = 0xf & (x >> 24);
+    uint32_t off = 0x00ffffff & x;
     uint32_t size = __box_box3_blob_start[1];
+    if (size > (uint8_t*)&__box_box3_ram_end
+            - (uint8_t*)&__box_box3_ram_start) {
+        // can't allow overwrites now can we
+        return BOX_ERR_NOEXEC;
+    }
 
     // decompress
-    int err = __box_glzdecode(k,
+    int err = __box_glz_decode(k,
             (const uint8_t*)&__box_box3_blob_start[2],
-            (const uint8_t*)&__box_box3_blob_end
+            &__box_box3_blob_end
                 - (const uint8_t*)&__box_box3_blob_start[2],
             off,
-            &__box_box3_ram_start, 
+            (uint8_t*)&__box_box3_ram_start, 
             size);
     if (err) {
         return BOX_ERR_NOEXEC;
@@ -1471,6 +1523,7 @@ int __box_box3_init(void) {
     if (err) {
         return err;
     }
+
 
     // load the box if unloaded
     err = __box_box3_load();

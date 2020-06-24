@@ -10,7 +10,7 @@ BOX_GLZ_DECODE = """
 typedef uint32_t glz_size_t;
 typedef uint32_t glz_off_t;
 
-int __box_glzdecode(uint8_t k,
+int __box_glz_decode(uint8_t k,
         const uint8_t *blob, glz_size_t blob_size, glz_off_t off,
         uint8_t *output, glz_size_t size) {
     // glz "stack"
@@ -97,26 +97,72 @@ int __box_glzdecode(uint8_t k,
 
 BOX_DECODE = """
 int __box_%(box)s_load(void) {
-    extern const uint32_t __box_%(box)s_blob_start[3];
-    extern const uint32_t __box_%(box)s_blob_end;
-    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern const uint32_t __box_%(box)s_blob_start[];
+    extern const uint8_t __box_%(box)s_blob_end;
+    extern uint32_t __box_%(box)s_%(memory)s_start;
+    extern uint32_t __box_%(box)s_%(memory)s_end;
 
     // load metadata
-    uint32_t off  = __box_%(box)s_blob_start[0];
-    uint8_t k = 0xf & (off >> 24);
-    off = 0x00ffffff & off;
+    uint32_t x = __box_%(box)s_blob_start[0];
+    uint8_t k = 0xf & (x >> 24);
+    uint32_t off = 0x00ffffff & x;
     uint32_t size = __box_%(box)s_blob_start[1];
+    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
+            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+        // can't allow overwrites now can we
+        return BOX_ERR_NOEXEC;
+    }
 
     // decompress
-    int err = __box_glzdecode(k,
+    int err = __box_glz_decode(k,
             (const uint8_t*)&__box_%(box)s_blob_start[2],
-            (const uint8_t*)&__box_%(box)s_blob_end
+            &__box_%(box)s_blob_end
                 - (const uint8_t*)&__box_%(box)s_blob_start[2],
             off,
-            &__box_%(box)s_%(memory)s_start, 
+            (uint8_t*)&__box_%(box)s_%(memory)s_start, 
             size);
     if (err) {
         return BOX_ERR_NOEXEC;
+    }
+
+    return 0;
+}
+"""
+
+# a little bit more complex when multiple regions are involved
+BOX_DECODE_MULTI = """
+int __box_%(box)s_load(void) {
+    extern const uint32_t __box_%(box)s_blob_start[];
+    extern const uint8_t __box_%(box)s_blob_end;
+
+    // load metadata
+    uint32_t x = __box_%(box)s_blob_start[0];
+    uint8_t k = 0xf & (x >> 24);
+    uint32_t count = 0x00ffffff & x;
+    if (count != %(n)d) {
+        return BOX_ERR_NOEXEC;
+    }
+
+    for (uint32_t i = 0; i < %(n)d; i++) {
+        uint32_t off = __box_%(box)s_blob_start[1+2*i+0];
+        uint32_t size = __box_%(box)s_blob_start[1+2*i+1];
+        if (size > __box_%(box)s_loadregions[i][1]
+                - __box_%(box)s_loadregions[i][0]) {
+            // can't allow overwrites now can we
+            return BOX_ERR_NOEXEC;
+        }
+
+        // decompress region
+        int err = __box_glz_decode(k,
+                (const uint8_t*)&__box_%(box)s_blob_start[1+2*%(n)d],
+                &__box_%(box)s_blob_end
+                    - (const uint8_t*)&__box_%(box)s_blob_start[1+2*%(n)d],
+                off,
+                __box_%(box)s_loadregions[i][0],
+                size);
+        if (err) {
+            return BOX_ERR_NOEXEC;
+        }
     }
 
     return 0;
@@ -135,10 +181,16 @@ class GLZLoader(loaders.Loader):
     @classmethod
     def __argparse__(cls, parser, **kwargs):
         parser.add_nestedparser('--blob', Section)
+        parser.add_argument('--glz',
+            help='Override the GLZ path for the makefile.')
+        parser.add_argument('--glzflags', type=list,
+            help='Add custom GLZ flags.')
 
-    def __init__(self, blob=None):
+    def __init__(self, blob=None, glz=None, glzflags=None):
         super().__init__()
         self._blob = Section('blob', **blob.__dict__)
+        self._glz = glz or 'glz'
+        self._glzflags = glzflags or []
 
     def constraints(self, constraints):
         if 'c' in constraints['mode']:
@@ -150,7 +202,11 @@ class GLZLoader(loaders.Loader):
 
     def box(self, box):
         super().box(box)
+        # special compressed blob section
         self._blob.alloc(box, 'rpc')
+        # we also take care data implicitly
+        box.addexport('__box_data_init', 'fn() -> void',
+            target=box.name, source=self.__argname__, weak=True)
 
     def build_ld(self, output, box):
         if output.emit_sections:
@@ -182,13 +238,18 @@ class GLZLoader(loaders.Loader):
     def build_mk_prologue(self, output, box):
         super().build_mk_prologue(output, box)
         out = output.decls.append()
-        # TODO path?
-        out.printf('%(name)-16s ?= ~/bb/bento/extra/glz/target/debug/glz',
-            name='GLZ')
+        out.printf('%(name)-16s ?= %(path)s',
+            name='GLZ',
+            # TODO relative path?
+            path=self._glz)
 
         out = output.decls.append()
         out.printf('override GLZFLAGS += -q')
         out.printf('override GLZFLAGS += -n')
+        if self._glzflags:
+            out.printf('# user provided')
+        for flag in self._glzflags:
+            out.printf('override GLZFLAGS += %s' % flag)
 
     def build_mk(self, output, box):
         # target rule
@@ -212,12 +273,8 @@ class GLZLoader(loaders.Loader):
         out = output.rules.append(
             doc="a .box is a .elf containing a single section for "
                 "each loadable memory region")
-        out.printf('%%.box: %%.elf %(memory_boxes)s',
-            memory_boxes=' '.join(
-                '%.box.'+name for name, _, _ in loadmemories))
+        out.printf('%%.box: %%.elf %%.box.glz')
         with out.indent():
-            out.printf('$(GLZ) encode $(GLZFLAGS) '
-                '$(wordlist 2,$(words $^),$^) -o $@.glz')
             out.writef('$(strip $(OBJCOPY) $< $@')
             with out.indent():
                 # objcopy won't let us create an empty elf, but we can
@@ -234,13 +291,22 @@ class GLZLoader(loaders.Loader):
                         addr=self._blob.memory.addr,
                         section='blob'):
                     out.writef(' \\\n--add-section '
-                        '.box.%(box)s.%(memory)s=$@.glz')
+                        '.box.%(box)s.%(memory)s=$(word 2,$^)')
                     out.writef(' \\\n--change-section-address '
                         '.box.%(box)s.%(memory)s=%(addr)#.8x')
                     out.writef(' \\\n--set-section-flags '
                         '.box.%(box)s.%(memory)s='
                         'contents,alloc,load,readonly,data')
                 out.printf(')')
+
+        out.printf('%%.box.glz: %(memory_boxes)s',
+            memory_boxes=' '.join(
+                '%.box.'+name for name, _, _ in loadmemories))
+        with out.indent():
+            if len(loadmemories) == 1:
+                out.printf('$(GLZ) encode $(GLZFLAGS) $^ -o $@')
+            else:
+                out.printf('$(GLZ) encode -I $(GLZFLAGS) $^ -o $@')
 
         for name, _, sections in loadmemories:
             out = output.rules.append()
@@ -282,11 +348,30 @@ class GLZLoader(loaders.Loader):
                     name = 'box.%s.%s' % (child.name, memory.name)
                     loadmemories.append((name, memory, [name]))
 
-        # TODO, this could be fixed by added offset/size pairs
-        # (glz encode -I) when we have multiple memory region
-        assert len(loadmemories) == 1, ("Only one memory region "
-            "supported at the moment")
-
         output.decls.append('//// %(box)s loading ////')
-        output.decls.append(BOX_DECODE,
-            memory=loadmemories[0][0])
+
+        if len(loadmemories) == 1:
+            # if we only have one memory region (common), we can use
+            # slightly less metadata
+            output.decls.append(BOX_DECODE, memory=loadmemories[0][0])
+        else:
+            # otherwise, dynamically generate a loader that can handle
+            # all the memory regions
+            out = output.decls.append()
+            for memory, _, _ in loadmemories:
+                with out.pushattrs(memory=memory):
+                    out.printf('extern uint32_t '
+                        '__box_%(box)s_%(memory)s_start;')
+                    out.printf('extern uint32_t '
+                        '__box_%(box)s_%(memory)s_end;')
+            out.printf('uint8_t *const __box_%(box)s_loadregions[][2] = {')
+            with out.indent():
+                for memory, _, _ in loadmemories:
+                    with out.pushattrs(memory=memory):
+                        out.printf('{'
+                            '(uint32_t*)&__box_%(box)s_%(memory)s_start, '
+                            '(uint32_t*)&__box_%(box)s_%(memory)s_end}')
+            out.printf('};')
+
+            out = output.decls.append(BOX_DECODE_MULTI, n=len(loadmemories))
+

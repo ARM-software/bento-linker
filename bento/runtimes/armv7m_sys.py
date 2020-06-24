@@ -7,39 +7,6 @@ from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
 
 
-RESET_HANDLER = """
-__attribute__((naked, noreturn))
-void %(name)s(void) {
-    // zero bss
-    extern uint32_t __bss_start;
-    extern uint32_t __bss_end;
-    for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
-        *d = 0;
-    }
-
-    // load data
-    extern uint32_t __data_init_start;
-    extern uint32_t __data_start;
-    extern uint32_t __data_end;
-    const uint32_t *s = &__data_init_start;
-    for (uint32_t *d = &__data_start; d < &__data_end; d++) {
-        *d = *s++;
-    }
-
-    // init libc
-    extern void __libc_init_array(void);
-    __libc_init_array();
-
-    // enter main
-    %(main)s();
-
-    // halt if main exits
-    while (1) {
-        __asm__ volatile ("wfi");
-    }
-}
-"""
-
 DEFAULT_HANDLER = """
 __attribute__((naked, noreturn))
 void %(name)s(void) {
@@ -105,7 +72,7 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                 box.addimport('__box_debugmon_handler', 'fn() -> void',
                     target=box.name, source=self.__name, weak=True),
                 None,
-                box.addimport('__box_svc_handler', 'fn() -> void',
+                box.addimport('__box_pendsv_handler', 'fn() -> void',
                     target=box.name, source=self.__name, weak=True),
                 box.addimport('__box_systick_handler', 'fn() -> void',
                     target=box.name, source=self.__name, weak=True),
@@ -151,13 +118,64 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                 output.decls.append('extern void main(void);')
 
             # create entry point
-            output.decls.append(RESET_HANDLER,
-                name='__box_reset_handler',
-                doc='Reset Handler',
-                main=self._main_hook.link.export.alias
-                    if self._main_hook.link else 'main')
+            out = output.decls.append(doc='Reset Handler')
+            out.printf('__attribute__((naked, noreturn))')
+            out.printf('int32_t __box_reset_handler(void) {')
+            with out.indent():
+                if self.data_init_hook.link:
+                    out.printf('// data inited by %(hook)s',
+                        hook=self.data_init_hook.link.export.source)
+                    out.printf()
+                else:
+                    out.printf('// load data')
+                    out.printf('extern uint32_t __data_init_start;')
+                    out.printf('extern uint32_t __data_start;')
+                    out.printf('extern uint32_t __data_end;')
+                    out.printf('const uint32_t *s = &__data_init_start;')
+                    out.printf('for (uint32_t *d = &__data_start; '
+                        'd < &__data_end; d++) {')
+                    with out.indent():
+                        out.printf('*d = *s++;')
+                    out.printf('}')
+                    out.printf()
+                if self.bss_init_hook.link:
+                    out.printf('// bss inited by %(hook)s',
+                        hook=self.bss_init_hook.link.export.source)
+                    out.printf()
+                else:
+                    out.printf('// zero bss')
+                    out.printf('extern uint32_t __bss_start;')
+                    out.printf('extern uint32_t __bss_end;')
+                    out.printf('for (uint32_t *d = &__bss_start; '
+                        'd < &__bss_end; d++) {')
+                    with out.indent():
+                        out.printf('*d = 0;')
+                    out.printf('}')
+                    out.printf()
+                out.printf('// init libc')
+                out.printf('extern void __libc_init_array(void);')
+                out.printf('__libc_init_array();')
+                out.printf()
+                out.printf('// enter main')
+                out.printf('%(main)s();',
+                    main=self._main_hook.link.export.alias
+                        if self._main_hook.link else 'main')
+                out.printf()
+                out.printf('// halt if main exits')
+                out.printf('while (1) {')
+                with out.indent():
+                    out.printf('__asm__ volatile ("wfi");')
+                out.printf('}')
+            out.printf('}')
 
-            # create default isr
+            # create default isrs, we have the standard ARM isrs
+            # declared to help with debugging
+            output.decls.append('//// Default handlers ////')
+            for esr in self._esr_hooks:
+                if esr and not esr.link:
+                    output.decls.append(DEFAULT_HANDLER,
+                        name=esr.alias)
+                        
             output.decls.append(DEFAULT_HANDLER,
                 name='__box_default_handler')
 
@@ -184,8 +202,6 @@ class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     out.printf('(uint32_t)%(handler)s,', handler=
                         0
                         if not esr else
-                        '__box_default_handler'
-                        if not esr.link else
                         esr.alias)
                 out.printf('// External IRQ handlers')
                 for isr in self._isr_hooks:

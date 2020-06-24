@@ -1257,7 +1257,8 @@ class Box:
                             export for export in self.box.exports
                             if not box or any(
                                 link.import_.box == box
-                                for link in export.links)):
+                                for link in export.links)
+                            if export.target != export.box):
                         if export is self:
                             return n
                 return n
@@ -1269,7 +1270,9 @@ class Box:
                 def n(box=None):
                     for n, import_ in enumerate(
                             import_ for import_ in self.box.imports
-                            if not box or import_.link.export.box == box):
+                            if not box or import_.link.export.box == box
+                            if import_.link.export.target !=
+                                import_.link.export.box):
                         if import_ is self:
                             return n
                 return n

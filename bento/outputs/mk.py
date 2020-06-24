@@ -104,7 +104,7 @@ class MKOutput(outputs.Output):
 
     def build_prologue(self, box):
         out = self.decls.append()
-        out.printf('TARGET         ?= %(target)s',
+        out.printf('TARGET           ?= %(target)s',
             target=self._target
                 if self._target else
                 '%s.elf' % (box.name or 'sys'))
@@ -286,80 +286,9 @@ class MKOutput(outputs.Output):
                     '%(box)s.box')
                 out.printf('@echo "' + 48*'=' + '"')
 
-#        # target rule
-#        out = self.rules.append(doc='target rule')
-#        out.printf('$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)')
-#        with out.indent():
-#            out.printf('$(CC) $(OBJ) $(BOXES) $(LFLAGS) -o $@')
-
+        # other rules
         self.rules.append('-include $(DEP)', doc="header dependencies")
 
-#        # create boxing rule, to be invoked if embedding an elf is needed
-#        data_init = None
-#        if any(section.name == 'data'
-#                for memory in box.memoryslices
-#                for section in memory.sections):
-#            data_init = box.consume('rp', 0)
-#
-#        loadmemories = []
-#        for memory in box.memoryslices:
-#            if 'p' in memory.mode:
-#                loadmemories.append((memory.name, memory,
-#                    [section.name for section in memory.sections]))
-#        for child in box.boxes:
-#            for memory in child.memories:
-#                if 'p' in memory.mode:
-#                    name = 'box.%s.%s' % (child.name, memory.name)
-#                    loadmemories.append((name, memory, [name]))
-#
-#        out = self.rules.append(
-#            doc="a .box is a .elf containing a single section for "
-#                "each loadable memory region")
-#        out.printf('%%.box: %%.elf %(memory_boxes)s',
-#            memory_boxes=' '.join(
-#                '%.box.'+name for name, _, _ in loadmemories))
-#        with out.indent():
-#            out.writef('$(strip $(OBJCOPY) $< $@')
-#            with out.indent():
-#                # objcopy won't let us create an empty elf, but we can
-#                # fake it by treating the input as binary and striping
-#                # all implicit sections. Needed to get rid of program
-#                # segments which create warnings later.
-#                out.writef(' \\\n-I binary')
-#                out.writef(' \\\n-O elf32-littlearm')
-#                out.writef(' \\\n-B arm')
-#                out.writef(' \\\n--strip-all')
-#                out.writef(' \\\n--remove-section=*')
-#                for i, (name, memory, _) in enumerate(loadmemories):
-#                    with out.pushattrs(
-#                            memory=name,
-#                            addr=memory.addr,
-#                            n=2+i):
-#                        out.writef(' \\\n--add-section '
-#                            '.box.%(box)s.%(memory)s=$(word %(n)d,$^)')
-#                        out.writef(' \\\n--change-section-address '
-#                            '.box.%(box)s.%(memory)s=%(addr)#.8x')
-#                        out.writef(' \\\n--set-section-flags '
-#                            '.box.%(box)s.%(memory)s='
-#                            'contents,alloc,load,readonly,data')
-#                out.printf(')')
-#
-#        for name, _, sections in loadmemories:
-#            out = self.rules.append()
-#            out.printf('%%.box.%(memory)s: %%.elf', memory=name)
-#            with out.indent():
-#                out.writef('$(strip $(OBJCOPY) $< $@')
-#                with out.indent():
-#                    for section in sections:
-#                        out.writef(' \\\n--only-section .%(section)s',
-#                            section=section)
-#                        # workaround to get the data_init section in the
-#                        # right place
-#                        if section == 'text' and data_init is not None:
-#                            out.writef(' \\\n--only-section .data')
-#                    out.printf(' \\\n-O binary)\n')
-
-        # other rules
         out = self.rules.append()
         out.printf('%%.bin: %%.elf')
         with out.indent():
