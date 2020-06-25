@@ -37,6 +37,6 @@ else
 ifneq ($(SPEED),0)
 	rustc -C opt-level=3 $< -o $@
 else
-	rustc -C opt-level=s $< -o $@
+	rustc -C opt-level=z $< -o $@
 endif
 endif
