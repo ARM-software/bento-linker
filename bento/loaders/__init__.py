@@ -21,13 +21,13 @@ class Loader(Inherit(
         self.name = self.__argname__
 
     def __eq__(self, other):
-        if isinstance(other, Runtime):
+        if isinstance(other, Loader):
             return self.name == other.name
         else:
             return self.name == other
 
     def __lt__(self, other):
-        if isinstance(other, Runtime):
+        if isinstance(other, Loader):
             return self.name < other.name
         else:
             return self.name < other
@@ -51,3 +51,5 @@ class Loader(Inherit(
 # These must be imported here, since they depend on the above utilities
 from .noop import NoOpLoader
 from .glz import GLZLoader
+from .bd import BDLoader
+from .fs import FSLoader

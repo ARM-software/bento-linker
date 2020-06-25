@@ -31,7 +31,7 @@ class AbortGlue(runtimes.Runtime):
         self._abort_hook = box.addimport(
             '__box_abort', 'fn(err32) -> void',
             target=box.name, source=self.__name, weak=True,
-            doc="May be called by a well-behaved code to terminate the box "
+            doc="May be called by well-behaved code to terminate the box "
                 "if execution can not continue. Notably used for asserts. "
                 "Note that __box_abort may be skipped if the box is killed "
                 "because of an illegal operation. Must not return.")

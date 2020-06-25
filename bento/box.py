@@ -386,6 +386,8 @@ class Type:
     def repr_c(self, name=None):
         if self._primitive == 'u8' and self._ptr:
             primitive = 'void'
+        elif self._primitive == 'i8' and self._ptr:
+            primitive = 'char'
         elif self._primitive == 'err32':
             primitive = 'int'
         elif self._primitive == 'errsize':

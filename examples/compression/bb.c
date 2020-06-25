@@ -1249,18 +1249,13 @@ int __box_box1_load(void) {
     }
 
     // decompress
-    int err = __box_glz_decode(k,
+    return __box_glz_decode(k,
             (const uint8_t*)&__box_box1_blob_start[2],
             &__box_box1_blob_end
                 - (const uint8_t*)&__box_box1_blob_start[2],
             off,
             (uint8_t*)&__box_box1_ram_start, 
             size);
-    if (err) {
-        return BOX_ERR_NOEXEC;
-    }
-
-    return 0;
 }
 
 //// box1 init ////
@@ -1363,18 +1358,13 @@ int __box_box2_load(void) {
     }
 
     // decompress
-    int err = __box_glz_decode(k,
+    return __box_glz_decode(k,
             (const uint8_t*)&__box_box2_blob_start[2],
             &__box_box2_blob_end
                 - (const uint8_t*)&__box_box2_blob_start[2],
             off,
             (uint8_t*)&__box_box2_ram_start, 
             size);
-    if (err) {
-        return BOX_ERR_NOEXEC;
-    }
-
-    return 0;
 }
 
 //// box2 init ////
@@ -1477,18 +1467,13 @@ int __box_box3_load(void) {
     }
 
     // decompress
-    int err = __box_glz_decode(k,
+    return __box_glz_decode(k,
             (const uint8_t*)&__box_box3_blob_start[2],
             &__box_box3_blob_end
                 - (const uint8_t*)&__box_box3_blob_start[2],
             off,
             (uint8_t*)&__box_box3_ram_start, 
             size);
-    if (err) {
-        return BOX_ERR_NOEXEC;
-    }
-
-    return 0;
 }
 
 //// box3 init ////

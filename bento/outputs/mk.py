@@ -35,9 +35,9 @@ class MKOutput(outputs.Output):
             help='Override the size program for the makefile.')
         parser.add_argument('--gdb',
             help='Override the gdb program for the makefile.')
-        parser.add_argument('--gdbaddr',
+        parser.add_argument('--gdb_addr',
             help='Override the gdb addr (localhost) for the makefile.')
-        parser.add_argument('--gdbport',
+        parser.add_argument('--gdb_port',
             help='Override the gdb port (3333) for the makefile.')
         parser.add_argument('--tty',
             help='Override the tty file (/dev/tty*) for the makefile.')
@@ -48,18 +48,18 @@ class MKOutput(outputs.Output):
             help='Override libraries. Defaults to '
                 '[\'m\', \'c\', \'gcc\', and \'nosys\'].')
 
-        parser.add_argument('--cflags', type=list,
+        parser.add_argument('--c_flags', type=list,
             help='Add custom C flags.')
-        parser.add_argument('--asmflags', type=list,
+        parser.add_argument('--asm_flags', type=list,
             help='Add custom assembly flags.')
-        parser.add_argument('--lflags', type=list,
+        parser.add_argument('--l_flags', type=list,
             help='Add custom linker flags.')
 
     def __init__(self, path=None, target=None, cross_compile=None,
             cc=None, objcopy=None, objdump=None, ar=None,
-            size=None, gdb=None, gdbaddr=None, gdbport=None,
+            size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
-            libs=None, cflags=None, asmflags=None, lflags=None):
+            libs=None, c_flags=None, asm_flags=None, l_flags=None):
         super().__init__(path)
 
         self._target = target
@@ -70,16 +70,16 @@ class MKOutput(outputs.Output):
         self._ar = ar or '$(CROSS_COMPILE)ar'
         self._size = size or '$(CROSS_COMPILE)size'
         self._gdb = gdb or '$(CROSS_COMPILE)gdb'
-        self._gdbaddr = gdbaddr or 'localhost'
-        self._gdbport = gdbport or 3333
+        self._gdb_addr = gdb_addr or 'localhost'
+        self._gdb_port = gdb_port or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
         self._baud = baud or 115200
 
         self._libs = libs or ['m', 'c', 'gcc', 'nosys']
 
-        self._cflags = cflags or []
-        self._asmflags = asmflags or []
-        self._lflags = lflags or []
+        self._c_flags = c_flags or []
+        self._asm_flags = asm_flags or []
+        self._l_flags = l_flags or []
 
         self.decls = outputs.OutputField(self)
         self.rules = outputs.OutputField(self)
@@ -97,8 +97,8 @@ class MKOutput(outputs.Output):
             ar=self._ar,
             size=self._size,
             gdb=self._gdb,
-            gdbaddr=self._gdbaddr,
-            gdbport=self._gdbport,
+            gdb_addr=self._gdb_addr,
+            gdb_port=self._gdb_port,
             tty=self._tty,
             baud=self._baud)
 
@@ -119,8 +119,8 @@ class MKOutput(outputs.Output):
         out.printf('AR               = %(ar)s')
         out.printf('SIZE             = %(size)s')
         out.printf('GDB              = %(gdb)s')
-        out.printf('GDBADDR          ?= %(gdbaddr)s')
-        out.printf('GDBPORT          ?= %(gdbport)s')
+        out.printf('GDBADDR          ?= %(gdb_addr)s')
+        out.printf('GDBPORT          ?= %(gdb_port)s')
         out.printf('TTY              ?= %(tty)s')
         out.printf('BAUD             ?= %(baud)s')
 
@@ -332,25 +332,25 @@ class MKOutput(outputs.Output):
 
     def build_epilogue(self, box):
         # we put these at the end so they have precedence
-        if any([box.defines, self._cflags, self._asmflags, self._lflags]):
+        if any([box.defines, self._c_flags, self._asm_flags, self._l_flags]):
             self.decls.append('### user provided flags ###')
 
-        if box.defines or self._cflags:
+        if box.defines or self._c_flags:
             out = self.decls.append()
             for k, v in box.defines.items():
                 out.printf('override CFLAGS += -D%s=%s' % (k, v))
 
-            for cflag in self._cflags:
+            for cflag in self._c_flags:
                 out.printf('override CFLAGS += %s' % cflag)
 
-        if self._asmflags:
+        if self._asm_flags:
             out = self.decls.append()
-            for asmflag in self._asmflags:
+            for asmflag in self._asm_flags:
                 out.printf('override ASMFLAGS += %s' % asmflag)
 
-        if self._lflags:
+        if self._l_flags:
             out = self.decls.append()
-            for lflag in self._lflags:
+            for lflag in self._l_flags:
                 out.printf('override LFLAGS += %s' % lflag)
 
     def getvalue(self):

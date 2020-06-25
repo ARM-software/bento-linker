@@ -1,0 +1,99 @@
+memory.flash = 'r-xp 0x00000000-0x000fffff'
+memory.ram   = 'rwx- 0x20000000-0x2003ffff'
+stack = 0x800
+heap = 0x800
+
+runtime = 'armv7m_sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+define.NRF52840_XXAA=1
+define.NRFX_UARTE_ENABLED=1
+define.NRFX_UARTE0_ENABLED=1
+srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates'
+]
+
+export.__box_write = 'fn(i32, u8*, usize) -> errsize'
+export.__box_box1_bdread.alias = '__box_bdread'
+export.__box_box1_bdread.type = 'fn(u32 block, u32 off, u8 *buffer, usize size) -> err'
+export.__box_box2_bdread.alias = '__box_bdread'
+export.__box_box2_bdread.type = 'fn(u32 block, u32 off, u8 *buffer, usize size) -> err'
+export.__box_box3_bdread.alias = '__box_bdread'
+export.__box_box3_bdread.type = 'fn(u32 block, u32 off, u8 *buffer, usize size) -> err'
+
+import.box1_add2  = 'fn(i32, i32) -> err32'
+import.box1_hello = 'fn() -> err32'
+import.box2_add2  = 'fn(i32, i32) -> err32'
+import.box2_hello = 'fn() -> err32'
+import.box3_add2  = 'fn(i32, i32) -> err32'
+import.box3_hello = 'fn() -> err32'
+
+[box.box1]
+runtime = 'armv7m_mpu'
+loader.select = 'bd'
+loader.bd.region = '0x00000000-0x00002000'
+loader.bd.block_size = 4096
+memory.flash = 'r--p 8192 bytes'
+memory.ram   = 'rwx- 0x2003e000-0x2003ffff 8192 bytes'
+stack = 0x800
+heap = 0x800
+idempotent = true
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+export.box1_add2= 'fn(i32, i32) -> err32'
+export.box1_hello = 'fn() -> err32'
+
+[box.box2]
+runtime = 'armv7m_mpu'
+loader.select = 'bd'
+loader.bd.region = '0x00002000-0x00004000'
+loader.bd.block_size = 4096
+memory.flash = 'r--p 8192 bytes'
+memory.ram   = 'rwx- 0x2003e000-0x2003ffff 8192 bytes'
+stack = 0x800
+heap = 0x800
+idempotent = true
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+export.box2_add2= 'fn(i32, i32) -> err32'
+export.box2_hello = 'fn() -> err32'
+
+[box.box3]
+runtime = 'armv7m_mpu'
+loader.select = 'bd'
+loader.bd.region = '0x00004000-0x00006000'
+loader.bd.block_size = 4096
+memory.flash = 'r--p 8192 bytes'
+memory.ram   = 'rwx- 0x2003e000-0x2003ffff 8192 bytes'
+stack = 0x800
+heap = 0x800
+idempotent = true
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+export.box3_add2= 'fn(i32, i32) -> err32'
+export.box3_hello = 'fn() -> err32'
+

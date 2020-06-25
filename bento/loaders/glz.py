@@ -114,18 +114,13 @@ int __box_%(box)s_load(void) {
     }
 
     // decompress
-    int err = __box_glz_decode(k,
+    return __box_glz_decode(k,
             (const uint8_t*)&__box_%(box)s_blob_start[2],
             &__box_%(box)s_blob_end
                 - (const uint8_t*)&__box_%(box)s_blob_start[2],
             off,
             (uint8_t*)&__box_%(box)s_%(memory)s_start, 
             size);
-    if (err) {
-        return BOX_ERR_NOEXEC;
-    }
-
-    return 0;
 }
 """
 
@@ -161,7 +156,7 @@ int __box_%(box)s_load(void) {
                 __box_%(box)s_loadregions[i][0],
                 size);
         if (err) {
-            return BOX_ERR_NOEXEC;
+            return err;
         }
     }
 
@@ -183,14 +178,14 @@ class GLZLoader(loaders.Loader):
         parser.add_nestedparser('--blob', Section)
         parser.add_argument('--glz',
             help='Override the GLZ path for the makefile.')
-        parser.add_argument('--glzflags', type=list,
+        parser.add_argument('--glz_flags', type=list,
             help='Add custom GLZ flags.')
 
-    def __init__(self, blob=None, glz=None, glzflags=None):
+    def __init__(self, blob=None, glz=None, glz_flags=None):
         super().__init__()
         self._blob = Section('blob', **blob.__dict__)
         self._glz = glz or 'glz'
-        self._glzflags = glzflags or []
+        self._glz_flags = glz_flags or []
 
     def constraints(self, constraints):
         if 'c' in constraints['mode']:
@@ -246,9 +241,9 @@ class GLZLoader(loaders.Loader):
         out = output.decls.append()
         out.printf('override GLZFLAGS += -q')
         out.printf('override GLZFLAGS += -n')
-        if self._glzflags:
+        if self._glz_flags:
             out.printf('# user provided')
-        for flag in self._glzflags:
+        for flag in self._glz_flags:
             out.printf('override GLZFLAGS += %s' % flag)
 
     def build_mk(self, output, box):

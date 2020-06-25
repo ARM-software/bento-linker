@@ -120,6 +120,11 @@ class ArgumentParser(argparse.ArgumentParser):
             kwargs['type'] = parsebool
             kwargs.setdefault('nargs', '?')
             kwargs.setdefault('const', True)
+        elif kwargs.get('type', None) == int:
+            # allow hex ints
+            def parseint(x):
+                return int(x, 0)
+            kwargs['type'] = parseint
 
         # enable help=argparse.SUPPRESS but in a more flexible way
         if kwargs.pop('hidden', False) or self._hidden:
