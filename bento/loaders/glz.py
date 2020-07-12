@@ -22,7 +22,7 @@ int __box_glz_decode(uint8_t k,
         uint_fast16_t rice = 0;
         while (true) {
             if (off/8 >= blob_size) {
-                return BOX_ERR_INVAL;
+                return -EINVAL;
             }
             if (!(1 & (blob[off/8] >> (7-off%%8)))) {
                 off += 1;
@@ -33,7 +33,7 @@ int __box_glz_decode(uint8_t k,
         }
         for (glz_off_t i = 0; i < k; i++) {
             if (off/8 >= blob_size) {
-                return BOX_ERR_INVAL;
+                return -EINVAL;
             }
             rice = (rice << 1) | (1 & (blob[off/8] >> (7-off%%8)));
             off += 1;
@@ -41,7 +41,7 @@ int __box_glz_decode(uint8_t k,
 
         // map through table
         if ((9*rice)/8+1 >= blob_size) {
-            return BOX_ERR_INVAL;
+            return -EINVAL;
         }
         rice = 0x1ff & (
             (blob[(9*rice)/8+0] << 8) |
@@ -58,7 +58,7 @@ int __box_glz_decode(uint8_t k,
                 glz_off_t n = 0;
                 for (glz_off_t i = 0; i < GLZ_M+1; i++) {
                     if (off/8 >= blob_size) {
-                        return BOX_ERR_INVAL;
+                        return -EINVAL;
                     }
                     n = (n << 1) | (1 & (blob[off/8] >> (7-off%%8)));
                     off += 1;
@@ -110,7 +110,7 @@ int __box_%(box)s_load(void) {
     if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
             - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     // decompress
@@ -135,7 +135,7 @@ int __box_%(box)s_load(void) {
     uint8_t k = 0xf & (x >> 24);
     uint32_t count = 0x00ffffff & x;
     if (count != %(n)d) {
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     for (uint32_t i = 0; i < %(n)d; i++) {
@@ -144,7 +144,7 @@ int __box_%(box)s_load(void) {
         if (size > __box_%(box)s_loadregions[i][1]
                 - __box_%(box)s_loadregions[i][0]) {
             // can't allow overwrites now can we
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         // decompress region

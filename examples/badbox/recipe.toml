@@ -25,14 +25,14 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
 import.box1_add2  = 'fn(i32, i32) -> err32'
-import.box1_hello = 'fn() -> err32'
-import.box1_badassert = 'fn() -> err32'
-import.box1_badread   = 'fn() -> err32'
-import.box1_badwrite  = 'fn() -> err32'
-import.box1_overflow  = 'fn() -> err32'
+import.box1_hello = 'fn() -> err'
+import.box1_badassert = 'fn() -> err'
+import.box1_badread   = 'fn() -> err'
+import.box1_badwrite  = 'fn() -> err'
+import.box1_overflow  = 'fn() -> err'
 
 [box.box1]
 runtime = 'armv7m_mpu'
@@ -47,8 +47,8 @@ output.c = 'bb.c'
 output.mk = 'Makefile'
 
 export.box1_add2 = 'fn(i32, i32) -> err32'
-export.box1_hello = 'fn() -> err32'
-export.box1_badassert = 'fn() -> err32'
-export.box1_badread   = 'fn() -> err32'
-export.box1_badwrite  = 'fn() -> err32'
-export.box1_overflow  = 'fn() -> err32'
+export.box1_hello = 'fn() -> err'
+export.box1_badassert = 'fn() -> err'
+export.box1_badread   = 'fn() -> err'
+export.box1_badwrite  = 'fn() -> err'
+export.box1_overflow  = 'fn() -> err'

@@ -4,6 +4,7 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Fn, Section, Region
+from ..glue.error_glue import ErrorGlue
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
 from ..outputs import OutputBlob
@@ -181,7 +182,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     __box_active = state->caller;
     struct __box_state *targetstate = __box_state[__box_active];
     uint32_t targetlr = targetstate->lr;
-    __BOX_ASSERT(targetlr, BOX_ERR_FAULT); // in call?
+    __BOX_ASSERT(targetlr, -EFAULT); // in call?
     uint32_t *targetsp = targetstate->sp;
     struct __box_frame *targetframe = (struct __box_frame*)targetsp;
     uint32_t *targetfp = targetframe->fp;
@@ -343,7 +344,7 @@ void __box_mpu_handler(void) {
         "ldrne r0, =%%0 \\n\\t"
         "b __box_faulthandler \\n\\t"
         :
-        : "i"(BOX_ERR_FAULT)
+        : "i"(-EFAULT)
     );
 }
 """
@@ -393,7 +394,7 @@ int __box_%(box)s_init(void) {
 """
 
 @runtimes.runtime
-class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
+class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     """
     A bento-box runtime that uses a v7 MPU to provide memory isolation
     between boxes.
@@ -440,18 +441,19 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
         for child in parent.boxes:
             if child.runtime == self:
                 self._fault_hooks.append(parent.addimport(
-                    '__box_%s_fault' % child.name, 'fn(err32) -> void',
+                    '__box_%s_fault' % child.name, 'fn(err) -> void',
                     target=parent.name, source=self.__name, weak=True,
                     doc="Called when this box faults, either due to an illegal "
                         "memory access or other failure. the error code is "
                         "provided as an argument."))
                 self._load_hooks.append(parent.addimport(
-                    '__box_%s_load' % child.name, 'fn() -> err32',
+                    '__box_%s_load' % child.name, 'fn() -> err',
                     target=parent.name, source=self.__name,
                     doc="Called to load the box during init. Normally provided "
                         "by the loader but can be overriden."))
                 self._write_hooks.append(parent.addimport(
-                    '__box_%s_write' % child.name, 'fn(err32) -> void',
+                    '__box_%s_write' % child.name,
+                    'fn(i32, const u8*, usize) -> errsize',
                     target=parent.name, source=self.__name, weak=True,
                     doc="Override __box_write for this specific box."))
 
@@ -497,7 +499,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             target=box.name, source=self.__name,
             alias='__box_%s_rawinit' % box.name)
         parent.addexport(
-            '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
+            '__box_%s_write' % box.name, 'fn(i32, const u8*, usize) -> errsize',
             target=box.name, source=self.__name)
 
         super().box_parent(parent, box)
@@ -510,14 +512,14 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
             '__box_init', 'fn() -> err32',
             source=self.__name)
         box.addimport(
-            '__box_%s_write' % box.name, 'fn(i32, u8*, usize) -> errsize',
+            '__box_%s_write' % box.name, 'fn(i32, const u8*, usize) -> errsize',
             source=self.__name)
         # plugs
         self._abort_plug = box.addexport(
             '__box_abort', 'fn(err32) -> void',
             target=box.name, source=self.__name, weak=True)
         self._write_plug = box.addexport(
-            '__box_write', 'fn(i32, u8*, usize) -> errsize',
+            '__box_write', 'fn(i32, const u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True)
         if self._zero:
             # zeroing takes care of bss
@@ -761,9 +763,9 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     self._needswrapper(import_)):
                 out = output.decls.append(
                     import_=import_.name,
-                    repr=import_.repr_c(),
+                    repr=output.repr_fn(import_),
                     rawimport='__box_%(box)s_raw_%(import_)s',
-                    rawrepr=import_.repr_c('%(rawimport)s'))
+                    rawrepr=output.repr_fn(import_, '%(rawimport)s'))
                 out.printf('%(repr)s {')
                 with out.indent():
                     if box.init == 'lazy':
@@ -782,7 +784,7 @@ class ARMv7MMPURuntime(WriteGlue, AbortGlue, runtimes.Runtime):
                     # call the raw function
                     out.printf('extern %(rawrepr)s;')
                     out.printf('return %(rawimport)s(%(args)s);',
-                        args=', '.join(import_.argnames))
+                        args=', '.join(import_.argnames()))
                 out.printf('}')
 
     def build_ld(self, output, box):

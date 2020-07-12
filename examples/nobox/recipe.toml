@@ -25,4 +25,4 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'

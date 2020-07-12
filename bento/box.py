@@ -28,7 +28,7 @@ class Section:
 
     @staticmethod
     def parsesection(s):
-        addrpattern = r'(?:0[a-z])?[0-9a-fA-F]+'
+        addrpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
         bufferpattern = (r'\s*'
             '(%(addr)s)?\s*'
             '(%(addr)s)?\s*'
@@ -119,7 +119,7 @@ class Region:
 
     @staticmethod
     def parseregion(s):
-        addrpattern = r'(?:0[a-z])?[0-9a-fA-F]+'
+        addrpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
         mempattern = (r'\s*'
             '(?:(%(addr)s)\s*-)?\s*'
             '(%(addr)s)?\s*'
@@ -228,7 +228,7 @@ class Memory(Region):
 
     @staticmethod
     def parsememory(s):
-        addrpattern = r'(?:0[a-z])?[0-9a-fA-F]+'
+        addrpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
         mempattern = (r'\s*'
             '([a-z-]+(?=\s|$))?\s*'
             '(?:(%(addr)s)\s*-)?\s*'
@@ -332,87 +332,139 @@ class Memory(Region):
                 addr=region.addr, size=region.size)
             for region in super().__sub__(regions)]
 
-class Type:
+class Arg:
     """
     Type of function argument or return value.
     """
-    PRIMITIVE_TYPES = [
+    MODIFIERS = ['const', 'mut', 'nullable']
+    PRIMITIVES = [
+        'bool',
         'u8', 'u16', 'u32', 'u64', 'usize',
         'i8', 'i16', 'i32', 'i64', 'isize',
-        'err32', 'err64', 'errsize',
-        'f32', 'f64']
-    PRIMITIVE_ALIASES = [
-        (r'\berr\b',            r'err32'),
-        (r'\bu\b',              r'u32'),
-        (r'\bi\b',              r'i32'),
-        (r'\buint(\d+)_t\b',    r'u\1'),
-        (r'\bint(\d+)_t\b',     r'i\1'),
-        (r'\bsize_t\b',         r'usize'),
-        (r'\bssize_t\b',        r'isize'),
-        (r'\bfloat\b',          r'f32'),
-        (r'\bdouble\b',         r'f64'),
-        (r'\bvoid *\*',         r'u8*')]
-    def __init__(self, type):
-        for pattern, repl in it.chain([(r' +', r'')], Type.PRIMITIVE_ALIASES):
-            type = re.sub(pattern, repl, type)
+        'f32', 'f64',
+        'err', 'err8', 'err16', 'err32', 'err64', 'errsize']
+    @staticmethod
+    def parsetype(s):
+        namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
+        numpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
+        modpattern  = r'(?:(?:%s)\s*)*' % '|'.join(Arg.MODIFIERS)
+        primpattern = r'(?:%s)' % '|'.join(Arg.PRIMITIVES)
+        argpattern = (r'\s*'.join([
+            r'(%(mod)s)',
+            r'(%(prim)s)',
+            r'((?:\*\s*)*)',
+            r'((?:%(name)s)?)',
+            r'(?:(?:\[',
+                r'(?:(%(name)s)|(%(num)s))',
+            r'\])?)']) % dict(
+                name=namepattern,
+                num=numpattern,
+                mod=modpattern,
+                prim=primpattern))
+        m = re.match(r'^\s*%s\s*$' % argpattern, s)
 
-        m = re.match(r'^(%s)(\**)$' % '|'.join(Type.PRIMITIVE_TYPES), type)
         if not m:
-            raise ValueError("Invalid type %r" % type)
+            raise ValueError("Invalid type %r" % s)
 
-        self._primitive = m.group(1)
-        self._ptr = m.group(2)
+        mod  = set(m.group(1).split()) or set()
+        prim = m.group(2)
+        ptr  = (m.group(3).replace(' ', '')
+            if m.group(3) else
+            None)
+        name = m.group(4) or None
+        asize = (m.group(5)
+            if m.group(5) else
+            int(m.group(6), 0)
+            if m.group(6) else
+            None)
 
-        if len(self._ptr) > 1:
+        return name, mod, prim, ptr, asize
+
+    def __init__(self, name, type=None):
+        if type is None:
+            name, type = None, name
+
+        name2, mod, prim, ptr, asize = self.parsetype(type)
+
+        if ptr and len(ptr) > 1:
             raise ValueError(
-                "Indirect pointers currently not supported in type %r" % type)
+                "Indirect pointers currently unsupported %r" % type)
+
+        if mod and not (ptr or asize):
+            raise ValueError(
+                "Unexpected modifier %r" % type)
+
+        if (ptr or asize) and not {'const', 'mut'} & mod:
+            raise ValueError(
+                "Pointers must have const/mut modifiers %r" % type)
+
+        if {'const', 'mut'}.issubset(mod):
+            raise ValueError(
+                "Too many const/mut modifiers %r" % type)
+
+        self._mod   = mod
+        self._prim  = prim
+        self._ptr   = ptr
+        self._asize = asize
+
+        self.name = name or name2 or None
+        self.type = self.__str__(name='')
+
+    def ismut(self):
+        return 'mut' in self._mod
+
+    def isconst(self):
+        return 'const' in self._mod
+
+    def isnullable(self):
+        return 'nullable' in self._mod
 
     def isptr(self):
-        return bool(self._ptr)
+        return bool(self._ptr or self._asize)
+
+    def isarray(self):
+        return bool(self._asize)
 
     def iserr(self):
-        return self._primitive.startswith('err')
+        return self._prim.startswith('err') and not self.isptr()
+
+    def prim(self):
+        return self._prim
+
+    def primwidth(self):
+        # TODO configurable ptr width?
+        return (
+            8  if self._prim in {'i8', 'u8', 'bool'} else
+            16 if self._prim in {'i16', 'u16'} else
+            64 if self._prim.endswith('64') else
+            32)
+
+    def primsize(self):
+        return (self.primwidth() // 8) if self.primwidth() > 32 else 4
+
+    def width(self):
+        # TODO configurable ptr width?
+        return 32 if self.isptr() else self.primwidth()
+
+    def size(self):
+        return (self.width() // 8) if self.width() > 32 else 4
+
+    def asize(self):
+        return self._asize
 
     def __eq__(self, other):
-        return ((self._primitive, self._ptr)
-            == (other._primitive, other._ptr))
+        return ((self._mod, self._prim, self._ptr, self._asize)
+            == (other._mod, other._prim, other._ptr, other._asize))
 
-    def __str__(self, argname=None):
-        if argname:
-            return '%s %s%s' % (self._primitive, self._ptr, argname)
-        else:
-            return '%s%s' % (self._primitive, self._ptr)
-
-    def repr_c(self, name=None):
-        if self._primitive == 'u8' and self._ptr:
-            primitive = 'void'
-        elif self._primitive == 'i8' and self._ptr:
-            primitive = 'char'
-        elif self._primitive == 'err32':
-            primitive = 'int'
-        elif self._primitive == 'errsize':
-            primitive = 'ssize_t'
-        elif self._primitive.startswith('err'):
-            primitive = 'int%s_t' % self._primitive[3:]
-        elif self._primitive == 'usize':
-            primitive = 'size_t'
-        elif self._primitive == 'isize':
-            primitive = 'ssize_t'
-        elif self._primitive.startswith('u'):
-            primitive = 'uint%s_t' % self._primitive[1:]
-        elif self._primitive.startswith('i'):
-            primitive = 'int%s_t' % self._primitive[1:]
-        elif self._primitive == 'f32':
-            primtive = 'float'
-        elif self._primitive == 'f64':
-            primtive = 'double'
-        else:
-            assert False, 'unknown type %r' % self._primitive
-
-        if name:
-            return '%s %s%s' % (primitive, self._ptr, name)
-        else:
-            return '%s%s' % (primitive, self._ptr)
+    def __str__(self, name=None):
+        name = name if name is not None else self.name
+        return ''.join([
+            '%s ' % ' '.join(self._mod) if self._mod else '',
+            self._prim,
+            ' ' if name else '',
+            self._ptr or '',
+            name if name else '',
+            '[%s]' % self._asize if self._asize else ''])
 
 class Link:
     """
@@ -440,60 +492,75 @@ class Fn:
     @staticmethod
     def parsetype(s):
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
-        typepattern = r'%(name)s(?:\s*[\*\&])*' % dict(name=namepattern)
-        # three arg permutations: tpye, name: type, type name
-        argpattern = (r'(?:'
-                r'(%(type)s)|'
-                r'(%(name)s):\s*(%(type)s)|'
-                r'(%(type)s)\s*(%(name)s)'
-            r')' % dict(name=namepattern, type=typepattern))
+        argpattern = (r'(?:(?:%(name)s|[\*\[\]0-9])\s*)+'
+            % dict(name=namepattern))
         # functions with and without parens around args/rets
-        fnpattern = (r'\s*fn\s*(?:'
-                r'\(\s*((?:%(arg)s(?:\s*,\s*%(arg)s)*)?)\s*\)|'
-                r'((?:%(arg)s(?:\s*,\s*%(arg)s)*)?)'
-            r')\s*->\s*(?:'
-                r'\(\s*((?:%(arg)s(?:\s*,\s*%(arg)s)*)?)\s*\)|'
-                r'((?:%(arg)s(?:\s*,\s*%(arg)s)*)?)'
-            r')\s*' % dict(arg=argpattern))
+        fnpattern = (r'\s*'.join([
+            r'fn',
+            r'(?:',
+                r'\(',
+                r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r'\)',
+            r'|',
+                r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+            r')',
+            r'->',
+            r'(?:',
+                r'\(',
+                r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r'\)',
+            r'|',
+                r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+            r')']) % dict(
+                name=namepattern,
+                arg=argpattern))
 
-        m = re.match('^%s$' % fnpattern, s)
+        m = re.match('^\s*%s\s*$' % fnpattern, s)
         if not m:
             raise ValueError("Invalid import/export type %r" % s)
 
-        rawargs = (m.group(1) or m.group(12) or '').split(',')
-        rawrets = (m.group(23) or m.group(34) or '').split(',') # 35?
-
-        args = []
-        argnames = []
-        for arg in rawargs:
-            if arg:
-                m = re.match('^%s$' % argpattern, arg.strip())
-                name = m.group(2) or m.group(5)
-                type = (m.group(1) or m.group(3) or m.group(4)).replace(' ', '')
-                args.append(type)
-                argnames.append(name)
-        if args == ['void']:
+        noreturn = False
+        args = [arg.strip() for arg in
+            (m.group(1) or m.group(2) or '').split(',')]
+        rets = [ret.strip() for ret in
+            (m.group(3) or m.group(4) or '').split(',')]
+        if args == ['noreturn']:
+            noreturn = True
             args = []
-
-        rets = []
-        retnames = []
-        for ret in rawrets:
-            if ret:
-                m = re.match('^%s$' % argpattern, ret.strip())
-                name = m.group(2) or m.group(5)
-                type = (m.group(1) or m.group(3) or m.group(4)).replace(' ', '')
-                rets.append(type)
-                retnames.append(name)
-        if rets == ['void']:
+        if args in [['void'], ['']]:
+            args = []
+        if rets in [['void'], ['']]:
             rets = []
 
         if len(rets) > 1:
             raise ValueError("Currently only 0 or 1 return values supported")
 
-        return args, argnames, rets, retnames
+        try:
+            for arg in it.chain(args, rets):
+                Arg.parsetype(arg)
+        except ValueError as e:
+            e.args = (e.args[0]+'\nWhile parsing %r' % s, *e.args[1:])
+            raise
 
-    def __init__(self, name, type, source=None, target=None,
+        return args, rets, noreturn
+
+    def __init__(self, name, type=None, source=None, target=None,
             alias=None, doc=None, weak=False):
+        if type is None:
+            name, type = None, name
+
+        args, rets, noreturn = self.parsetype(type)
+        args = [Arg(arg) for arg in args]
+        rets = [Arg(ret) for ret in rets]
+
+        for arg in args:
+            if isinstance(arg.asize(), str):
+                if not any(arg2.name == arg.asize() for arg2 in args):
+                    raise ValueError("No arg matches array size for %r" % s)
+        for ret in rets:
+            if isinstance(ret.asize(), str):
+                raise ValueError("Returning buffers with dependent sizes "
+                    "currently not supported %r" % s)
 
         if target is not None:
             self.name = '.'.join([target, name])
@@ -504,6 +571,10 @@ class Fn:
             self.target = name.split('.', 1)[0] if '.' in name else None
             self.linkname = name.split('.', 1)[-1]
 
+        self.args = args
+        self.rets = rets
+        self._noreturn = noreturn
+
         self.alias = alias or self.linkname
         self.doc = doc
         self.weak = weak
@@ -511,32 +582,27 @@ class Fn:
         assert source is not None, "Need a source you doofus"
         self.source = source
 
-        argtypes, argnames, rettypes, retnames = Fn.parsetype(type)
-        self.args = [Type(arg) for arg in argtypes]
-        self.argnames = [name or 'a%d' % i for i, name in enumerate(argnames)]
-        self.rets = [Type(ret) for ret in rettypes]
-        self.retnames = [name or 'a%d' % i for i, name in enumerate(retnames)]
-
     def __str__(self):
         return 'fn(%s) -> %s' % (
             ', '.join(map(str, self.args)),
+            'noreturn' if self.isnoreturn() else
             'void' if not self.rets else
             ', '.join(map(str, self.rets)))
 
     def __lt__(self, other):
         return self.name < other.name
 
-    def repr_c(self, name=None):
-        return "%(rets)s %(name)s(%(args)s)" % dict(
-            name=name or self.alias,
-            args='void' if len(self.args) == 0 else
-                ', '.join(arg.repr_c(name) for arg, name in
-                    zip(self.args, self.argnames)),
-            rets='void' if len(self.rets) == 0 else
-                ', '.join(ret.repr_c() for ret in self.rets))
+    def argnames(self):
+        yield from (arg.name or '__a%d' % i for i, arg in enumerate(self.args))
 
-    def repr_c_ptr(self, name=None):
-        return self.repr_c(name='(*%s)' % (name or self.alias))
+    def retnames(self):
+        yield from (ret.name or '__r%d' % i for i, ret in enumerate(self.rets))
+
+    def retname(self):
+        return next(it.chain(self.retnames(), ['__r0']))
+
+    def isnoreturn(self):
+        return self._noreturn
 
     def isfalible(self):
         return any(ret.iserr() for ret in self.rets)
@@ -652,16 +718,6 @@ class Box:
         defineparser.add_argument('define',
             help='Add preprocessor defines to the build. It\'s up to the '
                 'output backends for these to be passed to compilation.')
-        parser.add_argument('--emit_stdlib_hooks', type=bool,
-            help='Hint to enable/disable the stdlib hooks that connect '
-                'box hooks to the C standard library. Defaults to true.')
-        parser.add_argument('--printf', choices=['minimal', 'std'],
-            help='Hint to select the printf implementation to use in the '
-                'box. By default, boxes provide a non-standard minimal '
-                'printf to reduce a code cost that is duplicated in every '
-                'box. If this isn\'t wanted, --printf=std provides the '
-                'printf found in the stdlib. Can be one of the following: '
-                '{%(choices)s}. Defaults to minimal.')
 
         parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
@@ -679,7 +735,6 @@ class Box:
             runtime=None, loader=None, init=None, idempotent=None,
             output=None, debug=None, lto=None,
             srcs=None, incs=None, define={},
-            emit_stdlib_hooks=None, printf=None,
             memory=None, stack=None, heap=None,
             text=None, data=None, bss=None,
             export={}, box={}, **kwargs):
@@ -717,9 +772,6 @@ class Box:
         self.incs = incs if incs is not None else self.srcs
         self.defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
-        self.emit_stdlib_hooks = (
-            emit_stdlib_hooks if emit_stdlib_hooks is not None else True)
-        self.printf = printf if printf is not None else 'minimal'
 
         # build the runtime stack
         from .outputs import OutputGlue

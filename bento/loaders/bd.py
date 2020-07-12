@@ -147,7 +147,7 @@ int __box_%(box)s_load(void) {
     if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
             - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     // load image
@@ -176,7 +176,7 @@ static int __box_%(box)s_buffer_read(void *ctx,
     uint32_t off = (uint32_t)ctx;
     addr = addr + off;
     if (addr + size > %(size)d) {
-        return BOX_ERR_INVAL;
+        return -EINVAL;
     }
 
     uint32_t block = addr / BOX_%(BOX)s_BLOCK_SIZE;
@@ -236,7 +236,7 @@ int __box_%(box)s_load(void) {
     if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
             - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     // decompress region
@@ -263,7 +263,7 @@ static int __box_%(box)s_buffer_read(void *ctx,
     uint32_t off = (uint32_t)ctx;
     addr = addr + off;
     if (addr + size > %(size)d) {
-        return BOX_ERR_INVAL;
+        return -EINVAL;
     }
 
     uint32_t block = addr / BOX_%(BOX)s_BLOCK_SIZE;
@@ -313,7 +313,7 @@ int __box_%(box)s_load(void) {
     }
 
     if (count != %(n)d) {
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     uint32_t off = (1+%(n)d)*sizeof(uint32_t);
@@ -330,7 +330,7 @@ int __box_%(box)s_load(void) {
         if (size > __box_%(box)s_loadregions[i][1]
                 - __box_%(box)s_loadregions[i][0]) {
             // can't allow overwrites now can we
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         // load region
@@ -361,7 +361,7 @@ static int __box_%(box)s_buffer_read(void *ctx,
     uint32_t off = (uint32_t)ctx;
     addr = addr + off;
     if (addr + size > %(size)d) {
-        return BOX_ERR_INVAL;
+        return -EINVAL;
     }
 
     uint32_t block = addr / BOX_%(BOX)s_BLOCK_SIZE;
@@ -413,7 +413,7 @@ int __box_%(box)s_load(void) {
     uint32_t off = 0x00ffffff & x[0];
     uint32_t count = x[1];
     if (count != %(n)d) {
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     for (uint32_t i = 0; i < %(n)d; i++) {
@@ -430,7 +430,7 @@ int __box_%(box)s_load(void) {
         if (size > __box_%(box)s_loadregions[i][1]
                 - __box_%(box)s_loadregions[i][0]) {
             // can't allow overwrites now can we
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         // load region
@@ -516,7 +516,7 @@ class BDLoader(loaders.Loader):
         # need block device hook
         self._bdread_hook = parent.addimport(
             '__box_%s_bdread' % box.name,
-            'fn(u32 block, u32 off, u8 *buffer, usize size) -> err32',
+            'fn(u32 block, u32 off, mut u8 *buffer, usize size) -> err',
             target=parent.name, source=self.__argname__,
             doc="Read from block device using a block number and offset. "
                 "Must be in multiples of the read_size.")

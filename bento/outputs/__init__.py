@@ -75,14 +75,16 @@ class OutputBlob(io.StringIO):
         return self.popattrs()['indent']
 
     def _expand(self, k, v):
-        with self.pushattrs(**{k: None}):
-            for rule in [lambda: v(self), lambda: v()]:
-                try:
-                    return rule()
-                except TypeError:
-                    continue
-            else:
-                return v
+        return v
+#       TODO this takes too long
+#        with self.pushattrs(**{k: None}):
+#            for rule in [lambda: v(self), lambda: v()]:
+#                try:
+#                    return rule()
+#                except TypeError:
+#                    continue
+#            else:
+#                return v
 
     def _expandall(self, attrs):
         expanded = {}
@@ -97,6 +99,8 @@ class OutputBlob(io.StringIO):
     def __getitem__(self, key):
         for a in reversed(self._attrs):
             if key in a:
+                if a[key] is None:
+                    raise KeyError(key)
                 return self._expand(key, a[key])
 
         for a in reversed(self._attrs):
@@ -209,6 +213,7 @@ from .h import HOutput
 from .c import COutput
 from .ld import LDOutput
 from .mk import MKOutput
+from .rs import RustOutput
 
 # output glue for connecting default runtime generation
 import importlib
@@ -218,6 +223,7 @@ importlib.reload(glue)
 class OutputGlue(glue.Glue):
     __argname__ = "output_glue"
     def __init__(self):
+        super().__init__()
         # we offer redirection for build_parent_mk -> parent.mk.build_parent
         for op, level, Output, order in it.product(
                 ['box', 'build'],

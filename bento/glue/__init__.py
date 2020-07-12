@@ -34,31 +34,8 @@ def Inherit(methods):
     return Inherit
 
 
-try:
-    from ..outputs import OUTPUTS
-    class Glue(Inherit(
-            ['%s%s%s%s' % (op, level, output, order)
-            for op, level, output, order in it.product(
-                ['box', 'build'],
-                ['_root', '_muxer', '_parent', ''],
-                ['_'+Output.__argname__ for Output in OUTPUTS.values()] + [''],
-                ['_prologue', '', '_epilogue'])])):
-        def __init__(self):
-            super().__init__()
-            self.name = self.__argname__
-
-        def __eq__(self, other):
-            if isinstance(other, Glue):
-                return self.name == other.name
-            else:
-                return self.name == other
-
-        def __lt__(self, other):
-            if isinstance(other, Glue):
-                return self.name < other.name
-            else:
-                return self.name < other
-
-except ImportError:
+# This class mostly acts as a marker. Because Glue should always be in
+# an inheritance chain, we don't need to add any functionality
+class Glue:
     pass
 

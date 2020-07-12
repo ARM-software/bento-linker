@@ -25,14 +25,14 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
 import.box1_add2  = 'fn(i32, i32) -> err32'
-import.box1_hello = 'fn() -> err32'
+import.box1_hello = 'fn() -> err'
 import.box2_add2  = 'fn(i32, i32) -> err32'
-import.box2_hello = 'fn() -> err32'
+import.box2_hello = 'fn() -> err'
 import.box3_add2  = 'fn(i32, i32) -> err32'
-import.box3_hello = 'fn() -> err32'
+import.box3_hello = 'fn() -> err'
 
 [box.box1]
 runtime = 'armv7m_mpu'
@@ -50,7 +50,7 @@ output.c = 'bb.c'
 output.mk = 'Makefile'
 
 export.box1_add2= 'fn(i32, i32) -> err32'
-export.box1_hello = 'fn() -> err32'
+export.box1_hello = 'fn() -> err'
 
 [box.box2]
 runtime = 'armv7m_mpu'
@@ -68,7 +68,7 @@ output.c = 'bb.c'
 output.mk = 'Makefile'
 
 export.box2_add2= 'fn(i32, i32) -> err32'
-export.box2_hello = 'fn() -> err32'
+export.box2_hello = 'fn() -> err'
 
 [box.box3]
 runtime = 'armv7m_mpu'
@@ -86,5 +86,5 @@ output.c = 'bb.c'
 output.mk = 'Makefile'
 
 export.box3_add2= 'fn(i32, i32) -> err32'
-export.box3_hello = 'fn() -> err32'
+export.box3_hello = 'fn() -> err'
 

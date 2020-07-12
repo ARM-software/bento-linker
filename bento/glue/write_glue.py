@@ -1,4 +1,4 @@
-from .. import runtimes
+from .. import glue
 
 BOX_MINIMAL_PRINTF = """
 ssize_t __box_cbprintf(
@@ -213,7 +213,7 @@ ssize_t __box_cbprintf(
                 res += nres;
             }
         }
-        
+
         if (left_justify) {
             for (ssize_t i = 0; i < (ssize_t)width-(ssize_t)size; i++) {
                 char c = ' ';
@@ -228,8 +228,7 @@ ssize_t __box_cbprintf(
 }
 
 static ssize_t __box_vprintf_write(void *ctx, const void *buf, size_t size) {
-    // TODO hm, not const?
-    return __box_write((int32_t)ctx, (void *)buf, size);
+    return __box_write((int32_t)ctx, buf, size);
 }
 
 __attribute__((used))
@@ -270,13 +269,91 @@ int __wrap_fflush(FILE *f) {
 
 BOX_STDLIB_HOOKS = """
 #ifdef __GNUC__
-int _write(int handle, char *buffer, int size) {
-    return __box_write(handle, (uint8_t*)buffer, size);
+int _write(int handle, const char *buffer, int size) {
+    return __box_write(handle, (const uint8_t*)buffer, size);
 }
 #endif
 """
 
-class WriteGlue(runtimes.Runtime):
+BOX_RUST_HOOKS = '''
+#[allow(dead_code)]
+pub fn write(fd: i32, buffer: &[u8]) -> Result<usize> {
+    extern "C" {
+        fn __box_write(fd: i32, buffer: *const u8, size: usize) -> isize;
+    }
+
+    let res = unsafe {
+        __box_write(fd, buffer.as_ptr(), buffer.len())
+    };
+
+    usize::try_from(res)
+        .map_err(|_| Error::new(-res as u32).unwrap())
+}
+'''
+
+BOX_RUST_STDOUT = '''
+/// %(name)s implementation
+pub struct %(Name)s;
+
+impl fmt::Write for %(Name)s {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        write(%(fd)d, s.as_bytes())
+            .map(|_| ())
+            .map_err(|_| fmt::Error)
+    }
+}
+
+#[allow(dead_code)]
+pub fn %(name)s() -> %(Name)s {
+    %(Name)s
+}
+
+#[allow(unused_macros)]
+macro_rules! %(print)s {
+    ($($arg:tt)*) => ({
+        use ::core::fmt::Write;
+
+        struct Out;
+        impl ::core::fmt::Write for Out {
+            fn write_str(&mut self, s: &str) -> ::core::fmt::Result {
+                extern "C" {
+                    fn __box_write(
+                        fd: i32,
+                        buffer: *const u8,
+                        size: usize
+                    ) -> isize;
+                }
+
+                let b = s.as_bytes();
+                let res = unsafe {
+                    __box_write(1, b.as_ptr(), b.len())
+                };
+
+                if res < 0 {
+                    Err(::core::fmt::Error)?
+                }
+
+                Ok(())
+            }
+        }
+
+        ::core::write!(Out, $($arg)*).unwrap();
+    });
+}
+
+#[allow(unused_macros)]
+macro_rules! %(print)sln {
+    () => ({
+        %(print)s!("\\n");
+    });
+    ($($arg:tt)*) => ({
+        %(print)s!($($arg)*);
+        %(print)s!("\\n");
+    });
+}
+'''
+
+class WriteGlue(glue.Glue):
     """
     Helper layer for handling __box_write and friends.
     """
@@ -284,7 +361,7 @@ class WriteGlue(runtimes.Runtime):
     def box(self, box):
         super().box(box)
         self._write_hook = box.addimport(
-            '__box_write', 'fn(i32, u8*, usize) -> errsize',
+            '__box_write', 'fn(i32, const u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True,
             doc="Provides a minimal implementation of stdout to the box. "
                 "The exact behavior depends on the superbox's implementation "
@@ -299,7 +376,7 @@ class WriteGlue(runtimes.Runtime):
             # defaults to noop
             out = output.decls.append()
             out.printf('ssize_t __box_write(int32_t fd, '
-                'void *buffer, size_t size) {')
+                'const void *buffer, size_t size) {')
             with out.indent():
                 out.printf('return size;')
             out.printf('}')
@@ -307,25 +384,26 @@ class WriteGlue(runtimes.Runtime):
             # jump to correct implementation
             out = output.decls.append()
             out.printf('ssize_t __box_write(int32_t fd, '
-                'void *buffer, size_t size) {')
+                'const void *buffer, size_t size) {')
             with out.indent():
                 out.printf('return %(alias)s(fd, buffer, size);',
                     alias=self._write_hook.link.export.alias)
             out.printf('}')
 
-        if box.printf == 'minimal':
+        if output.printf_impl == 'minimal':
             output.includes.append('<stdarg.h>')
             output.includes.append('<string.h>')
             out = output.decls.append()
             out.printf(BOX_MINIMAL_PRINTF)
 
-        if box.emit_stdlib_hooks:
+        if not output.no_stdlib_hooks:
             output.decls.append(BOX_STDLIB_HOOKS)
 
     def build_mk(self, output, box):
         super().build_mk(output, box)
 
-        if box.emit_stdlib_hooks:
+        if ('c' in box.outputs and
+                not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
             out = output.decls.append()
             out.printf('### __box_write glue ###')
             out.printf('override LFLAGS += -Wl,--wrap,printf')
@@ -333,3 +411,15 @@ class WriteGlue(runtimes.Runtime):
             out.printf('override LFLAGS += -Wl,--wrap,fprintf')
             out.printf('override LFLAGS += -Wl,--wrap,vfprintf')
             out.printf('override LFLAGS += -Wl,--wrap,fflush')
+
+    def build_rs(self, output, box):
+        super().build_rs(output, box)
+        output.inner_attrs.append('macro_use')
+        output.uses.append('core::fmt')
+        output.decls.append(BOX_RUST_HOOKS)
+        output.decls.append(BOX_RUST_STDOUT,
+            name='stdout', Name='Stdout',
+            fd=1, print='print')
+        output.decls.append(BOX_RUST_STDOUT,
+            name='stderr', Name='Stderr',
+            fd=2, print='eprint')

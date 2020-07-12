@@ -26,10 +26,10 @@ const nrfx_uarte_config_t uart_config = {
 };
 
 // stdout hook
-ssize_t __box_write(int32_t handle, void *p, size_t size) {
+ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
-    char *buffer = p;
+    const char *buffer = p;
 
     int i = 0;
     while (true) {
@@ -70,7 +70,7 @@ void main(void) {
     printf("hi from nrf52840!\n");
 
     printf("pinging box1\n");
-    int x = box1_add2(1, 2);
+    int32_t x = box1_add2(1, 2);
     printf("1 + 2 = %d\n", x);
     printf("pinging box2\n");
     x = box2_add2(1, 2);

@@ -31,22 +31,10 @@ class LDOutput(outputs.Output):
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
 
-        def buildmemory(out, memory):
-            out.pushattrs(
-                prefix=out.get('prefix', ''),
-                memory='%(prefix)s' + memory.name,
-                mode=''.join(sorted(m for m in memory.mode if m in 'rwx')),
-                addr=memory.addr,
-                size=memory.size)
-            out.writef('%(MEMORY)-16s (%(MODE)-3s) : '
-                'ORIGIN = %(addr)#010x, '
-                'LENGTH = %(size)#010x')
-
         self.decls = outputs.OutputField(self)
-        self.memories = outputs.OutputField(self, {Memory: buildmemory},
+        self.memories = outputs.OutputField(self,
             indent=4,
             memory=None,
-            mode='rwx',
             addr=0,
             size=0)
         self.sections = outputs.OutputField(self,
@@ -55,10 +43,25 @@ class LDOutput(outputs.Output):
             memory=None,
             align=4)
 
+    @staticmethod
+    def repr_memory(memory):
+        mode = ''.join(sorted(memory.mode & set('rwx')))
+        return ('%(start)s'
+            '%%(MEMORY)-16s (%(MODE)-3s) : '
+            'ORIGIN = %%(addr)#010x, '
+            'LENGTH = %%(size)#010x'
+            '%(end)s' % dict(
+                start='/* ' if not mode else '',
+                MODE=mode.upper(),
+                end=' */' if not mode else ''))
+
     def build_parent(self, parent, box):
         # create memories + sections for subboxes?
         for memory in box.memories:
-            self.memories.append(memory, prefix='box_%(box)s_')
+            self.memories.append(
+                self.repr_memory(memory),
+                memory='box_%(box)s_'+memory.name,
+                addr=memory.addr, size=memory.size)
 
             if self.emit_sections:
                 out = self.sections.append(
@@ -81,7 +84,10 @@ class LDOutput(outputs.Output):
                 out.write('%-16s = %s;' % (k, v))
 
         for memory in box.memoryslices:
-            self.memories.append(memory)
+            self.memories.append(
+                self.repr_memory(memory),
+                memory=memory.name,
+                addr=memory.addr, size=memory.size)
 
         # The rest of this only deals with sections
         if not self.emit_sections:
@@ -248,12 +254,11 @@ class LDOutput(outputs.Output):
             self.print('MEMORY {')
             # order memories based on address
             for memory in sorted(self.memories, key=lambda m: m['addr']):
-                if memory['mode']:
-                    if 'doc' in memory:
-                        for line in textwrap.wrap(
-                                memory['doc'], width=78-10):
-                            self.print(4*' ' + '/* %s */' % line)
-                    self.print(4*' ' + memory.getvalue().strip())
+                if 'doc' in memory:
+                    for line in textwrap.wrap(
+                            memory['doc'], width=78-10):
+                        self.print(4*' ' + '/* %s */' % line)
+                self.print(4*' ' + str(memory).strip())
             self.print('}')
             self.print('')
 
@@ -276,7 +281,7 @@ class LDOutput(outputs.Output):
                             for line in textwrap.wrap(
                                     section['doc'], width=78-10):
                                 self.print(4*' ' + '/* %s */' % line)
-                        self.print(4*' ' + section.getvalue().strip())
+                        self.print(4*' ' + str(section).strip())
                         if i < len(self.sections)-1:
                             self.print()
                             i += 1
@@ -292,7 +297,7 @@ class LDOutput(outputs.Output):
                         for line in textwrap.wrap(
                                 section['doc'], width=78-10):
                             self.print(4*' ' + '/* %s */' % line)
-                    self.print(4*' ' + section.getvalue().strip())
+                    self.print(4*' ' + str(section).strip())
                     if i < len(self.sections)-1:
                         self.print()
                         i += 1

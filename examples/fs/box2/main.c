@@ -1,7 +1,7 @@
 #include "bb.h"
 #include <stdio.h>
 
-int box2_add2(int32_t a, int32_t b) {
+int32_t box2_add2(int32_t a, int32_t b) {
     return a + b;
 }
 

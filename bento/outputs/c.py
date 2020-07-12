@@ -10,6 +10,24 @@ class COutput(outputs.HOutput):
     """
     __argname__ = "c"
     __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser, **kwargs):
+        super().__argparse__(parser, **kwargs)
+        parser.add_argument('--no_stdlib_hooks', type=bool,
+            help='Enable/disable the stdlib hooks that connect box hooks to '
+                'the C standard library.')
+        parser.add_argument('--printf', choices=['minimal', 'std'],
+            help='Select the printf implementation to use in the '
+                'box. By default, boxes provide a non-standard minimal '
+                'printf to reduce a code cost that is duplicated across boxes '
+                'If this isn\'t wanted, --printf=std provides the printf found '
+                'in the stdlib. Can be one of the following: {%(choices)s}. '
+                'Defaults to minimal.')
+
+    def __init__(self, path, no_stdlib_hooks=None, printf=None):
+        super().__init__(path)
+        self.no_stdlib_hooks = no_stdlib_hooks or False
+        self.printf_impl = printf if printf is not None else 'minimal'
 
     def getvalue(self):
         self.seek(0)
@@ -17,7 +35,10 @@ class COutput(outputs.HOutput):
 
         includes = set()
         for include in self.includes:
-            includes.add(include.getvalue())
+            include = str(include)
+            if not (include.startswith('"') or include.startswith('<')):
+                include = '"%s"' % include
+            includes.add(include)
         out = self.decls.insert(0)
         for include in sorted(includes):
             out.print('#include %s' % include)

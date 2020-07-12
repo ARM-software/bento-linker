@@ -144,13 +144,13 @@ int __box_%(box)s_load(void) {
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
             - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     // load image
@@ -161,7 +161,7 @@ int __box_%(box)s_load(void) {
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     err = %(close_alias)s(fd);
@@ -193,7 +193,7 @@ static int __box_%(box)s_seekread(void *ctx,
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_INVAL;
+        return -EINVAL;
     }
 
     return 0;
@@ -218,7 +218,7 @@ int __box_%(box)s_load(void) {
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     uint8_t k = 0xf & (x[0] >> 24);
@@ -227,7 +227,7 @@ int __box_%(box)s_load(void) {
     if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
             - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     // decompress region
@@ -267,11 +267,11 @@ int __box_%(box)s_load(void) {
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     if (count != %(n)d) {
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     uint32_t off = (1+%(n)d)*sizeof(uint32_t);
@@ -287,13 +287,13 @@ int __box_%(box)s_load(void) {
             if (res < 0) {
                 return res;
             }
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         if (size > __box_%(box)s_loadregions[i][1]
                 - __box_%(box)s_loadregions[i][0]) {
             // can't allow overwrites now can we
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         // load region
@@ -306,7 +306,7 @@ int __box_%(box)s_load(void) {
             if (res < 0) {
                 return res;
             }
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
         
         off += size;
@@ -341,7 +341,7 @@ static int __box_%(box)s_seekread(void *ctx,
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_INVAL;
+        return -EINVAL;
     }
 
     return 0;
@@ -362,14 +362,14 @@ int __box_%(box)s_load(void) {
         if (res < 0) {
             return res;
         }
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     uint8_t k = 0xf & (x[0] >> 24);
     uint32_t off = 0x00ffffff & x[0];
     uint32_t count = x[1];
     if (count != %(n)d) {
-        return BOX_ERR_NOEXEC;
+        return -ENOEXEC;
     }
 
     for (uint32_t i = 0; i < %(n)d; i++) {
@@ -383,7 +383,7 @@ int __box_%(box)s_load(void) {
             if (res < 0) {
                 return res;
             }
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         uint32_t off = x[0];
@@ -391,7 +391,7 @@ int __box_%(box)s_load(void) {
         if (size > __box_%(box)s_loadregions[i][1]
                 - __box_%(box)s_loadregions[i][0]) {
             // can't allow overwrites now can we
-            return BOX_ERR_NOEXEC;
+            return -ENOEXEC;
         }
 
         // decompress region
@@ -458,7 +458,7 @@ class FSLoader(loaders.Loader):
         self._open_hook = parent.addimport(
             '__box_%s_open' % box.name,
             # TODO const?
-            'fn(i32 *fd, i8 *path, u32 flags) -> err',
+            'fn(mut i32 *fd, const i8 *path, u32 flags) -> err',
             target=parent.name, source=self.__argname__,
             doc="Open a file using a null-terminated path and flags.")
         self._close_hook = parent.addimport(
@@ -468,7 +468,7 @@ class FSLoader(loaders.Loader):
             doc="Close a file.")
         self._read_hook = parent.addimport(
             '__box_%s_read' % box.name,
-            'fn(i32 fd, u8 *buffer, usize size) -> errsize',
+            'fn(i32 fd, mut u8 *buffer, usize size) -> errsize',
             target=parent.name, source=self.__argname__,
             doc="Read bytes from a file.")
         self._seek_hook = parent.addimport(

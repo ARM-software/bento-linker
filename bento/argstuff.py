@@ -120,6 +120,7 @@ class ArgumentParser(argparse.ArgumentParser):
             kwargs['type'] = parsebool
             kwargs.setdefault('nargs', '?')
             kwargs.setdefault('const', True)
+            kwargs.setdefault('metavar', '{true,false}')
         elif kwargs.get('type', None) == int:
             # allow hex ints
             def parseint(x):

@@ -2,6 +2,7 @@ from .. import outputs
 from ..box import Fn
 import io
 import textwrap
+import itertools as it
 
 @outputs.output
 class HOutput(outputs.Output):
@@ -14,20 +15,54 @@ class HOutput(outputs.Output):
     def __init__(self, path=None):
         super().__init__(path)
 
-        def buildinclude(out, include):
-            if not (include.startswith('"') or include.startswith('<')):
-                include = '"%s"' % include
-            out.writef(include)
+        self.includes = outputs.OutputField(self)
+        self.decls = outputs.OutputField(self)
 
-        def buildfn(out, fn):
-            if fn.doc:
-                out.pushattrs(doc=fn.doc)
-            if out.get('attrs', False):
-                out.writef('%(attrs)s ')
-            out.writef('%(fn)s;', fn=fn.repr_c())
+    @staticmethod
+    def repr_arg(arg, name=None):
+        name = name if name is not None else arg.name
+        return ''.join([
+            'const ' if arg.isconst() else '',
+            'void'      if arg.prim() == 'u8' and arg.isptr() else
+            'char'      if arg.prim() == 'i8' and arg.isptr() else
+            'bool'      if arg.prim() == 'bool' else
+            'int32_t'   if arg.prim() == 'err32' else
+            'int64_t'   if arg.prim() == 'err64' else
+            'ssize_t'   if arg.prim() == 'errsize' else
+            'int'       if arg.prim().startswith('err') else
+            'ssize_t'   if arg.prim() == 'isize' else
+            'size_t'    if arg.prim() == 'usize' else
+            'int%s_t'  % arg.prim()[1:] if arg.prim().startswith('i') else
+            'uint%s_t' % arg.prim()[1:] if arg.prim().startswith('u') else
+            'float'     if arg.prim() == 'f32' else
+            'double'    if arg.prim() == 'f64' else
+            '???',
+            ' ' if name else '',
+            '*' if arg.isptr() else '',
+            name if name else ''])
 
-        self.includes = outputs.OutputField(self, {str: buildinclude})
-        self.decls = outputs.OutputField(self, {Fn: buildfn})
+    @staticmethod
+    def repr_fn(fn, name=None, attrs=[]):
+        return ''.join(it.chain(
+            (attr + ('\n' if attr.startswith('__') else ' ')
+                for attr in it.chain(
+                    (['__attribute__((noreturn))'] if fn.isnoreturn() else []) +
+                    attrs)), [
+            '%s ' % HOutput.repr_arg(fn.rets[0], '') if fn.rets else
+            'void ',
+            name if name is not None else fn.alias,
+            '(',
+            ', '.join(HOutput.repr_arg(arg, name)
+                for arg, name in zip(fn.args, fn.argnames()))
+            if fn.args else
+            'void',
+            ')']))
+
+    @staticmethod
+    def repr_fnptr(fn, name=None, attrs=[]):
+        return HOutput.repr_fn(fn,
+            '(*%s)' % (name if name is not None else fn.alias),
+            attrs)
 
     def box(self, box):
         super().box(box)
@@ -39,41 +74,23 @@ class HOutput(outputs.Output):
         self.includes.append("<stdbool.h>")
         self.includes.append("<sys/types.h>")
 
-        # TODO configurable?
-        out = self.decls.append()
-        out.printf('//// box error codes ////')
-        out.printf('enum box_err {')
-        with out.indent():
-            for name, code, doc in [
-                ('BOX_ERR_OK',       0,    'No error'),
-                ('BOX_ERR_GENERAL',  -1,   'General error'),
-                ('BOX_ERR_NOEXEC',   -8,   'Box format error'),
-                ('BOX_ERR_AGAIN',    -11,  'Try again'),
-                ('BOX_ERR_NOMEM',    -12,  'Cannot allocate memory'),
-                ('BOX_ERR_FAULT',    -14,  'Bad address'),
-                ('BOX_ERR_BUSY',     -16,  'Device or resource busy'),
-                ('BOX_ERR_LOOP',     -20,  'Cyclic data structure detected'),
-                ('BOX_ERR_INVAL',    -22,  'Invalid parameter'),
-                ('BOX_ERR_TIMEDOUT', -110, 'Timed out')]:
-                out.printf('%(name)-24s = %(code)-5s // %(doc)s',
-                    name=name,
-                    code='%s,' % code,
-                    doc=doc)
-        out.printf('};')
-
         for i, import_ in enumerate(
                 import_ for import_ in box.imports
                 if import_.source == box):
             if i == 0:
                 self.decls.append('//// box imports ////')
-            self.decls.append(import_)
+            self.decls.append('%(fn)s;',
+                fn=self.repr_fn(import_),
+                doc=import_.doc)
 
         for i, export in enumerate(
                 export for export in box.exports
                 if export.source == box):
             if i == 0:
                 self.decls.append('//// box exports ////')
-            self.decls.append(export, attrs='extern')
+            self.decls.append('%(fn)s;',
+                fn=self.repr_fn(export, attrs=['extern']),
+                doc=export.doc)
 
         # functions we can expect from runtimes
         self.decls.append('//// box hooks ////')
@@ -84,7 +101,7 @@ class HOutput(outputs.Output):
                 'error. The box can not be called again after this without '
                 'a new init. Does not return.')
         self.decls.append(
-            'ssize_t __box_write(int32_t fd, void *buffer, size_t size);',
+            'ssize_t __box_write(int32_t fd, const void *buffer, size_t size);',
             doc='Write to stdout if provided by superbox. If not provided, '
                 'this function is still available for linking, but does '
                 'nothing. Returns 0 on success, negative error code on '
@@ -106,10 +123,14 @@ class HOutput(outputs.Output):
 
         includes = set()
         for include in self.includes:
-            includes.add(include.getvalue())
-        out = self.decls.insert(0)
+            include = str(include)
+            if not (include.startswith('"') or include.startswith('<')):
+                include = '"%s"' % include
+            includes.add(include)
         for include in sorted(includes):
-            out.print('#include %s' % include)
+            self.printf('#include %(include)s', include=include)
+
+        self.print()
 
         for decl in self.decls:
             if 'doc' in decl:

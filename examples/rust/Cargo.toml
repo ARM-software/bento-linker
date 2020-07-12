@@ -1,0 +1,15 @@
+[package]
+name = "rustcar"
+version = "0.1.0"
+edition = "2018"
+autobins = false
+
+[profile.release]
+opt-level = 'z'
+lto = true
+debug = true
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/main.rs"
+

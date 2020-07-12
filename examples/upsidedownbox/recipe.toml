@@ -11,7 +11,7 @@ output.c = 'bb.c'
 output.mk = 'Makefile'
 
 export.box1_add2= 'fn(i32, i32) -> err32'
-export.box1_hello = 'fn() -> err32'
+export.box1_hello = 'fn() -> err'
 
 [super.sys]
 memory.flash = 'rxp 0x00000000-0x000fffff'
@@ -41,7 +41,7 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
 import.box1_add2  = 'fn(i32, i32) -> err32'
-import.box1_hello = 'fn() -> err32'
+import.box1_hello = 'fn() -> err'

@@ -1,0 +1,49 @@
+name = 'box1'
+runtime = 'armv7m_mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x2000'
+stack = 0x800
+heap = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h' # TODO rm me
+output.c = 'bb.c'
+output.rs.path = 'src/bb.rs'
+output.rs.no_runtime_logic = true
+#output.mk = 'Makefile'
+
+export.box1_add2= 'fn(i32, i32) -> err32'
+export.box1_hello = 'fn() -> err'
+
+[super.sys]
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x800
+heap = 0x800
+
+runtime = 'armv7m_sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+define.NRF52840_XXAA=1
+define.NRFX_UARTE_ENABLED=1
+define.NRFX_UARTE0_ENABLED=1
+srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates'
+]
+
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+
+import.box1_add2  = 'fn(i32, i32) -> err32'
+import.box1_hello = 'fn() -> err'

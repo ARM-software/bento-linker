@@ -3,6 +3,7 @@ import math
 from .. import argstuff
 from .. import runtimes
 from ..box import Section
+from ..glue.error_glue import ErrorGlue
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
 
@@ -15,7 +16,7 @@ void %(name)s(void) {
 """
 
 @runtimes.runtime
-class ARMv7MSysRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
+class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     """
     A bento-box runtime that runs in privledge mode on the system.
     Usually required at the root of the project.

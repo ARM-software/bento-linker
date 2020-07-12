@@ -26,10 +26,10 @@ const nrfx_uarte_config_t uart_config = {
 };
 
 // stdout hook
-ssize_t __box_write(int32_t handle, void *p, size_t size) {
+ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
-    char *buffer = p;
+    const char *buffer = p;
 
     int i = 0;
     while (true) {

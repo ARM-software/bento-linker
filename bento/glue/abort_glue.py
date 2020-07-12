@@ -1,4 +1,4 @@
-from .. import runtimes
+from .. import glue
 
 BOX_STDLIB_HOOKS = """
 __attribute__((used, noreturn))
@@ -21,7 +21,34 @@ void _exit(int returncode) {
 #endif
 """
 
-class AbortGlue(runtimes.Runtime):
+BOX_RUST_HOOKS = '''
+/// abort implementation
+pub fn abort(err: Error) -> ! {
+    extern "C" {
+        pub fn __box_abort(err: i32) -> !;
+    }
+
+    let err = -err.get_i32();
+    unsafe {
+        __box_abort(err)
+    }
+}
+
+/// panic handler which redirects to abort, passes Error types
+/// through as error codes
+#[panic_handler]
+fn panic_handler(_info: &panic::PanicInfo) -> ! {
+    extern "C" {
+        pub fn __box_abort(err: i32) -> !;
+    }
+
+    // don't use anything from the PanicInfo, unfortunately
+    // this would drag in a bunch of debug strings
+    abort(Error::GENERAL)
+}
+'''
+
+class AbortGlue(glue.Glue):
     """
     Helper layer for handling __box_abort and friends.
     """
@@ -59,16 +86,21 @@ class AbortGlue(runtimes.Runtime):
                     alias=self._write_hook.link.export.alias)
             out.printf('}')
 
-        if box.emit_stdlib_hooks:
+        if not output.no_stdlib_hooks:
             output.includes.append('<stdio.h>')
             output.decls.append(BOX_STDLIB_HOOKS)
 
     def build_mk(self, output, box):
         super().build_mk(output, box)
 
-        if box.emit_stdlib_hooks:
+        if ('c' in box.outputs and
+                not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
             out = output.decls.append()
             out.printf('### __box_abort glue ###')
             out.printf('override LFLAGS += -Wl,--wrap,abort')
 
-
+    def build_rs(self, output, box):
+        super().build_rs(output, box)
+        # TODO doc
+        output.uses.append('core::panic')
+        output.decls.append(BOX_RUST_HOOKS)

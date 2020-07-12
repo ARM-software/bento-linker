@@ -9,7 +9,8 @@ EXAMPLES_PATH = os.path.normpath(
 EXAMPLES = []
 for name in os.listdir(EXAMPLES_PATH):
     path = os.path.join(EXAMPLES_PATH, name)
-    if os.path.isdir(path):
+    if (not name.startswith('_') and not name.startswith('.')
+            and os.path.isdir(path)):
         EXAMPLES.append((name, path))
 EXAMPLES = sorted(EXAMPLES)
 EXAMPLES_IDS = list(zip(*EXAMPLES))[0]
