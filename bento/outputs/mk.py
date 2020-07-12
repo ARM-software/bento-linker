@@ -20,11 +20,10 @@ class MKOutput(outputs.Output):
 
         parser.add_argument('--target',
             help='Override the target output (name.elf) for the makefile.')
-        parser.add_argument('--cross_compile',
-            help='Override the compiler triplet (arm-none-eabi-) '
-                'for the makefile.')
         parser.add_argument('--cc',
             help='Override the C compiler for the makefile.')
+        parser.add_argument('--cargo',
+            help='Override the cargo program for the makefile.')
         parser.add_argument('--objcopy',
             help='Override the obcopy program for the makefile.')
         parser.add_argument('--objdump',
@@ -55,21 +54,21 @@ class MKOutput(outputs.Output):
         parser.add_argument('--l_flags', type=list,
             help='Add custom linker flags.')
 
-    def __init__(self, path=None, target=None, cross_compile=None,
-            cc=None, objcopy=None, objdump=None, ar=None,
+    def __init__(self, path=None, target=None,
+            cc=None, cargo=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
             libs=None, c_flags=None, asm_flags=None, l_flags=None):
         super().__init__(path)
 
         self._target = target
-        self._cross_compile = cross_compile or 'arm-none-eabi-'
-        self._cc = cc or '$(CROSS_COMPILE)gcc'
-        self._objcopy = objcopy or '$(CROSS_COMPILE)objcopy'
-        self._objdump = objdump or '$(CROSS_COMPILE)objdump'
-        self._ar = ar or '$(CROSS_COMPILE)ar'
-        self._size = size or '$(CROSS_COMPILE)size'
-        self._gdb = gdb or '$(CROSS_COMPILE)gdb'
+        self._cc = cc or 'arm-none-eabi-gcc'
+        self._cargo = cargo or 'cargo'
+        self._objcopy = objcopy or 'arm-none-eabi-objcopy'
+        self._objdump = objdump or 'arm-none-eabi-objdump'
+        self._ar = ar or 'arm-none-eabi-ar'
+        self._size = size or 'arm-none-eabi-size'
+        self._gdb = gdb or 'arm-none-eabi-gdb'
         self._gdb_addr = gdb_addr or 'localhost'
         self._gdb_port = gdb_port or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
@@ -88,10 +87,10 @@ class MKOutput(outputs.Output):
         super().box(box)
         self.pushattrs(
             target=self._target,
-            cross_compile=self._cross_compile,
             debug=box.debug,
             lto=box.lto,
             cc=self._cc,
+            cargo=self._cargo,
             objcopy=self._objcopy,
             objdump=self._objdump,
             ar=self._ar,
@@ -108,12 +107,12 @@ class MKOutput(outputs.Output):
             target=self._target
                 if self._target else
                 '%s.elf' % (box.name or 'sys'))
-        out.printf('CROSS_COMPILE    ?= %(cross_compile)s')
         out.printf('DEBUG            ?= %(debug)d')
         out.printf('LTO              ?= %(lto)d')
         # note we can't use ?= for program names, implicit
         # makefile variables get in the way :(
         out.printf('CC               = %(cc)s')
+        out.printf('CARGO            = %(cargo)s')
         out.printf('OBJCOPY          = %(objcopy)s')
         out.printf('OBJDUMP          = %(objdump)s')
         out.printf('AR               = %(ar)s')
@@ -138,8 +137,28 @@ class MKOutput(outputs.Output):
             out.printf('LIB += %(path)s', path=lib)
 
         out = self.decls.append()
+        out.printf('CARGOTOML2ARCHIVE = $(foreach lib,$\\\n'
+            '    $(shell $(CARGO) metadata $\\\n'
+            '        --manifest-path=$(1) $\\\n'
+            '        --format-version=1 --no-deps $\\\n'
+            '        | jq -r \'.packages|.[].name|gsub("-";"_")\'),$\\\n'
+            '    $(patsubst %%/Cargo.toml,%%,$(1))/$\\\n'
+            '        target/thumbv7em-none-eabi/$\\\n'
+            '        $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
+            '        lib$(lib).a)')
+
+        out = self.decls.append()
         out.printf('LDSCRIPT := $(firstword $(wildcard '
             '$(patsubst %%,%%/*.ld,$(SRC))))')
+        out.printf('CARGOTOMLS := $(wildcard '
+            '$(patsubst %%,%%/Cargo.toml,$(SRC)))')
+        out.printf('ARCHIVES := $(wildcard '
+            '$(patsubst %%,%%/lib*.a,$(SRC)))')
+
+        out = self.decls.append()
+        out.printf('ARCHIVES += $(foreach toml,$(CARGOTOMLS),'
+            '$(call CARGOTOML2ARCHIVE,$(toml)))')
+        out.printf('LIB += $(patsubst lib%%.a,%%,$(notdir $(ARCHIVES)))')
 
         out = self.decls.append()
         out.printf('OBJ := $(patsubst %%.c,%%.o,'
@@ -180,19 +199,26 @@ class MKOutput(outputs.Output):
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
 
         out = self.decls.append()
+        out.printf('override CARGOFLAGS += --target=thumbv7em-none-eabi')
+        out.printf('ifeq ($(DEBUG),0)')
+        out.printf('override CARGOFLAGS += --release')
+        out.printf('endif')
+
+        out = self.decls.append()
         out.printf('override ASMFLAGS += $(CFLAGS)')
 
         out = self.decls.append()
-        out.printf('override LFLAGS += $(CFLAGS)')
-        out.printf('override LFLAGS += -T$(LDSCRIPT)')
-        out.printf('override LFLAGS += -Wl,--start-group '
+        out.printf('override LDFLAGS += $(CFLAGS)')
+        out.printf('override LDFLAGS += -T$(LDSCRIPT)')
+        out.printf('override LDFLAGS += $(patsubst %%,-L%%,$(dir $(ARCHIVES)))')
+        out.printf('override LDFLAGS += -Wl,--start-group '
             '$(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
-        out.printf('override LFLAGS += -static')
-        out.printf('override LFLAGS += --specs=nano.specs')
-        out.printf('override LFLAGS += --specs=nosys.specs')
-        out.printf('override LFLAGS += -Wl,--gc-sections')
-        out.printf('override LFLAGS += -Wl,-static')
-        out.printf('override LFLAGS += -Wl,-z,muldefs')
+        out.printf('override LDFLAGS += -static')
+        out.printf('override LDFLAGS += --specs=nano.specs')
+        out.printf('override LDFLAGS += --specs=nosys.specs')
+        out.printf('override LDFLAGS += -Wl,--gc-sections')
+        out.printf('override LDFLAGS += -Wl,-static')
+        out.printf('override LDFLAGS += -Wl,-z,muldefs')
         
         # default rule
         self.rules.append('### rules ###')
@@ -296,6 +322,15 @@ class MKOutput(outputs.Output):
         self.rules.append('-include $(DEP)', doc="header dependencies")
 
         out = self.rules.append()
+        out.printf('define CARGORULE')
+        out.printf('.PHONY: $(toml)')
+        out.printf('$(call CARGOTOML2ARCHIVE,$(toml)): $(toml)')
+        with out.indent():
+            out.printf('$(CARGO) build --manifest-path=$$< $(CARGOFLAGS)')
+        out.printf('endef')
+        out.printf('$(foreach toml,$(CARGOTOMLS),$(eval $(CARGORULE)))')
+
+        out = self.rules.append()
         out.printf('%%.bin: %%.elf')
         with out.indent():
             out.printf('$(OBJCOPY) -O binary $< $@')
@@ -326,6 +361,8 @@ class MKOutput(outputs.Output):
             out.printf('rm -f $(TARGET) $(BOXES)')
             out.printf('rm -f $(OBJ)')
             out.printf('rm -f $(DEP)')
+            out.printf('$(foreach toml,$(CARGOTOMLS),'
+                '$(CARGO) clean --manifest-path=$(toml))')
             for child in box.boxes:
                 path = os.path.relpath(child.path, box.path)
                 out.printf('$(MAKE) -C %(path)s clean', path=path)
@@ -351,7 +388,7 @@ class MKOutput(outputs.Output):
         if self._l_flags:
             out = self.decls.append()
             for lflag in self._l_flags:
-                out.printf('override LFLAGS += %s' % lflag)
+                out.printf('override LDFLAGS += %s' % lflag)
 
     def getvalue(self):
         self.seek(0)

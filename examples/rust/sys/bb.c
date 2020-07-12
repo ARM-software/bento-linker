@@ -194,7 +194,7 @@ const struct __box_mpuregions __box_sys_mpuregions = {
 const struct __box_mpuregions __box_box1_mpuregions = {
     .count = 2,
     .regions = {
-        {0x000fe000, 0x02000019},
+        {0x000fc000, 0x0200001b},
         {0x2003e000, 0x13000019},
     },
 };

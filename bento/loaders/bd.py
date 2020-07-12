@@ -550,9 +550,9 @@ class BDLoader(loaders.Loader):
 
         # target rule
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)')
+        out.printf('$(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)')
         with out.indent():
-            out.printf('$(CC) $(OBJ) $(BOXES) $(LFLAGS) -o $@')
+            out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
 
         # create boxing rule, to be invoked if embedding an elf is needed
         loadmemories = []

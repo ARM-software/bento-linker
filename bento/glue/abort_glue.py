@@ -97,7 +97,7 @@ class AbortGlue(glue.Glue):
                 not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
             out = output.decls.append()
             out.printf('### __box_abort glue ###')
-            out.printf('override LFLAGS += -Wl,--wrap,abort')
+            out.printf('override LDFLAGS += -Wl,--wrap,abort')
 
     def build_rs(self, output, box):
         super().build_rs(output, box)

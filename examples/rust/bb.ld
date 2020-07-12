@@ -13,7 +13,7 @@ __stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00000800;
 __heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00000800;
 
 MEMORY {
-    FLASH            (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
+    FLASH            (RX ) : ORIGIN = 0x000fc000, LENGTH = 0x00004000
     RAM              (RW ) : ORIGIN = 0x2003e000, LENGTH = 0x00002000
 }
 

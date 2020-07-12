@@ -406,11 +406,11 @@ class WriteGlue(glue.Glue):
                 not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
             out = output.decls.append()
             out.printf('### __box_write glue ###')
-            out.printf('override LFLAGS += -Wl,--wrap,printf')
-            out.printf('override LFLAGS += -Wl,--wrap,vprintf')
-            out.printf('override LFLAGS += -Wl,--wrap,fprintf')
-            out.printf('override LFLAGS += -Wl,--wrap,vfprintf')
-            out.printf('override LFLAGS += -Wl,--wrap,fflush')
+            out.printf('override LDFLAGS += -Wl,--wrap,printf')
+            out.printf('override LDFLAGS += -Wl,--wrap,vprintf')
+            out.printf('override LDFLAGS += -Wl,--wrap,fprintf')
+            out.printf('override LDFLAGS += -Wl,--wrap,vfprintf')
+            out.printf('override LDFLAGS += -Wl,--wrap,fflush')
 
     def build_rs(self, output, box):
         super().build_rs(output, box)

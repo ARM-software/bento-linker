@@ -1,5 +1,5 @@
 [package]
-name = "rustcar"
+name = "rust-example"
 version = "0.1.0"
 edition = "2018"
 autobins = false
@@ -13,3 +13,5 @@ debug = true
 crate-type = ["staticlib"]
 path = "src/main.rs"
 
+#[dependencies]
+#bbg = { path = "bbg" }
