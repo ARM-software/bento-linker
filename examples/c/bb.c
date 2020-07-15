@@ -8,9 +8,15 @@
 
 //// box exports ////
 
-extern int32_t box1_add2(int32_t __a0, int32_t __a1);
+extern int32_t boxc_add2(int32_t __a0, int32_t __a1);
 
-extern int box1_hello(void);
+extern int boxc_hello(void);
+
+extern int boxc_qsort(uint32_t *buffer, size_t size);
+
+extern void* boxc_qsort_alloc(size_t size);
+
+extern ssize_t boxc_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
 //// box hooks ////
 
@@ -433,10 +439,13 @@ extern uint32_t __stack_end;
 // box-side jumptable
 __attribute__((section(".jumptable")))
 __attribute__((used))
-const uint32_t __box_box1_jumptable[] = {
+const uint32_t __box_boxc_jumptable[] = {
     (uint32_t)&__stack_end,
     (uint32_t)__box_init,
-    (uint32_t)box1_add2,
-    (uint32_t)box1_hello,
+    (uint32_t)boxc_add2,
+    (uint32_t)boxc_hello,
+    (uint32_t)boxc_qsort,
+    (uint32_t)boxc_qsort_alloc,
+    (uint32_t)boxc_qsort_partition,
 };
 

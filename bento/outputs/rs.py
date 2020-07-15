@@ -39,12 +39,16 @@ class RustOutput(outputs.Output):
         self.decls = outputs.OutputField(self)
 
     @staticmethod
-    def repr_arg(arg, name=None):
+    def repr_arg(arg, name=None, ns=False, ret=False):
         name = name if name is not None else arg.name
-        return ''.join([
+        arg = ''.join([
             (name if name else '_') + ': ' if name != '' else '',
             'Option<' if arg.isnullable() else '',
-            ('&mut ' if arg.ismut() else '&') if arg.isptr() else '',
+            ('&\'static mut ' if arg.ismut() else '&\'static ')
+            if arg.isptr() and ret else
+            ('&mut ' if arg.ismut() else '&')
+            if arg.isptr() else
+            '',
             '[' if arg.asize() is not None else '',
             'bool'     if arg.prim() == 'bool' else
             'Result<()>' if arg.prim() == 'err' else
@@ -58,9 +62,12 @@ class RustOutput(outputs.Output):
             ']' if arg.asize() is not None else
             '',
             '>' if arg.isnullable() else ''])
+        if ns:
+            arg = arg.replace('Result', '%s::Result' % ns)
+        return arg
 
     @staticmethod
-    def repr_fn(fn, name=None, attrs=[]):
+    def repr_fn(fn, name=None, attrs=[], ns=False):
         name = name if name is not None else fn.alias
         asizes = set()
         for arg in fn.args:
@@ -72,12 +79,13 @@ class RustOutput(outputs.Output):
             'fn',
             ' %s' % name if name else '',
             '(',
-            ', '.join(RustOutput.repr_arg(arg, name)
+            ', '.join(RustOutput.repr_arg(arg, name, ns)
                 for arg, name in zip(fn.args, fn.argnames())
                 if name not in asizes),
             ')',
             ' -> !' if fn.isnoreturn() else
-            ' -> %s' % RustOutput.repr_arg(fn.rets[0], '') if fn.rets else
+            ' -> %s' % RustOutput.repr_arg(fn.rets[0], '', ns, True)
+            if fn.rets else
             '']))
 
     @staticmethod
@@ -112,183 +120,232 @@ class RustOutput(outputs.Output):
             '']))
 
     @staticmethod
-    def build_convertfrom(out, arg, name=None):
+    def build_c2rust(out, arg, name=None, adeps={}):
         name = name if name is not None else arg.name
-        with out.pushattrs(name=name):
+        with out.pushattrs(name=name, asize=arg.asize()):
+            # type conversions
             if arg.iserr():
-                out.printf('let %(name)s = if %(name)s >= 0 {')
+                out.printf('let %(name)s = match %(name)s >= 0 {')
                 with out.indent():
                     if arg.prim() == 'err':
-                        out.printf('Ok(())')
+                        out.printf('true => Ok(()),')
                     else:
-                        out.printf('Ok('
-                            'u%(width)s::try_from(%(name)s).unwrap())',
+                        out.printf('false => Ok('
+                            'u%(width)s::try_from(%(name)s).unwrap()),',
                             width=arg.prim()[3:])
-                out.printf('} else {')
-                with out.indent():
-                    out.printf('Err(Error::new('
-                        'u32::try_from(%(name)s).unwrap()))')
+                    out.printf('false => Err(Error::new('
+                        'u32::try_from(%(name)s).unwrap()).unwrap()),')
                 out.printf('};')
-            if arg.isptr():
+            if arg.isptr() and not isinstance(arg.asize(), str):
                 if arg.isarray():
                     out.printf('let %(name)s = %(name)s '
-                        'as *%(const)s [%(prim)s; %(size)d];',
+                        'as *%(const)s [%(prim)s; %(asize)s];',
                         const='const' if arg.isconst() else 'mut',
-                        prim=arg.prim(),
-                        size=arg.asize())
-                out.printf('let %(name)s = unsafe {')
-                with out.indent():
-                    if arg.ismut():
-                        out.printf('%(name)s.as_mut()')
-                    else:
-                        out.printf('%(name)s.as_ref()')
-                out.printf('};')
+                        prim=arg.prim())
+                out.printf('let %(name)s = unsafe { '
+                    '%(name)s.%(as_ref)s() };',
+                    as_ref=('as_mut'
+                            if arg.ismut() else
+                            'as_ref')
+                        if arg.isnullable() else
+                        ('as_mut_unchecked'
+                            if arg.ismut() else
+                            'as_ref_unchecked'))
+            if isinstance(arg.asize(), str):
                 if arg.isnullable():
-                    out.printf('let %(name)s = '
-                        'if let Some(%(name)s) = %(name)s {')
-                    with out.indent():
-                        out.printf('Some(%(name)s)')
-                    out.printf('} else {')
-                    with out.indent():
-                        out.printf('None')
+                    out.printf('let %(name)s = match !%(name)s.is_null() {')
+                    out.pushindent()
+                    out.printf('true => {')
+                    out.pushindent()
+                out.printf('let %(name)s = unsafe { '
+                    'slice::%(from_raw_parts)s(%(name)s, %(asize)s) };',
+                    from_raw_parts='from_raw_parts_mut'
+                        if arg.ismut() else
+                        'from_raw_parts')
+                if arg.isnullable():
+                    out.printf('Some(%(name)s)')
+                    out.popindent()
+                    out.printf('},')
+                    out.printf('false => None,')
+                    out.popindent()
                     out.printf('};')
-                else:
-                    out.printf('let %(name)s = %(name)s.unwrap();')
 
     @staticmethod
-    def build_convertto(out, arg, name=None):
+    def build_rust2c(out, arg, name=None, adeps={}):
         name = name if name is not None else arg.name
-        with out.pushattrs(name=name):
+        with out.pushattrs(name=name, asize=arg.asize()):
+            # type conversions
             if arg.iserr():
                 out.printf('let %(name)s = match %(name)s {')
                 with out.indent():
                     if arg.prim() == 'err':
                         out.printf('Ok(()) => 0,')
-                    elif arg.width() <= 32:
-                        out.printf('Ok(x) => i32::try_from(x).unwrap(),')
-                    else:
+                    elif arg.prim() == 'errsize':
+                        out.printf('Ok(x) => isize::try_from(x).unwrap(),')
+                    elif arg.prim() == 'err64':
                         out.printf('Ok(x) => i64::try_from(x).unwrap(),')
-
-                    if arg.width() <= 32:
-                        out.printf('Err(err) => -err.get_i32(),')
                     else:
+                        out.printf('Ok(x) => i32::try_from(x).unwrap(),')
+
+                    if arg.prim() == 'errsize':
+                        out.printf('Err(err) => isize::try_from('
+                            '-err.get_i32()).unwrap(),')
+                    elif arg.prim() == 'err64':
                         out.printf('Err(err) => i64::from(-err.get_i32()),')
+                    else:
+                        out.printf('Err(err) => -err.get_i32(),')
                 out.printf('};')
-            # TODO arrays w/wo sizes
             if arg.isptr():
                 if arg.isnullable():
-                    out.printf('let %(name)s = '
-                        'if let Some(%(name)s) = %(name)s {')
-                    with out.indent():
+                    if not isinstance(arg.asize(), str):
+                        out.printf('let %(name)s '
+                            '= match %(name)s {')
+                    else:
+                        out.printf('let (%(name)s, %(asize)s) '
+                            '= match %(name)s {')
+                    out.pushindent()
+                    out.printf('Some(%(name)s) => {')
+                    out.pushindent()
+                if not isinstance(arg.asize(), str):
+                    out.printf('let %(name)s = %(name)s '
+                        'as *%(mut)s %(prim)s;',
+                        mut='mut' if arg.ismut() else 'const',
+                        prim=arg.prim())
+                else:
+                    out.printf('let (%(name)s, %(asize)s) '
+                        '= (%(name)s.%(as_ptr)s(), %(name)s.len()); ',
+                        as_ptr='as_mut_ptr' if arg.ismut() else 'as_ptr')
+                if arg.isnullable():
+                    if not isinstance(arg.asize(), str):
                         out.printf('%(name)s')
-                    out.printf('} else {')
-                    with out.indent():
-                        if arg.ismut():
-                            out.printf('ptr::null_mut()')
-                        else:
-                            out.printf('ptr::null()')
+                    else:
+                        out.printf('(%(name)s, %(asize)s)')
+                    out.popindent()
+                    out.printf('},')
+                    if not isinstance(arg.asize(), str):
+                        out.printf('None => ptr::%(null)s(),',
+                            null='null_mut' if arg.ismut() else 'null')
+                    else:
+                        out.printf('None => (ptr::%(null)s(), 0),',
+                            null='null_mut' if arg.ismut() else 'null')
+                    out.popindent()
                     out.printf('};')
-                out.printf('let %(name)s = %(name)s '
-                    'as *%(const)s %(prim)s;',
-                    const='mut' if arg.ismut() else 'const',
-                    prim=arg.prim())
                 
     def build_prologue(self, box):
-        # imports
-        self.import_uses.append('super::linkage')
-        self.import_uses.append('super::Error')
-        self.import_uses.append('super::Result')
-        self.import_uses.append('core::convert::TryFrom')
-        self.import_uses.append('core::ptr')
-        for i, import_ in enumerate(
-                import_ for import_ in box.imports
-                if import_.source == box):
-            out = self.imports.append(
-                doc=import_.doc,
-                alias=import_.alias,
-                fn=self.repr_fn(import_),
-                rawfn=self.repr_rawfn(import_),
-                retname=import_.retname())
-            out.printf('#[allow(dead_code)]')
-            out.printf('pub %(fn)s {')
-            with out.indent():
-                # first the extern decl
-                out.printf('extern "C" {')
-                with out.indent():
-                    out.printf('pub %(rawfn)s;')
-                out.printf('}')
-                out.printf()
+        # misc
+        self.inner_attrs.append('no_std')
 
-                for arg, name in zip(import_.args, import_.argnames()):
-                    self.build_convertto(out, arg, name)
-                out.printf('let %(retname)s = unsafe {')
-                with out.indent():
-                    out.writef('%(alias)s(')
-                    for i, (arg, name) in enumerate(
-                            zip(import_.args, import_.argnames())):
-                        out.writef(name)
-                        if i != len(import_.args)-1:
-                            out.writef(', ')
-                    out.printf(')')
-                out.printf('};')
-                if import_.rets:
-                    self.build_convertfrom(out,
-                        import_.rets[0], import_.retname())
-                out.printf('%(retname)s')
-            out.printf('}')
+        out = self.decls.append()
+        out.printf('extern crate bento_macros;')
+        out.printf('pub use bento_macros::export;')
+
+        # we use this in conversions
+        out = self.decls.append()
+        out.printf('pub mod import {')
+        with out.indent():
+            out.printf('#[allow(unused_imports)]')
+            out.printf('use core::{convert::TryFrom, ptr, slice};')
+            out.printf('#[allow(unused_imports)]')
+            out.printf('use crate::{Result, Error};')
+            for j, import_ in enumerate(
+                    import_ for import_ in box.imports
+                    if import_.source == box):
+                # find array dependencies to convert correctly
+                adeps = {}
+                for arg, name in it.chain(
+                        zip(import_.args, import_.argnames()),
+                        zip(import_.rets, import_.retnames())):
+                    if isinstance(arg.asize(), str):
+                        adeps[arg.asize()] = (arg, name)
+
+                with out.pushattrs(
+                        doc=import_.doc,
+                        alias=import_.alias,
+                        fn=self.repr_fn(import_),
+                        rawfn=self.repr_rawfn(import_),
+                        retname=import_.retname()):
+                    out.printf()
+                    out.printf('pub %(fn)s {')
+                    with out.indent():
+                        # first the extern decl
+                        out.printf('extern "C" {')
+                        with out.indent():
+                            out.printf('pub %(rawfn)s;')
+                        out.printf('}')
+                        for arg, name in sorted(
+                                zip(import_.args, import_.argnames()),
+                                # half-ass topo-sort for dependencies
+                                key=lambda p: (
+                                    not isinstance(p[0].asize(), str))):
+                            self.build_rust2c(out, arg, name, adeps=adeps)
+                        out.writef('let %(retname)s = unsafe { %(alias)s(')
+                        for i, (arg, name) in enumerate(
+                                zip(import_.args, import_.argnames())):
+                            out.writef(name)
+                            if i != len(import_.args)-1:
+                                out.writef(', ')
+                        out.printf(') };')
+                        if import_.rets:
+                            self.build_c2rust(out,
+                                import_.rets[0], import_.retname(), adeps=adeps)
+                        out.printf('%(retname)s')
+                    out.printf('}')
+        out.printf('}')
 
         # exports
-        self.export_uses.append('super::Error')
-        self.export_uses.append('super::Result')
-        out = self.exports.append()
-        out.printf('// type check')
-        for i, export in enumerate(
-                export for export in box.exports
-                if export.source == box):
-            out.printf('const _: %(fn)s = crate::%(alias)s;',
-                alias=export.alias,
-                fn=self.repr_fn(export, ''))
+        out = self.decls.append()
+        out.printf('pub mod export {')
+        with out.indent():
+            out.printf('#[allow(unused_imports)]')
+            out.printf('use bento_macros::export_export;')
+            for j, export in enumerate(
+                    export for export in box.exports
+                    if export.source == box):
+                # find array dependencies to convert correctly
+                adeps = {}
+                for arg, name in it.chain(
+                        zip(export.args, export.argnames()),
+                        zip(export.rets, export.retnames())):
+                    if isinstance(arg.asize(), str):
+                        adeps[arg.asize()] = (arg, name)
 
-        out = self.exports.append()
-        out.printf('// redeclaration')
-        for i, export in enumerate(
-                export for export in box.exports
-                if export.source == box):
-            out.printf('pub use crate::%(name)s;',
-                name=export.alias)
-
-        # linkages
-        self.linkage_uses.append('core::convert::TryFrom')
-        self.linkage_uses.append('core::ptr')
-        if any(export for export in box.exports
-                if export.source == box):
-            self.linkage_uses.append('super::export')
-        for i, export in enumerate(
-                export for export in box.exports
-                if export.source == box):
-            out = self.linkages.append(
-                alias=export.alias,
-                rawfn=self.repr_rawfn(export),
-                retname=export.retname())
-            if i == 0:
-                out.printf('// export linkage')
-            out.printf('#[export_name="%(alias)s"]')
-            out.printf('extern "C" %(rawfn)s {')
-            with out.indent():
-                for arg, name in zip(export.args, export.argnames()):
-                    self.build_convertfrom(out, arg, name)
-                out.writef('let %(retname)s = export::%(alias)s(')
-                for i, (arg, name) in enumerate(
-                        zip(export.args, export.argnames())):
-                    out.writef(name)
-                    if i != len(export.args)-1:
-                        out.writef(', ')
-                out.printf(');')
-                if export.rets:
-                    self.build_convertto(out,
-                        export.rets[0], export.retname())
-                out.printf('%(retname)s')
-            out.printf('}')
+                with out.pushattrs(
+                        alias=export.alias,
+                        fnnoname=self.repr_fn(export, name='',
+                            ns='__box_exports'),
+                        rawfn=self.repr_rawfn(export),
+                        retname=export.retname()):
+                    out.printf()
+                    out.printf('#[export_export(type=%(fnnoname)s)]')
+                    out.printf('pub %(rawfn)s {')
+                    with out.indent():
+                        # we use this in conversions
+                        out.printf('#[allow(unused_imports)]')
+                        out.printf('use core::{convert::TryFrom, ptr, slice};')
+                        out.printf('#[allow(unused_imports)]')
+                        out.printf('use __box_exports::{Result, Error};')
+                        for arg, name in sorted(
+                                zip(export.args, export.argnames()),
+                                # half-ass topo-sort for dependencies
+                                key=lambda p: isinstance(p[0].asize(), str)):
+                            self.build_c2rust(out, arg, name, adeps=adeps)
+                        out.writef('let %(retname)s = __box_export_%(alias)s(')
+                        # remove dependecies as they should be consumed
+                        # in conversion
+                        export_nargs = [(arg, name) for arg, name in
+                            zip(export.args, export.argnames())
+                            if not name in adeps]
+                        for i, (arg, name) in enumerate(export_nargs):
+                            out.writef(name)
+                            if i != len(export_nargs)-1:
+                                out.writef(', ')
+                        out.printf(');')
+                        if export.rets:
+                            self.build_rust2c(out,
+                                export.rets[0], export.retname(), adeps=adeps)
+                        out.printf('%(retname)s')
+                    out.printf('}')
+        out.printf('}')
 
     def getvalue(self):
         self.seek(0)
@@ -307,69 +364,6 @@ class RustOutput(outputs.Output):
             self.printf('use %(use)s;', use=use)
 
         self.print()
-
-        if self.imports:
-            self.print('/// box imports')
-            self.print('pub mod import {')
-            uses = set()
-            for use in self.import_uses:
-                uses.add(str(use))
-            for use in sorted(uses):
-                self.printf(4*' '+'#[allow(unused_imports)]')
-                self.printf(4*' '+'use %(use)s;', use=use)
-            if uses:
-                self.print()
-            for i, import_ in enumerate(self.imports):
-                if 'doc' in import_:
-                    for line in textwrap.wrap(import_['doc'], width=78-4-4):
-                        self.print('/// %s' % line)
-                self.print(4*' '+str(import_).strip())
-                if i != len(self.imports)-1:
-                    self.print()
-            self.print('}')
-            self.print()
-
-        if self.exports:
-            self.print('/// box exports')
-            self.print('pub mod export {')
-            uses = set()
-            for use in self.export_uses:
-                uses.add(str(use))
-            for use in sorted(uses):
-                self.printf(4*' '+'#[allow(unused_imports)]')
-                self.printf(4*' '+'use %(use)s;', use=use)
-            if uses:
-                self.print()
-            for i, export in enumerate(self.exports):
-                if 'doc' in export:
-                    for line in textwrap.wrap(export['doc'], width=78-4-4):
-                        self.print(4*' '+'/// %s' % line)
-                self.print(4*' '+str(export).strip())
-                if i != len(self.exports)-1:
-                    self.print()
-            self.print('}')
-            self.print()
-
-        if self.linkages:
-            self.print('/// internal linkage')
-            self.print('mod linkage {')
-            uses = set()
-            for use in self.linkage_uses:
-                uses.add(str(use))
-            for use in sorted(uses):
-                self.printf(4*' '+'#[allow(unused_imports)]')
-                self.printf(4*' '+'use %(use)s;', use=use)
-            if uses:
-                self.print()
-            for i, linkage in enumerate(self.linkages):
-                if 'doc' in linkage:
-                    for line in textwrap.wrap(linkage['doc'], width=78-4-4):
-                        self.print(4*' '+'/// %s' % line)
-                self.print(4*' '+str(linkage).strip())
-                if i != len(self.linkages)-1:
-                    self.print()
-            self.print('}')
-            self.print()
 
         for decl in self.decls:
             if 'doc' in decl:

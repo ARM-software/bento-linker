@@ -1,0 +1,7 @@
+[package]
+name = "bb"
+description = "Bento-box glue"
+version = "0.0.0"
+
+[dependencies]
+bento-macros = { path = "../../../extra/bento-macros" }

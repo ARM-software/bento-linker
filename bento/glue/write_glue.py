@@ -276,7 +276,6 @@ int _write(int handle, const char *buffer, int size) {
 """
 
 BOX_RUST_HOOKS = '''
-#[allow(dead_code)]
 pub fn write(fd: i32, buffer: &[u8]) -> Result<usize> {
     extern "C" {
         fn __box_write(fd: i32, buffer: *const u8, size: usize) -> isize;
@@ -303,12 +302,11 @@ impl fmt::Write for %(Name)s {
     }
 }
 
-#[allow(dead_code)]
 pub fn %(name)s() -> %(Name)s {
     %(Name)s
 }
 
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! %(print)s {
     ($($arg:tt)*) => ({
         use ::core::fmt::Write;
@@ -341,14 +339,14 @@ macro_rules! %(print)s {
     });
 }
 
-#[allow(unused_macros)]
+#[macro_export]
 macro_rules! %(print)sln {
     () => ({
-        %(print)s!("\\n");
+        $crate::%(print)s!("\\n");
     });
     ($($arg:tt)*) => ({
-        %(print)s!($($arg)*);
-        %(print)s!("\\n");
+        $crate::%(print)s!($($arg)*);
+        $crate::%(print)s!("\\n");
     });
 }
 '''
@@ -414,7 +412,6 @@ class WriteGlue(glue.Glue):
 
     def build_rs(self, output, box):
         super().build_rs(output, box)
-        output.inner_attrs.append('macro_use')
         output.uses.append('core::fmt')
         output.decls.append(BOX_RUST_HOOKS)
         output.decls.append(BOX_RUST_STDOUT,

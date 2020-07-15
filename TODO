@@ -52,3 +52,9 @@ x gc
 - make lto a box property
 - invert no_startup and friends?
 
+- multiline fns and underscores/dash mixing
+- Rust Error names?
+- add iptr/uptr?
+- TODO imports correct
+- allow arrays before name (nullable mut u8[10] x)
+- move srcs back into mk?

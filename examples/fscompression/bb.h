@@ -25,27 +25,27 @@ extern int __box_close(int32_t fd);
 
 extern int __box_open(int32_t *fd, const char *path, uint32_t flags);
 
-extern int __box_read(int32_t fd, void *buffer, size_t size);
+extern ssize_t __box_read(int32_t fd, void *buffer, size_t size);
 
-extern int __box_seek(int32_t fd, size_t off, uint32_t whence);
-
-extern int __box_close(int32_t fd);
-
-extern int __box_open(int32_t *fd, const char *path, uint32_t flags);
-
-extern int __box_read(int32_t fd, void *buffer, size_t size);
-
-extern int __box_seek(int32_t fd, size_t off, uint32_t whence);
+extern ssize_t __box_seek(int32_t fd, size_t off, uint32_t whence);
 
 extern int __box_close(int32_t fd);
 
 extern int __box_open(int32_t *fd, const char *path, uint32_t flags);
 
-extern int __box_read(int32_t fd, void *buffer, size_t size);
+extern ssize_t __box_read(int32_t fd, void *buffer, size_t size);
 
-extern int __box_seek(int32_t fd, size_t off, uint32_t whence);
+extern ssize_t __box_seek(int32_t fd, size_t off, uint32_t whence);
 
-extern int __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern int __box_close(int32_t fd);
+
+extern int __box_open(int32_t *fd, const char *path, uint32_t flags);
+
+extern ssize_t __box_read(int32_t fd, void *buffer, size_t size);
+
+extern ssize_t __box_seek(int32_t fd, size_t off, uint32_t whence);
+
+extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
 
 //// box hooks ////
 

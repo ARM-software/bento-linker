@@ -1,19 +1,23 @@
-name = 'box1'
+name = 'boxrust'
 runtime = 'armv7m_mpu'
-memory.flash = 'rxp 0x4000'
+memory.flash = 'rxp 0x8000'
 memory.ram = 'rw 0x2000'
 stack = 0x800
 heap = 0x800
 
-output.ld = 'bb.ld'
-output.h = 'bb.h' # TODO rm me
-output.c = 'bb.c'
-output.rs.path = 'src/bb.rs'
+output.ld = 'bb/src/bb.ld'
+output.c = 'bb/src/bb.c'
+output.rs.path = 'bb/src/lib.rs'
 output.rs.no_runtime_logic = true
 output.mk = 'Makefile'
+srcs = ['.', 'bb/src']
 
-export.box1_add2= 'fn(i32, i32) -> err32'
-export.box1_hello = 'fn() -> err'
+export.boxrust_add2= 'fn(i32, i32) -> err32'
+export.boxrust_hello = 'fn() -> err'
+
+export.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
+export.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
+export.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 [super.sys]
 memory.flash = 'rxp 0x00000000-0x000fffff'
@@ -45,5 +49,9 @@ incs = [
 
 export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
-import.box1_add2  = 'fn(i32, i32) -> err32'
-import.box1_hello = 'fn() -> err'
+import.boxrust_add2  = 'fn(i32, i32) -> err32'
+import.boxrust_hello = 'fn() -> err'
+
+import.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
+import.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
+import.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'

@@ -348,7 +348,7 @@ class Arg:
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
         numpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
         modpattern  = r'(?:(?:%s)\s*)*' % '|'.join(Arg.MODIFIERS)
-        primpattern = r'(?:%s)' % '|'.join(Arg.PRIMITIVES)
+        primpattern = r'(?:%s)\b' % '|'.join(Arg.PRIMITIVES)
         argpattern = (r'\s*'.join([
             r'(%(mod)s)',
             r'(%(prim)s)',

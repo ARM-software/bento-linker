@@ -27,7 +27,7 @@ extern int __box_bdread(uint32_t block, uint32_t off, void *buffer, size_t size)
 
 extern int __box_bdread(uint32_t block, uint32_t off, void *buffer, size_t size);
 
-extern int __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
 
 //// box hooks ////
 

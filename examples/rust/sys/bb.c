@@ -9,13 +9,19 @@
 
 //// box imports ////
 
-int32_t box1_add2(int32_t __a0, int32_t __a1);
+int32_t boxrust_add2(int32_t __a0, int32_t __a1);
 
-int box1_hello(void);
+int boxrust_hello(void);
+
+int boxrust_qsort(uint32_t *buffer, size_t size);
+
+void* boxrust_qsort_alloc(size_t size);
+
+ssize_t boxrust_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
 //// box exports ////
 
-extern int __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
 
 //// box hooks ////
 
@@ -29,11 +35,11 @@ void __box_abort(int err);
 // negative error code on failure.
 ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
 
-// Initialize box box1.
-int __box_box1_init(void);
+// Initialize box boxrust.
+int __box_boxrust_init(void);
 
-// Mark the box box1 as needing to be reinitialized.
-int __box_box1_clobber(void);
+// Mark the box boxrust as needing to be reinitialized.
+int __box_boxrust_clobber(void);
 
 //// box error codes ////
 enum box_errors {
@@ -169,21 +175,21 @@ static void __box_mpu_switch(const struct __box_mpuregions *regions) {
 uint32_t __box_active = 0;
 
 // Redirected __box_writes
-#define __box_box1_write __box_write
+#define __box_boxrust_write __box_write
 
 // Jumptables
 const uint32_t __box_sys_jumptable[] = {
     (uint32_t)NULL, // no stack for sys
     (uint32_t)__box_write,
-    (uint32_t)__box_box1_write,
+    (uint32_t)__box_boxrust_write,
 };
 
-extern const uint32_t __box_box1_jumptable[];
+extern const uint32_t __box_boxrust_jumptable[];
 
 #define __BOX_COUNT 1
 const uint32_t *const __box_jumptables[__BOX_COUNT+1] = {
     __box_sys_jumptable,
-    __box_box1_jumptable,
+    __box_boxrust_jumptable,
 };
 
 const struct __box_mpuregions __box_sys_mpuregions = {
@@ -191,24 +197,24 @@ const struct __box_mpuregions __box_sys_mpuregions = {
     .regions = {},
 };
 
-const struct __box_mpuregions __box_box1_mpuregions = {
+const struct __box_mpuregions __box_boxrust_mpuregions = {
     .count = 2,
     .regions = {
-        {0x000fc000, 0x0200001b},
+        {0x000f8000, 0x0200001d},
         {0x2003e000, 0x13000019},
     },
 };
 
 const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
     &__box_sys_mpuregions,
-    &__box_box1_mpuregions,
+    &__box_boxrust_mpuregions,
 };
 __attribute__((used))
-void __box_box1_fault(int err) {}
+void __box_boxrust_fault(int err) {}
 
 void (*const __box_faults[__BOX_COUNT+1])(int err) = {
     &__box_abort,
-    &__box_box1_fault,
+    &__box_boxrust_fault,
 };
 
 // Box state
@@ -220,11 +226,11 @@ struct __box_state {
 };
 
 struct __box_state __box_sys_state;
-struct __box_state __box_box1_state;
+struct __box_state __box_boxrust_state;
 
 struct __box_state *const __box_state[__BOX_COUNT+1] = {
     &__box_sys_state,
-    &__box_box1_state,
+    &__box_boxrust_state,
 };
 
 // Dispach logic
@@ -1151,23 +1157,23 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
 };
 
-//// box1 loading ////
+//// boxrust loading ////
 
-static int __box_box1_load(void) {
+static int __box_boxrust_load(void) {
     // default loader does nothing
     return 0;
 }
 
-//// box1 init ////
+//// boxrust init ////
 
-int __box_box1_clobber(void) {
-    __box_box1_state.initialized = false;
+int __box_boxrust_clobber(void) {
+    __box_boxrust_state.initialized = false;
     return 0;
 }
 
-int __box_box1_init(void) {
+int __box_boxrust_init(void) {
     // do nothing if already initialized
-    if (__box_box1_state.initialized) {
+    if (__box_boxrust_state.initialized) {
         return 0;
     }
 
@@ -1181,48 +1187,84 @@ int __box_box1_init(void) {
 
 
     // load the box if unloaded
-    err = __box_box1_load();
+    err = __box_boxrust_load();
     if (err) {
         return err;
     }
 
     // prepare box's stack
     // must use PSP, otherwise boxes could overflow ISR stack
-    __box_box1_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_box1_state.sp = (uint32_t*)__box_box1_jumptable[0];
+    __box_boxrust_state.lr = 0xfffffffd; // TODO determine fp?
+    __box_boxrust_state.sp = (uint32_t*)__box_boxrust_jumptable[0];
 
     // call box's init
-    extern int __box_box1_rawinit(void);
-    err = __box_box1_rawinit();
+    extern int __box_boxrust_rawinit(void);
+    err = __box_boxrust_rawinit();
     if (err) {
         return err;
     }
 
-    __box_box1_state.initialized = true;
+    __box_boxrust_state.initialized = true;
     return 0;
 }
 
-int32_t box1_add2(int32_t __a0, int32_t __a1) {
-    if (!__box_box1_state.initialized) {
-        int _err = __box_box1_init();
+int32_t boxrust_add2(int32_t __a0, int32_t __a1) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
         if (_err) {
             return _err;
         }
     }
 
-    extern int32_t __box_box1_raw_box1_add2(int32_t __a0, int32_t __a1);
-    return __box_box1_raw_box1_add2(__a0, __a1);
+    extern int32_t __box_boxrust_raw_boxrust_add2(int32_t __a0, int32_t __a1);
+    return __box_boxrust_raw_boxrust_add2(__a0, __a1);
 }
 
-int box1_hello(void) {
-    if (!__box_box1_state.initialized) {
-        int _err = __box_box1_init();
+int boxrust_hello(void) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
         if (_err) {
             return _err;
         }
     }
 
-    extern int __box_box1_raw_box1_hello(void);
-    return __box_box1_raw_box1_hello();
+    extern int __box_boxrust_raw_boxrust_hello(void);
+    return __box_boxrust_raw_boxrust_hello();
+}
+
+int boxrust_qsort(uint32_t *buffer, size_t size) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_boxrust_raw_boxrust_qsort(uint32_t *buffer, size_t size);
+    return __box_boxrust_raw_boxrust_qsort(buffer, size);
+}
+
+void* boxrust_qsort_alloc(size_t size) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            __box_abort(_err);
+        }
+    }
+
+    extern void* __box_boxrust_raw_boxrust_qsort_alloc(size_t size);
+    return __box_boxrust_raw_boxrust_qsort_alloc(size);
+}
+
+ssize_t boxrust_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern ssize_t __box_boxrust_raw_boxrust_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
+    return __box_boxrust_raw_boxrust_qsort_partition(buffer, size, pivot);
 }
 

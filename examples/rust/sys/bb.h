@@ -7,13 +7,19 @@
 
 //// box imports ////
 
-int32_t box1_add2(int32_t __a0, int32_t __a1);
+int32_t boxrust_add2(int32_t __a0, int32_t __a1);
 
-int box1_hello(void);
+int boxrust_hello(void);
+
+int boxrust_qsort(uint32_t *buffer, size_t size);
+
+void* boxrust_qsort_alloc(size_t size);
+
+ssize_t boxrust_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
 //// box exports ////
 
-extern int __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
 
 //// box hooks ////
 
@@ -27,11 +33,11 @@ void __box_abort(int err);
 // negative error code on failure.
 ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
 
-// Initialize box box1.
-int __box_box1_init(void);
+// Initialize box boxrust.
+int __box_boxrust_init(void);
 
-// Mark the box box1 as needing to be reinitialized.
-int __box_box1_clobber(void);
+// Mark the box boxrust as needing to be reinitialized.
+int __box_boxrust_clobber(void);
 
 //// box error codes ////
 enum box_errors {

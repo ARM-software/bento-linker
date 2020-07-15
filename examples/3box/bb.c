@@ -23,7 +23,7 @@ int box3_hello(void);
 
 //// box exports ////
 
-extern int __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
 
 //// box hooks ////
 

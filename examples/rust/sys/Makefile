@@ -51,7 +51,7 @@ OBJ := $(patsubst %.c,%.o,$(wildcard $(patsubst %,%/*.c,$(SRC))))
 OBJ += $(patsubst %.s,%.o,$(wildcard $(patsubst %,%/*.s,$(SRC))))
 OBJ += $(patsubst %.S,%.o,$(wildcard $(patsubst %,%/*.S,$(SRC))))
 DEP := $(patsubst %.o,%.d,$(OBJ))
-BOXES += ../box1.box
+BOXES += ../boxrust.box
 
 ifneq ($(DEBUG),0)
 override CFLAGS += -DDEBUG
@@ -116,7 +116,7 @@ $(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region
-%.box: %.elf %.box.flash %.box.box.box1.flash
+%.box: %.elf %.box.flash %.box.box.boxrust.flash
 	$(strip $(OBJCOPY) $< $@ \
 	    -I binary \
 	    -O elf32-littlearm \
@@ -126,9 +126,9 @@ $(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)
 	    --add-section .box.sys.flash=$(word 2,$^) \
 	    --change-section-address .box.sys.flash=0x00000000 \
 	    --set-section-flags .box.sys.flash=contents,alloc,load,readonly,data \
-	    --add-section .box.sys.box.box1.flash=$(word 3,$^) \
-	    --change-section-address .box.sys.box.box1.flash=0x000fc000 \
-	    --set-section-flags .box.sys.box.box1.flash=contents,alloc,load,readonly,data)
+	    --add-section .box.sys.box.boxrust.flash=$(word 3,$^) \
+	    --change-section-address .box.sys.box.boxrust.flash=0x000f8000 \
+	    --set-section-flags .box.sys.box.boxrust.flash=contents,alloc,load,readonly,data)
 
 %.box.flash: %.elf
 	$(strip $(OBJCOPY) $< $@ \
@@ -137,9 +137,9 @@ $(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)
 	    --only-section .isr_vector \
 	    -O binary)
 
-%.box.box.box1.flash: %.elf
+%.box.box.boxrust.flash: %.elf
 	$(strip $(OBJCOPY) $< $@ \
-	    --only-section .box.box1.flash \
+	    --only-section .box.boxrust.flash \
 	    -O binary)
 
 ### rules ###
@@ -199,10 +199,10 @@ tags:
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
 
-.PHONY: $(shell make -s -C .. box1.box -q || echo ../box1.box)
-../box1.box:
-	@echo "================= make -C box1 ================="
-	$(MAKE) --no-print-directory -C .. box1.box
+.PHONY: $(shell make -s -C .. boxrust.box -q || echo ../boxrust.box)
+../boxrust.box:
+	@echo "=============== make -C boxrust ================"
+	$(MAKE) --no-print-directory -C .. boxrust.box
 	@echo "================================================"
 
 # header dependencies

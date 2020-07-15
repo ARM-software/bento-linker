@@ -1,0 +1,13 @@
+[package]
+name = "bento-macros"
+description = "Bento-box macro declarations"
+version = "0.1.0"
+edition = "2018"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = {version="1.0.33", features=["full"]}
+quote = "1.0.7"
+proc-macro2 = "1.0.18"
