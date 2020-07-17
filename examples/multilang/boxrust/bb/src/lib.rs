@@ -173,254 +173,412 @@ impl Error {
 
 impl Default for Error {
     fn default() -> Self {
-        Self::GENERAL
+        Self::General
     }
 }
 
 impl Error {
     /// General error
-    pub const GENERAL          : Error = unsafe { Error::new_unchecked(1) };
+    #[allow(non_upper_case_globals)]
+    pub const General          : Error
+        = unsafe { Error::new_unchecked(1) };
     /// No such file or directory
-    pub const NOENT            : Error = unsafe { Error::new_unchecked(2) };
+    #[allow(non_upper_case_globals)]
+    pub const NoEnt            : Error
+        = unsafe { Error::new_unchecked(2) };
     /// No such process
-    pub const SRCH             : Error = unsafe { Error::new_unchecked(3) };
+    #[allow(non_upper_case_globals)]
+    pub const Srch             : Error
+        = unsafe { Error::new_unchecked(3) };
     /// Interrupted system call
-    pub const INTR             : Error = unsafe { Error::new_unchecked(4) };
+    #[allow(non_upper_case_globals)]
+    pub const Intr             : Error
+        = unsafe { Error::new_unchecked(4) };
     /// I/O error
-    pub const IO               : Error = unsafe { Error::new_unchecked(5) };
+    #[allow(non_upper_case_globals)]
+    pub const Io               : Error
+        = unsafe { Error::new_unchecked(5) };
     /// No such device or address
-    pub const NXIO             : Error = unsafe { Error::new_unchecked(6) };
+    #[allow(non_upper_case_globals)]
+    pub const NXIo             : Error
+        = unsafe { Error::new_unchecked(6) };
     /// Argument list too long
-    pub const TOOBIG           : Error = unsafe { Error::new_unchecked(7) };
+    #[allow(non_upper_case_globals)]
+    pub const TooBig           : Error
+        = unsafe { Error::new_unchecked(7) };
     /// Exec format error
-    pub const NOEXEC           : Error = unsafe { Error::new_unchecked(8) };
+    #[allow(non_upper_case_globals)]
+    pub const NoExec           : Error
+        = unsafe { Error::new_unchecked(8) };
     /// Bad file number
-    pub const BADF             : Error = unsafe { Error::new_unchecked(9) };
+    #[allow(non_upper_case_globals)]
+    pub const BadF             : Error
+        = unsafe { Error::new_unchecked(9) };
     /// No child processes
-    pub const CHILD            : Error = unsafe { Error::new_unchecked(10) };
+    #[allow(non_upper_case_globals)]
+    pub const Child            : Error
+        = unsafe { Error::new_unchecked(10) };
     /// Try again
-    pub const AGAIN            : Error = unsafe { Error::new_unchecked(11) };
+    #[allow(non_upper_case_globals)]
+    pub const Again            : Error
+        = unsafe { Error::new_unchecked(11) };
     /// Out of memory
-    pub const NOMEM            : Error = unsafe { Error::new_unchecked(12) };
+    #[allow(non_upper_case_globals)]
+    pub const NoMem            : Error
+        = unsafe { Error::new_unchecked(12) };
     /// Permission denied
-    pub const ACCES            : Error = unsafe { Error::new_unchecked(13) };
+    #[allow(non_upper_case_globals)]
+    pub const Acces            : Error
+        = unsafe { Error::new_unchecked(13) };
     /// Bad address
-    pub const FAULT            : Error = unsafe { Error::new_unchecked(14) };
+    #[allow(non_upper_case_globals)]
+    pub const Fault            : Error
+        = unsafe { Error::new_unchecked(14) };
     /// Device or resource busy
-    pub const BUSY             : Error = unsafe { Error::new_unchecked(16) };
+    #[allow(non_upper_case_globals)]
+    pub const Busy             : Error
+        = unsafe { Error::new_unchecked(16) };
     /// File exists
-    pub const EXIST            : Error = unsafe { Error::new_unchecked(17) };
+    #[allow(non_upper_case_globals)]
+    pub const Exist            : Error
+        = unsafe { Error::new_unchecked(17) };
     /// Cross-device link
-    pub const XDEV             : Error = unsafe { Error::new_unchecked(18) };
+    #[allow(non_upper_case_globals)]
+    pub const XDev             : Error
+        = unsafe { Error::new_unchecked(18) };
     /// No such device
-    pub const NODEV            : Error = unsafe { Error::new_unchecked(19) };
+    #[allow(non_upper_case_globals)]
+    pub const NoDev            : Error
+        = unsafe { Error::new_unchecked(19) };
     /// Not a directory
-    pub const NOTDIR           : Error = unsafe { Error::new_unchecked(20) };
+    #[allow(non_upper_case_globals)]
+    pub const NotDir           : Error
+        = unsafe { Error::new_unchecked(20) };
     /// Is a directory
-    pub const ISDIR            : Error = unsafe { Error::new_unchecked(21) };
+    #[allow(non_upper_case_globals)]
+    pub const IsDir            : Error
+        = unsafe { Error::new_unchecked(21) };
     /// Invalid argument
-    pub const INVAL            : Error = unsafe { Error::new_unchecked(22) };
+    #[allow(non_upper_case_globals)]
+    pub const Inval            : Error
+        = unsafe { Error::new_unchecked(22) };
     /// File table overflow
-    pub const NFILE            : Error = unsafe { Error::new_unchecked(23) };
+    #[allow(non_upper_case_globals)]
+    pub const NFile            : Error
+        = unsafe { Error::new_unchecked(23) };
     /// Too many open files
-    pub const MFILE            : Error = unsafe { Error::new_unchecked(24) };
+    #[allow(non_upper_case_globals)]
+    pub const MFile            : Error
+        = unsafe { Error::new_unchecked(24) };
     /// Not a typewriter
-    pub const NOTTY            : Error = unsafe { Error::new_unchecked(25) };
+    #[allow(non_upper_case_globals)]
+    pub const NoTty            : Error
+        = unsafe { Error::new_unchecked(25) };
     /// Text file busy
-    pub const TXTBSY           : Error = unsafe { Error::new_unchecked(26) };
+    #[allow(non_upper_case_globals)]
+    pub const TxtBsy           : Error
+        = unsafe { Error::new_unchecked(26) };
     /// File too large
-    pub const FBIG             : Error = unsafe { Error::new_unchecked(27) };
+    #[allow(non_upper_case_globals)]
+    pub const FBig             : Error
+        = unsafe { Error::new_unchecked(27) };
     /// No space left on device
-    pub const NOSPC            : Error = unsafe { Error::new_unchecked(28) };
+    #[allow(non_upper_case_globals)]
+    pub const NoSpc            : Error
+        = unsafe { Error::new_unchecked(28) };
     /// Illegal seek
-    pub const SPIPE            : Error = unsafe { Error::new_unchecked(29) };
+    #[allow(non_upper_case_globals)]
+    pub const SPipe            : Error
+        = unsafe { Error::new_unchecked(29) };
     /// Read-only file system
-    pub const ROFS             : Error = unsafe { Error::new_unchecked(30) };
+    #[allow(non_upper_case_globals)]
+    pub const RoFs             : Error
+        = unsafe { Error::new_unchecked(30) };
     /// Too many links
-    pub const MLINK            : Error = unsafe { Error::new_unchecked(31) };
+    #[allow(non_upper_case_globals)]
+    pub const MLink            : Error
+        = unsafe { Error::new_unchecked(31) };
     /// Broken pipe
-    pub const PIPE             : Error = unsafe { Error::new_unchecked(32) };
+    #[allow(non_upper_case_globals)]
+    pub const Pipe             : Error
+        = unsafe { Error::new_unchecked(32) };
     /// Math argument out of domain of func
-    pub const DOM              : Error = unsafe { Error::new_unchecked(33) };
+    #[allow(non_upper_case_globals)]
+    pub const Dom              : Error
+        = unsafe { Error::new_unchecked(33) };
     /// Math result not representable
-    pub const RANGE            : Error = unsafe { Error::new_unchecked(34) };
+    #[allow(non_upper_case_globals)]
+    pub const Range            : Error
+        = unsafe { Error::new_unchecked(34) };
     /// Resource deadlock would occur
-    pub const DEADLK           : Error = unsafe { Error::new_unchecked(35) };
+    #[allow(non_upper_case_globals)]
+    pub const DeadLk           : Error
+        = unsafe { Error::new_unchecked(35) };
     /// File name too long
-    pub const NAMETOOLONG      : Error = unsafe { Error::new_unchecked(36) };
+    #[allow(non_upper_case_globals)]
+    pub const NameTooLong      : Error
+        = unsafe { Error::new_unchecked(36) };
     /// No record locks available
-    pub const NOLCK            : Error = unsafe { Error::new_unchecked(37) };
+    #[allow(non_upper_case_globals)]
+    pub const NoLck            : Error
+        = unsafe { Error::new_unchecked(37) };
     /// Function not implemented
-    pub const NOSYS            : Error = unsafe { Error::new_unchecked(38) };
+    #[allow(non_upper_case_globals)]
+    pub const NoSys            : Error
+        = unsafe { Error::new_unchecked(38) };
     /// Directory not empty
-    pub const NOTEMPTY         : Error = unsafe { Error::new_unchecked(39) };
+    #[allow(non_upper_case_globals)]
+    pub const NotEmpty         : Error
+        = unsafe { Error::new_unchecked(39) };
     /// Too many symbolic links encountered
-    pub const LOOP             : Error = unsafe { Error::new_unchecked(40) };
+    #[allow(non_upper_case_globals)]
+    pub const Loop             : Error
+        = unsafe { Error::new_unchecked(40) };
     /// No message of desired type
-    pub const NOMSG            : Error = unsafe { Error::new_unchecked(42) };
+    #[allow(non_upper_case_globals)]
+    pub const NoMsg            : Error
+        = unsafe { Error::new_unchecked(42) };
     /// Identifier removed
-    pub const IDRM             : Error = unsafe { Error::new_unchecked(43) };
+    #[allow(non_upper_case_globals)]
+    pub const IdRm             : Error
+        = unsafe { Error::new_unchecked(43) };
     /// Device not a stream
-    pub const NOSTR            : Error = unsafe { Error::new_unchecked(60) };
+    #[allow(non_upper_case_globals)]
+    pub const NoStr            : Error
+        = unsafe { Error::new_unchecked(60) };
     /// No data available
-    pub const NODATA           : Error = unsafe { Error::new_unchecked(61) };
+    #[allow(non_upper_case_globals)]
+    pub const NoData           : Error
+        = unsafe { Error::new_unchecked(61) };
     /// Timer expired
-    pub const TIME             : Error = unsafe { Error::new_unchecked(62) };
+    #[allow(non_upper_case_globals)]
+    pub const Time             : Error
+        = unsafe { Error::new_unchecked(62) };
     /// Out of streams resources
-    pub const NOSR             : Error = unsafe { Error::new_unchecked(63) };
+    #[allow(non_upper_case_globals)]
+    pub const NoSr             : Error
+        = unsafe { Error::new_unchecked(63) };
     /// Link has been severed
-    pub const NOLINK           : Error = unsafe { Error::new_unchecked(67) };
+    #[allow(non_upper_case_globals)]
+    pub const NoLink           : Error
+        = unsafe { Error::new_unchecked(67) };
     /// Protocol error
-    pub const PROTO            : Error = unsafe { Error::new_unchecked(71) };
+    #[allow(non_upper_case_globals)]
+    pub const Proto            : Error
+        = unsafe { Error::new_unchecked(71) };
     /// Multihop attempted
-    pub const MULTIHOP         : Error = unsafe { Error::new_unchecked(72) };
+    #[allow(non_upper_case_globals)]
+    pub const Multihop         : Error
+        = unsafe { Error::new_unchecked(72) };
     /// Not a data message
-    pub const BADMSG           : Error = unsafe { Error::new_unchecked(74) };
+    #[allow(non_upper_case_globals)]
+    pub const BadMsg           : Error
+        = unsafe { Error::new_unchecked(74) };
     /// Value too large for defined data type
-    pub const OVERFLOW         : Error = unsafe { Error::new_unchecked(75) };
+    #[allow(non_upper_case_globals)]
+    pub const Overflow         : Error
+        = unsafe { Error::new_unchecked(75) };
     /// Illegal byte sequence
-    pub const ILSEQ            : Error = unsafe { Error::new_unchecked(84) };
+    #[allow(non_upper_case_globals)]
+    pub const IlSeq            : Error
+        = unsafe { Error::new_unchecked(84) };
     /// Socket operation on non-socket
-    pub const NOTSOCK          : Error = unsafe { Error::new_unchecked(88) };
+    #[allow(non_upper_case_globals)]
+    pub const NotSock          : Error
+        = unsafe { Error::new_unchecked(88) };
     /// Destination address required
-    pub const DESTADDRREQ      : Error = unsafe { Error::new_unchecked(89) };
+    #[allow(non_upper_case_globals)]
+    pub const DestAddrReq      : Error
+        = unsafe { Error::new_unchecked(89) };
     /// Message too long
-    pub const MSGSIZE          : Error = unsafe { Error::new_unchecked(90) };
+    #[allow(non_upper_case_globals)]
+    pub const MsgSize          : Error
+        = unsafe { Error::new_unchecked(90) };
     /// Protocol wrong type for socket
-    pub const PROTOTYPE        : Error = unsafe { Error::new_unchecked(91) };
+    #[allow(non_upper_case_globals)]
+    pub const Prototype        : Error
+        = unsafe { Error::new_unchecked(91) };
     /// Protocol not available
-    pub const NOPROTOOPT       : Error = unsafe { Error::new_unchecked(92) };
+    #[allow(non_upper_case_globals)]
+    pub const NoProtoOpt       : Error
+        = unsafe { Error::new_unchecked(92) };
     /// Protocol not supported
-    pub const PROTONOSUPPORT   : Error = unsafe { Error::new_unchecked(93) };
+    #[allow(non_upper_case_globals)]
+    pub const ProtoNoSupport   : Error
+        = unsafe { Error::new_unchecked(93) };
     /// Operation not supported on transport endpoint
-    pub const OPNOTSUPP        : Error = unsafe { Error::new_unchecked(95) };
+    #[allow(non_upper_case_globals)]
+    pub const OpNotSupp        : Error
+        = unsafe { Error::new_unchecked(95) };
     /// Address family not supported by protocol
-    pub const AFNOSUPPORT      : Error = unsafe { Error::new_unchecked(97) };
+    #[allow(non_upper_case_globals)]
+    pub const AfNoSupport      : Error
+        = unsafe { Error::new_unchecked(97) };
     /// Address already in use
-    pub const ADDRINUSE        : Error = unsafe { Error::new_unchecked(98) };
+    #[allow(non_upper_case_globals)]
+    pub const AddrInUse        : Error
+        = unsafe { Error::new_unchecked(98) };
     /// Cannot assign requested address
-    pub const ADDRNOTAVAIL     : Error = unsafe { Error::new_unchecked(99) };
+    #[allow(non_upper_case_globals)]
+    pub const AddrNotAvail     : Error
+        = unsafe { Error::new_unchecked(99) };
     /// Network is down
-    pub const NETDOWN          : Error = unsafe { Error::new_unchecked(100) };
+    #[allow(non_upper_case_globals)]
+    pub const NetDown          : Error
+        = unsafe { Error::new_unchecked(100) };
     /// Network is unreachable
-    pub const NETUNREACH       : Error = unsafe { Error::new_unchecked(101) };
+    #[allow(non_upper_case_globals)]
+    pub const NetUnreach       : Error
+        = unsafe { Error::new_unchecked(101) };
     /// Network dropped connection because of reset
-    pub const NETRESET         : Error = unsafe { Error::new_unchecked(102) };
+    #[allow(non_upper_case_globals)]
+    pub const NetReset         : Error
+        = unsafe { Error::new_unchecked(102) };
     /// Software caused connection abort
-    pub const CONNABORTED      : Error = unsafe { Error::new_unchecked(103) };
+    #[allow(non_upper_case_globals)]
+    pub const ConnAborted      : Error
+        = unsafe { Error::new_unchecked(103) };
     /// Connection reset by peer
-    pub const CONNRESET        : Error = unsafe { Error::new_unchecked(104) };
+    #[allow(non_upper_case_globals)]
+    pub const ConnReset        : Error
+        = unsafe { Error::new_unchecked(104) };
     /// No buffer space available
-    pub const NOBUFS           : Error = unsafe { Error::new_unchecked(105) };
+    #[allow(non_upper_case_globals)]
+    pub const NoBufs           : Error
+        = unsafe { Error::new_unchecked(105) };
     /// Transport endpoint is already connected
-    pub const ISCONN           : Error = unsafe { Error::new_unchecked(106) };
+    #[allow(non_upper_case_globals)]
+    pub const IsConn           : Error
+        = unsafe { Error::new_unchecked(106) };
     /// Transport endpoint is not connected
-    pub const NOTCONN          : Error = unsafe { Error::new_unchecked(107) };
+    #[allow(non_upper_case_globals)]
+    pub const NotConn          : Error
+        = unsafe { Error::new_unchecked(107) };
     /// Connection timed out
-    pub const TIMEDOUT         : Error = unsafe { Error::new_unchecked(110) };
+    #[allow(non_upper_case_globals)]
+    pub const TimedOut         : Error
+        = unsafe { Error::new_unchecked(110) };
     /// Connection refused
-    pub const CONNREFUSED      : Error = unsafe { Error::new_unchecked(111) };
+    #[allow(non_upper_case_globals)]
+    pub const ConnRefused      : Error
+        = unsafe { Error::new_unchecked(111) };
     /// No route to host
-    pub const HOSTUNREACH      : Error = unsafe { Error::new_unchecked(113) };
+    #[allow(non_upper_case_globals)]
+    pub const HostUnreach      : Error
+        = unsafe { Error::new_unchecked(113) };
     /// Operation already in progress
-    pub const ALREADY          : Error = unsafe { Error::new_unchecked(114) };
+    #[allow(non_upper_case_globals)]
+    pub const Already          : Error
+        = unsafe { Error::new_unchecked(114) };
     /// Operation now in progress
-    pub const INPROGRESS       : Error = unsafe { Error::new_unchecked(115) };
+    #[allow(non_upper_case_globals)]
+    pub const InProgress       : Error
+        = unsafe { Error::new_unchecked(115) };
     /// Stale NFS file handle
-    pub const STALE            : Error = unsafe { Error::new_unchecked(116) };
+    #[allow(non_upper_case_globals)]
+    pub const Stale            : Error
+        = unsafe { Error::new_unchecked(116) };
     /// Quota exceeded
-    pub const DQUOT            : Error = unsafe { Error::new_unchecked(122) };
+    #[allow(non_upper_case_globals)]
+    pub const DQuot            : Error
+        = unsafe { Error::new_unchecked(122) };
     /// Operation Canceled
-    pub const CANCELED         : Error = unsafe { Error::new_unchecked(125) };
+    #[allow(non_upper_case_globals)]
+    pub const Canceled         : Error
+        = unsafe { Error::new_unchecked(125) };
     /// Owner died
-    pub const OWNERDEAD        : Error = unsafe { Error::new_unchecked(130) };
+    #[allow(non_upper_case_globals)]
+    pub const OwnerDead        : Error
+        = unsafe { Error::new_unchecked(130) };
     /// State not recoverable
-    pub const NOTRECOVERABLE   : Error = unsafe { Error::new_unchecked(131) };
+    #[allow(non_upper_case_globals)]
+    pub const NotRecoverable   : Error
+        = unsafe { Error::new_unchecked(131) };
 
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Error::GENERAL          => write!(f, "General error"),
-            Error::NOENT            => write!(f, "No such file or directory"),
-            Error::SRCH             => write!(f, "No such process"),
-            Error::INTR             => write!(f, "Interrupted system call"),
-            Error::IO               => write!(f, "I/O error"),
-            Error::NXIO             => write!(f, "No such device or address"),
-            Error::TOOBIG           => write!(f, "Argument list too long"),
-            Error::NOEXEC           => write!(f, "Exec format error"),
-            Error::BADF             => write!(f, "Bad file number"),
-            Error::CHILD            => write!(f, "No child processes"),
-            Error::AGAIN            => write!(f, "Try again"),
-            Error::NOMEM            => write!(f, "Out of memory"),
-            Error::ACCES            => write!(f, "Permission denied"),
-            Error::FAULT            => write!(f, "Bad address"),
-            Error::BUSY             => write!(f, "Device or resource busy"),
-            Error::EXIST            => write!(f, "File exists"),
-            Error::XDEV             => write!(f, "Cross-device link"),
-            Error::NODEV            => write!(f, "No such device"),
-            Error::NOTDIR           => write!(f, "Not a directory"),
-            Error::ISDIR            => write!(f, "Is a directory"),
-            Error::INVAL            => write!(f, "Invalid argument"),
-            Error::NFILE            => write!(f, "File table overflow"),
-            Error::MFILE            => write!(f, "Too many open files"),
-            Error::NOTTY            => write!(f, "Not a typewriter"),
-            Error::TXTBSY           => write!(f, "Text file busy"),
-            Error::FBIG             => write!(f, "File too large"),
-            Error::NOSPC            => write!(f, "No space left on device"),
-            Error::SPIPE            => write!(f, "Illegal seek"),
-            Error::ROFS             => write!(f, "Read-only file system"),
-            Error::MLINK            => write!(f, "Too many links"),
-            Error::PIPE             => write!(f, "Broken pipe"),
-            Error::DOM              => write!(f, "Math argument out of domain of func"),
-            Error::RANGE            => write!(f, "Math result not representable"),
-            Error::DEADLK           => write!(f, "Resource deadlock would occur"),
-            Error::NAMETOOLONG      => write!(f, "File name too long"),
-            Error::NOLCK            => write!(f, "No record locks available"),
-            Error::NOSYS            => write!(f, "Function not implemented"),
-            Error::NOTEMPTY         => write!(f, "Directory not empty"),
-            Error::LOOP             => write!(f, "Too many symbolic links encountered"),
-            Error::NOMSG            => write!(f, "No message of desired type"),
-            Error::IDRM             => write!(f, "Identifier removed"),
-            Error::NOSTR            => write!(f, "Device not a stream"),
-            Error::NODATA           => write!(f, "No data available"),
-            Error::TIME             => write!(f, "Timer expired"),
-            Error::NOSR             => write!(f, "Out of streams resources"),
-            Error::NOLINK           => write!(f, "Link has been severed"),
-            Error::PROTO            => write!(f, "Protocol error"),
-            Error::MULTIHOP         => write!(f, "Multihop attempted"),
-            Error::BADMSG           => write!(f, "Not a data message"),
-            Error::OVERFLOW         => write!(f, "Value too large for defined data type"),
-            Error::ILSEQ            => write!(f, "Illegal byte sequence"),
-            Error::NOTSOCK          => write!(f, "Socket operation on non-socket"),
-            Error::DESTADDRREQ      => write!(f, "Destination address required"),
-            Error::MSGSIZE          => write!(f, "Message too long"),
-            Error::PROTOTYPE        => write!(f, "Protocol wrong type for socket"),
-            Error::NOPROTOOPT       => write!(f, "Protocol not available"),
-            Error::PROTONOSUPPORT   => write!(f, "Protocol not supported"),
-            Error::OPNOTSUPP        => write!(f, "Operation not supported on transport endpoint"),
-            Error::AFNOSUPPORT      => write!(f, "Address family not supported by protocol"),
-            Error::ADDRINUSE        => write!(f, "Address already in use"),
-            Error::ADDRNOTAVAIL     => write!(f, "Cannot assign requested address"),
-            Error::NETDOWN          => write!(f, "Network is down"),
-            Error::NETUNREACH       => write!(f, "Network is unreachable"),
-            Error::NETRESET         => write!(f, "Network dropped connection because of reset"),
-            Error::CONNABORTED      => write!(f, "Software caused connection abort"),
-            Error::CONNRESET        => write!(f, "Connection reset by peer"),
-            Error::NOBUFS           => write!(f, "No buffer space available"),
-            Error::ISCONN           => write!(f, "Transport endpoint is already connected"),
-            Error::NOTCONN          => write!(f, "Transport endpoint is not connected"),
-            Error::TIMEDOUT         => write!(f, "Connection timed out"),
-            Error::CONNREFUSED      => write!(f, "Connection refused"),
-            Error::HOSTUNREACH      => write!(f, "No route to host"),
-            Error::ALREADY          => write!(f, "Operation already in progress"),
-            Error::INPROGRESS       => write!(f, "Operation now in progress"),
-            Error::STALE            => write!(f, "Stale NFS file handle"),
-            Error::DQUOT            => write!(f, "Quota exceeded"),
-            Error::CANCELED         => write!(f, "Operation Canceled"),
-            Error::OWNERDEAD        => write!(f, "Owner died"),
-            Error::NOTRECOVERABLE   => write!(f, "State not recoverable"),
+            Error::General          => write!(f, "General error"),
+            Error::NoEnt            => write!(f, "No such file or directory"),
+            Error::Srch             => write!(f, "No such process"),
+            Error::Intr             => write!(f, "Interrupted system call"),
+            Error::Io               => write!(f, "I/O error"),
+            Error::NXIo             => write!(f, "No such device or address"),
+            Error::TooBig           => write!(f, "Argument list too long"),
+            Error::NoExec           => write!(f, "Exec format error"),
+            Error::BadF             => write!(f, "Bad file number"),
+            Error::Child            => write!(f, "No child processes"),
+            Error::Again            => write!(f, "Try again"),
+            Error::NoMem            => write!(f, "Out of memory"),
+            Error::Acces            => write!(f, "Permission denied"),
+            Error::Fault            => write!(f, "Bad address"),
+            Error::Busy             => write!(f, "Device or resource busy"),
+            Error::Exist            => write!(f, "File exists"),
+            Error::XDev             => write!(f, "Cross-device link"),
+            Error::NoDev            => write!(f, "No such device"),
+            Error::NotDir           => write!(f, "Not a directory"),
+            Error::IsDir            => write!(f, "Is a directory"),
+            Error::Inval            => write!(f, "Invalid argument"),
+            Error::NFile            => write!(f, "File table overflow"),
+            Error::MFile            => write!(f, "Too many open files"),
+            Error::NoTty            => write!(f, "Not a typewriter"),
+            Error::TxtBsy           => write!(f, "Text file busy"),
+            Error::FBig             => write!(f, "File too large"),
+            Error::NoSpc            => write!(f, "No space left on device"),
+            Error::SPipe            => write!(f, "Illegal seek"),
+            Error::RoFs             => write!(f, "Read-only file system"),
+            Error::MLink            => write!(f, "Too many links"),
+            Error::Pipe             => write!(f, "Broken pipe"),
+            Error::Dom              => write!(f, "Math argument out of domain of func"),
+            Error::Range            => write!(f, "Math result not representable"),
+            Error::DeadLk           => write!(f, "Resource deadlock would occur"),
+            Error::NameTooLong      => write!(f, "File name too long"),
+            Error::NoLck            => write!(f, "No record locks available"),
+            Error::NoSys            => write!(f, "Function not implemented"),
+            Error::NotEmpty         => write!(f, "Directory not empty"),
+            Error::Loop             => write!(f, "Too many symbolic links encountered"),
+            Error::NoMsg            => write!(f, "No message of desired type"),
+            Error::IdRm             => write!(f, "Identifier removed"),
+            Error::NoStr            => write!(f, "Device not a stream"),
+            Error::NoData           => write!(f, "No data available"),
+            Error::Time             => write!(f, "Timer expired"),
+            Error::NoSr             => write!(f, "Out of streams resources"),
+            Error::NoLink           => write!(f, "Link has been severed"),
+            Error::Proto            => write!(f, "Protocol error"),
+            Error::Multihop         => write!(f, "Multihop attempted"),
+            Error::BadMsg           => write!(f, "Not a data message"),
+            Error::Overflow         => write!(f, "Value too large for defined data type"),
+            Error::IlSeq            => write!(f, "Illegal byte sequence"),
+            Error::NotSock          => write!(f, "Socket operation on non-socket"),
+            Error::DestAddrReq      => write!(f, "Destination address required"),
+            Error::MsgSize          => write!(f, "Message too long"),
+            Error::Prototype        => write!(f, "Protocol wrong type for socket"),
+            Error::NoProtoOpt       => write!(f, "Protocol not available"),
+            Error::ProtoNoSupport   => write!(f, "Protocol not supported"),
+            Error::OpNotSupp        => write!(f, "Operation not supported on transport endpoint"),
+            Error::AfNoSupport      => write!(f, "Address family not supported by protocol"),
+            Error::AddrInUse        => write!(f, "Address already in use"),
+            Error::AddrNotAvail     => write!(f, "Cannot assign requested address"),
+            Error::NetDown          => write!(f, "Network is down"),
+            Error::NetUnreach       => write!(f, "Network is unreachable"),
+            Error::NetReset         => write!(f, "Network dropped connection because of reset"),
+            Error::ConnAborted      => write!(f, "Software caused connection abort"),
+            Error::ConnReset        => write!(f, "Connection reset by peer"),
+            Error::NoBufs           => write!(f, "No buffer space available"),
+            Error::IsConn           => write!(f, "Transport endpoint is already connected"),
+            Error::NotConn          => write!(f, "Transport endpoint is not connected"),
+            Error::TimedOut         => write!(f, "Connection timed out"),
+            Error::ConnRefused      => write!(f, "Connection refused"),
+            Error::HostUnreach      => write!(f, "No route to host"),
+            Error::Already          => write!(f, "Operation already in progress"),
+            Error::InProgress       => write!(f, "Operation now in progress"),
+            Error::Stale            => write!(f, "Stale NFS file handle"),
+            Error::DQuot            => write!(f, "Quota exceeded"),
+            Error::Canceled         => write!(f, "Operation Canceled"),
+            Error::OwnerDead        => write!(f, "Owner died"),
+            Error::NotRecoverable   => write!(f, "State not recoverable"),
             _                       => write!(f, "Error {}", self.get()),
         }
     }
@@ -450,7 +608,7 @@ fn panic_handler(_info: &panic::PanicInfo) -> ! {
 
     // don't use anything from the PanicInfo, unfortunately
     // this would drag in a bunch of debug strings
-    abort(Error::GENERAL)
+    abort(Error::General)
 }
 
 pub fn write(fd: i32, buffer: &[u8]) -> Result<usize> {

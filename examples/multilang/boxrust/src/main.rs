@@ -35,7 +35,7 @@ pub fn fib_next(next: &mut u32, a: u32, b: u32) -> Result<()> {
 #[export(export::boxrust_fib)]
 pub fn fib(buffer: &mut [u32], a: u32, b: u32) -> Result<()> {
     if buffer.len() < 2 {
-        Err(Error::INVAL)?;
+        Err(Error::Inval)?;
     }
 
     buffer[0] = a;

@@ -44,7 +44,7 @@ fn panic_handler(_info: &panic::PanicInfo) -> ! {
 
     // don't use anything from the PanicInfo, unfortunately
     // this would drag in a bunch of debug strings
-    abort(Error::GENERAL)
+    abort(Error::General)
 }
 '''
 
