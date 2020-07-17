@@ -9,21 +9,21 @@
 
 //// box imports ////
 
-int32_t box1_add2(int32_t __a0, int32_t __a1);
+int32_t box1_add2(int32_t a0, int32_t a1);
 
 int box1_hello(void);
 
-int32_t box2_add2(int32_t __a0, int32_t __a1);
+int32_t box2_add2(int32_t a0, int32_t a1);
 
 int box2_hello(void);
 
-int32_t box3_add2(int32_t __a0, int32_t __a1);
+int32_t box3_add2(int32_t a0, int32_t a1);
 
 int box3_hello(void);
 
 //// box exports ////
 
-extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t a0, const void *a1, size_t a2);
 
 //// box hooks ////
 
@@ -1383,7 +1383,7 @@ int __box_box1_init(void) {
     return 0;
 }
 
-int32_t box1_add2(int32_t __a0, int32_t __a1) {
+int32_t box1_add2(int32_t a0, int32_t a1) {
     if (!__box_box1_state.initialized) {
         int _err = __box_box1_init();
         if (_err) {
@@ -1391,8 +1391,8 @@ int32_t box1_add2(int32_t __a0, int32_t __a1) {
         }
     }
 
-    extern int32_t __box_box1_raw_box1_add2(int32_t __a0, int32_t __a1);
-    return __box_box1_raw_box1_add2(__a0, __a1);
+    extern int32_t __box_box1_raw_box1_add2(int32_t a0, int32_t a1);
+    return __box_box1_raw_box1_add2(a0, a1);
 }
 
 int box1_hello(void) {
@@ -1492,7 +1492,7 @@ int __box_box2_init(void) {
     return 0;
 }
 
-int32_t box2_add2(int32_t __a0, int32_t __a1) {
+int32_t box2_add2(int32_t a0, int32_t a1) {
     if (!__box_box2_state.initialized) {
         int _err = __box_box2_init();
         if (_err) {
@@ -1500,8 +1500,8 @@ int32_t box2_add2(int32_t __a0, int32_t __a1) {
         }
     }
 
-    extern int32_t __box_box2_raw_box2_add2(int32_t __a0, int32_t __a1);
-    return __box_box2_raw_box2_add2(__a0, __a1);
+    extern int32_t __box_box2_raw_box2_add2(int32_t a0, int32_t a1);
+    return __box_box2_raw_box2_add2(a0, a1);
 }
 
 int box2_hello(void) {
@@ -1601,7 +1601,7 @@ int __box_box3_init(void) {
     return 0;
 }
 
-int32_t box3_add2(int32_t __a0, int32_t __a1) {
+int32_t box3_add2(int32_t a0, int32_t a1) {
     if (!__box_box3_state.initialized) {
         int _err = __box_box3_init();
         if (_err) {
@@ -1609,8 +1609,8 @@ int32_t box3_add2(int32_t __a0, int32_t __a1) {
         }
     }
 
-    extern int32_t __box_box3_raw_box3_add2(int32_t __a0, int32_t __a1);
-    return __box_box3_raw_box3_add2(__a0, __a1);
+    extern int32_t __box_box3_raw_box3_add2(int32_t a0, int32_t a1);
+    return __box_box3_raw_box3_add2(a0, a1);
 }
 
 int box3_hello(void) {

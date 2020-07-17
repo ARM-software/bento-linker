@@ -20,18 +20,18 @@ pub mod export {
     #[allow(unused_imports)]
     use bento_macros::export_export;
 
-    #[export_export(type=fn(__a0: i32, __a1: i32) -> __box_exports::Result<u32>)]
-    pub fn boxrust_add2(__a0: i32, __a1: i32) -> i32 {
+    #[export_export(type=fn(a0: i32, a1: i32) -> __box_exports::Result<u32>)]
+    pub fn boxrust_add2(a0: i32, a1: i32) -> i32 {
         #[allow(unused_imports)]
         use core::{convert::TryFrom, ptr, slice};
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
-        let __r0 = __box_export_boxrust_add2(__a0, __a1);
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_add2(a0, a1);
+        let r0 = match r0 {
             Ok(x) => i32::try_from(x).unwrap(),
             Err(err) => -err.get_i32(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(buffer: &mut [u32], a: u32, b: u32) -> __box_exports::Result<()>)]
@@ -41,12 +41,12 @@ pub mod export {
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
         let buffer = unsafe { slice::from_raw_parts_mut(buffer, size) };
-        let __r0 = __box_export_boxrust_fib(buffer, a, b);
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_fib(buffer, a, b);
+        let r0 = match r0 {
             Ok(()) => 0,
             Err(err) => -err.get_i32(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(size: usize) -> Option<&'static mut u8>)]
@@ -55,15 +55,15 @@ pub mod export {
         use core::{convert::TryFrom, ptr, slice};
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
-        let __r0 = __box_export_boxrust_fib_alloc(size);
-        let __r0 = match __r0 {
-            Some(__r0) => {
-                let __r0 = __r0 as *mut u8;
-                __r0
+        let r0 = __box_export_boxrust_fib_alloc(size);
+        let r0 = match r0 {
+            Some(r0) => {
+                let r0 = r0 as *mut u8;
+                r0
             },
             None => ptr::null_mut(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(next: &mut u32, a: u32, b: u32) -> __box_exports::Result<()>)]
@@ -73,12 +73,12 @@ pub mod export {
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
         let next = unsafe { &mut *next };
-        let __r0 = __box_export_boxrust_fib_next(next, a, b);
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_fib_next(next, a, b);
+        let r0 = match r0 {
             Ok(()) => 0,
             Err(err) => -err.get_i32(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn() -> __box_exports::Result<()>)]
@@ -87,12 +87,12 @@ pub mod export {
         use core::{convert::TryFrom, ptr, slice};
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
-        let __r0 = __box_export_boxrust_hello();
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_hello();
+        let r0 = match r0 {
             Ok(()) => 0,
             Err(err) => -err.get_i32(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(buffer: &mut [u32]) -> __box_exports::Result<()>)]
@@ -102,12 +102,12 @@ pub mod export {
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
         let buffer = unsafe { slice::from_raw_parts_mut(buffer, size) };
-        let __r0 = __box_export_boxrust_qsort(buffer);
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_qsort(buffer);
+        let r0 = match r0 {
             Ok(()) => 0,
             Err(err) => -err.get_i32(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(size: usize) -> Option<&'static mut u8>)]
@@ -116,15 +116,15 @@ pub mod export {
         use core::{convert::TryFrom, ptr, slice};
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
-        let __r0 = __box_export_boxrust_qsort_alloc(size);
-        let __r0 = match __r0 {
-            Some(__r0) => {
-                let __r0 = __r0 as *mut u8;
-                __r0
+        let r0 = __box_export_boxrust_qsort_alloc(size);
+        let r0 = match r0 {
+            Some(r0) => {
+                let r0 = r0 as *mut u8;
+                r0
             },
             None => ptr::null_mut(),
         };
-        __r0
+        r0
     }
 
     #[export_export(type=fn(buffer: &mut [u32], pivot: u32) -> __box_exports::Result<usize>)]
@@ -134,12 +134,12 @@ pub mod export {
         #[allow(unused_imports)]
         use __box_exports::{Result, Error};
         let buffer = unsafe { slice::from_raw_parts_mut(buffer, size) };
-        let __r0 = __box_export_boxrust_qsort_partition(buffer, pivot);
-        let __r0 = match __r0 {
+        let r0 = __box_export_boxrust_qsort_partition(buffer, pivot);
+        let r0 = match r0 {
             Ok(x) => isize::try_from(x).unwrap(),
             Err(err) => isize::try_from(-err.get_i32()).unwrap(),
         };
-        __r0
+        r0
     }
 }
 

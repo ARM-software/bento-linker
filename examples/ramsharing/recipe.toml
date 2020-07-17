@@ -7,16 +7,15 @@ runtime = 'armv7m_sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
-output.mk = 'Makefile'
-
-define.NRF52840_XXAA=1
-define.NRFX_UARTE_ENABLED=1
-define.NRFX_UARTE0_ENABLED=1
-srcs = [
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
 ]
-incs = [
+output.mk.incs = [
     '.',
     'nrfx',
     'cmsis',
@@ -61,7 +60,7 @@ idempotent = true
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
-output.mk = 'Makefile'
+output.mk.path = 'Makefile'
 
 export.box2_add2= 'fn(i32, i32) -> err32'
 export.box2_hello = 'fn() -> err'
@@ -77,7 +76,7 @@ idempotent = true
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
-output.mk = 'Makefile'
+output.mk.path = 'Makefile'
 
 export.box3_add2= 'fn(i32, i32) -> err32'
 export.box3_hello = 'fn() -> err'

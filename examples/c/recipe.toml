@@ -10,16 +10,19 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk = 'Makefile'
 
-export.boxc_add2= 'fn(i32, i32) -> err32'
-export.boxc_hello = 'fn() -> err'
+[export]
+boxc_add2= 'fn(i32, i32) -> err32'
+boxc_hello = 'fn() -> err'
 
-export.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
-export.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
-export.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
+boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 
-export.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
-export.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
-export.boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
+boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
+boxc_qsort_partition = '''
+    fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize
+    '''
+boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 [super.sys]
 memory.flash = 'rxp 0x00000000-0x000fffff'
@@ -31,16 +34,15 @@ runtime = 'armv7m_sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
-output.mk = 'Makefile'
-
-define.NRF52840_XXAA=1
-define.NRFX_UARTE_ENABLED=1
-define.NRFX_UARTE0_ENABLED=1
-srcs = [
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
 ]
-incs = [
+output.mk.incs = [
     '.',
     'nrfx',
     'cmsis',
@@ -49,15 +51,19 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+[super.sys.export]
+__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
-import.boxc_add2  = 'fn(i32, i32) -> err32'
-import.boxc_hello = 'fn() -> err'
+[super.sys.import]
+boxc_add2  = 'fn(i32, i32) -> err32'
+boxc_hello = 'fn() -> err'
 
-import.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
-import.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
-import.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
+boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 
-import.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
-import.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
-import.boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
+boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
+boxc_qsort_partition = '''
+    fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize
+    '''
+boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'

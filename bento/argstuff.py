@@ -65,6 +65,9 @@ class ArgumentParser(argparse.ArgumentParser):
         self._hidden = False
         self._fake = False
 
+        # allow forcing underscores in optional arguments
+        self._underscore = kwargs.pop('underscore', True)
+
         # things get confusing with abbrevs
         kwargs.setdefault('allow_abbrev', False)
         return super().__init__(*args, **kwargs)
@@ -340,6 +343,17 @@ class ArgumentParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, ns=None):
         if args is None:
             args = sys.argv[1:]
+
+        # force underscores?
+        if self._underscore:
+            nargs = []
+            for arg in args:
+                if arg.startswith('--'):
+                    a, *b = arg[2:].split('=')
+                    a = a.replace('-', '_')
+                    arg = '--%s=%s' % (a, ''.join(b))
+                nargs.append(arg)
+            args = nargs
 
         # parse explicit args first
         ns, args = super().parse_known_args(args, ns)

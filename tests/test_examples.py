@@ -56,7 +56,7 @@ def test_build(name, path):
 def test_build_make_debug(name, path):
     os.chdir(path)
     # build artifacts
-    subprocess.check_call(['bento', 'build', '--all.debug=true'])
+    subprocess.check_call(['bento', 'build', '--all.output.mk.debug=true'])
     # try to compile
     subprocess.check_call(['make', 'clean', 'build', 'CFLAGS+=-Werror'])
 
@@ -64,7 +64,7 @@ def test_build_make_debug(name, path):
 def test_build_make_nolto(name, path):
     os.chdir(path)
     # build artifacts
-    subprocess.check_call(['bento', 'build', '--all.lto=false'])
+    subprocess.check_call(['bento', 'build', '--all.output.mk.lto=false'])
     # try to compile
     subprocess.check_call(['make', 'clean', 'build', 'CFLAGS+=-Werror'])
 

@@ -8,7 +8,7 @@
 
 //// box exports ////
 
-extern int32_t box3_add2(int32_t __a0, int32_t __a1);
+extern int32_t box3_add2(int32_t a0, int32_t a1);
 
 extern int box3_hello(void);
 

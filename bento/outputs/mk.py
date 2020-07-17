@@ -20,6 +20,11 @@ class MKOutput(outputs.Output):
 
         parser.add_argument('--target',
             help='Override the target output (name.elf) for the makefile.')
+        parser.add_argument('--debug', type=bool,
+            help='Enables debug mode during compilation. Defaults to false.')
+        parser.add_argument('--lto', type=bool,
+            help='Enables link-time optimizations during compilation. '
+                'Defaults to true.')
         parser.add_argument('--cc',
             help='Override the C compiler for the makefile.')
         parser.add_argument('--cargo',
@@ -43,6 +48,15 @@ class MKOutput(outputs.Output):
         parser.add_argument('--baud',
             help='Override the baud rate (115200) for the makefile.')
 
+        defineparser = parser.add_set('--define', append=True)
+        defineparser.add_argument('define',
+            help='Adds custom defines to the Makefile. For example: '
+                '--define.ENABLE_BIG=1.')
+        parser.add_argument('--srcs', type=list,
+            help='Supply source directories. Defaults to [\'.\'].')
+        parser.add_argument('--incs', type=list,
+            help='Supply include directories. Defaults to what\'s '
+                'passed to --srcs.')
         parser.add_argument('--libs', type=list,
             help='Override libraries. Defaults to '
                 '[\'m\', \'c\', \'gcc\', and \'nosys\'].')
@@ -51,17 +65,20 @@ class MKOutput(outputs.Output):
             help='Add custom C flags.')
         parser.add_argument('--asm_flags', type=list,
             help='Add custom assembly flags.')
-        parser.add_argument('--l_flags', type=list,
+        parser.add_argument('--ld_flags', type=list,
             help='Add custom linker flags.')
 
-    def __init__(self, path=None, target=None,
+    def __init__(self, path=None, target=None, debug=None, lto=None,
             cc=None, cargo=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
-            libs=None, c_flags=None, asm_flags=None, l_flags=None):
+            define=None, srcs=None, incs=None, libs=None,
+            c_flags=None, asm_flags=None, ld_flags=None):
         super().__init__(path)
 
         self._target = target
+        self._debug = debug if debug is not None else False
+        self._lto = lto if lto is not None else True
         self._cc = cc or 'arm-none-eabi-gcc'
         self._cargo = cargo or 'cargo'
         self._objcopy = objcopy or 'arm-none-eabi-objcopy'
@@ -74,11 +91,15 @@ class MKOutput(outputs.Output):
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
         self._baud = baud or 115200
 
-        self._libs = libs or ['m', 'c', 'gcc', 'nosys']
+        self._defines = co.OrderedDict(sorted(
+            (k, getattr(v, 'define', v)) for k, v in define.items()))
+        self._srcs = srcs if srcs is not None else ['.']
+        self._incs = incs if incs is not None else self._srcs
+        self._libs = libs if libs is not None else ['m', 'c', 'gcc', 'nosys']
 
-        self._c_flags = c_flags or []
-        self._asm_flags = asm_flags or []
-        self._l_flags = l_flags or []
+        self._c_flags = c_flags if c_flags is not None else []
+        self._asm_flags = asm_flags if asm_flags is not None else []
+        self._ld_flags = ld_flags if ld_flags is not None else []
 
         self.decls = outputs.OutputField(self)
         self.rules = outputs.OutputField(self)
@@ -87,8 +108,8 @@ class MKOutput(outputs.Output):
         super().box(box)
         self.pushattrs(
             target=self._target,
-            debug=box.debug,
-            lto=box.lto,
+            debug=self._debug,
+            lto=self._lto,
             cc=self._cc,
             cargo=self._cargo,
             objcopy=self._objcopy,
@@ -125,11 +146,11 @@ class MKOutput(outputs.Output):
 
     def build(self, box):
         out = self.decls.append()
-        for src in box.srcs:
+        for src in self._srcs:
             out.printf('SRC += %(path)s', path=src)
 
         out = self.decls.append()
-        for inc in box.incs:
+        for inc in self._incs:
             out.printf('INC += %(path)s', path=inc)
 
         out = self.decls.append()
@@ -369,12 +390,12 @@ class MKOutput(outputs.Output):
 
     def build_epilogue(self, box):
         # we put these at the end so they have precedence
-        if any([box.defines, self._c_flags, self._asm_flags, self._l_flags]):
+        if any([self._defines, self._c_flags, self._asm_flags, self._ld_flags]):
             self.decls.append('### user provided flags ###')
 
-        if box.defines or self._c_flags:
+        if self._defines or self._c_flags:
             out = self.decls.append()
-            for k, v in box.defines.items():
+            for k, v in self._defines.items():
                 out.printf('override CFLAGS += -D%s=%s' % (k, v))
 
             for cflag in self._c_flags:
@@ -385,9 +406,9 @@ class MKOutput(outputs.Output):
             for asmflag in self._asm_flags:
                 out.printf('override ASMFLAGS += %s' % asmflag)
 
-        if self._l_flags:
+        if self._ld_flags:
             out = self.decls.append()
-            for lflag in self._l_flags:
+            for lflag in self._ld_flags:
                 out.printf('override LDFLAGS += %s' % lflag)
 
     def getvalue(self):

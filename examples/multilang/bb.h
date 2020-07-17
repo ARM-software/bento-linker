@@ -7,7 +7,7 @@
 
 //// box imports ////
 
-int32_t boxc_add2(int32_t __a0, int32_t __a1);
+int32_t boxc_add2(int32_t a0, int32_t a1);
 
 int boxc_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
 
@@ -23,7 +23,7 @@ void* boxc_qsort_alloc(size_t size);
 
 ssize_t boxc_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
-int32_t boxrust_add2(int32_t __a0, int32_t __a1);
+int32_t boxrust_add2(int32_t a0, int32_t a1);
 
 int boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
 
@@ -41,7 +41,7 @@ ssize_t boxrust_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
 //// box exports ////
 
-extern ssize_t __box_write(int32_t __a0, const void *__a1, size_t __a2);
+extern ssize_t __box_write(int32_t a0, const void *a1, size_t a2);
 
 //// box hooks ////
 

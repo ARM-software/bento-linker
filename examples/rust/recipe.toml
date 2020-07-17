@@ -9,19 +9,22 @@ output.ld = 'bb/src/bb.ld'
 output.c = 'bb/src/bb.c'
 output.rs.path = 'bb/src/lib.rs'
 output.rs.no_runtime_logic = true
-output.mk = 'Makefile'
-srcs = ['.', 'bb/src']
+output.mk.path = 'Makefile'
+output.mk.srcs = ['.', 'bb/src']
 
-export.boxrust_add2= 'fn(i32, i32) -> err32'
-export.boxrust_hello = 'fn() -> err'
+[export]
+boxrust_add2= 'fn(i32, i32) -> err32'
+boxrust_hello = 'fn() -> err'
 
-export.boxrust_fib_alloc = 'fn(usize size) -> nullable mut u8*'
-export.boxrust_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
-export.boxrust_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
+boxrust_fib_alloc = 'fn(size: usize) -> nullable mut u8*'
+boxrust_fib_next = 'fn(next: mut u32*, a: u32, b: u32) -> err'
+boxrust_fib = 'fn(buffer: mut u32[size], size: usize, a: u32, b: u32) -> err'
 
-export.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
-export.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
-export.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
+boxrust_qsort_alloc = 'fn(size: usize) -> nullable mut u8*'
+boxrust_qsort_partition = '''
+    fn(buffer: mut u32[size], size: usize, pivot: u32) -> errsize
+    '''
+boxrust_qsort = 'fn(buffer: mut u32[size], size: usize) -> err'
 
 [super.sys]
 memory.flash = 'rxp 0x00000000-0x000fffff'
@@ -33,16 +36,15 @@ runtime = 'armv7m_sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
-output.mk = 'Makefile'
-
-define.NRF52840_XXAA=1
-define.NRFX_UARTE_ENABLED=1
-define.NRFX_UARTE0_ENABLED=1
-srcs = [
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
 ]
-incs = [
+output.mk.incs = [
     '.',
     'nrfx',
     'cmsis',
@@ -51,15 +53,19 @@ incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+[super.sys.export]
+__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
-import.boxrust_add2  = 'fn(i32, i32) -> err32'
-import.boxrust_hello = 'fn() -> err'
+[super.sys.import]
+boxrust_add2= 'fn(i32, i32) -> err32'
+boxrust_hello = 'fn() -> err'
 
-import.boxrust_fib_alloc = 'fn(usize size) -> nullable mut u8*'
-import.boxrust_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
-import.boxrust_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
+boxrust_fib_alloc = 'fn(size: usize) -> nullable mut u8*'
+boxrust_fib_next = 'fn(next: mut u32*, a: u32, b: u32) -> err'
+boxrust_fib = 'fn(buffer: mut u32[size], size: usize, a: u32, b: u32) -> err'
 
-import.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
-import.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
-import.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
+boxrust_qsort_alloc = 'fn(size: usize) -> nullable mut u8*'
+boxrust_qsort_partition = '''
+    fn(buffer: mut u32[size], size: usize, pivot: u32) -> errsize
+    '''
+boxrust_qsort = 'fn(buffer: mut u32[size], size: usize) -> err'

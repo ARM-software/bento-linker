@@ -7,7 +7,7 @@
 
 //// box exports ////
 
-extern int32_t boxc_add2(int32_t __a0, int32_t __a1);
+extern int32_t boxc_add2(int32_t a0, int32_t a1);
 
 extern int boxc_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
 

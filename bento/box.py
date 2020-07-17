@@ -347,35 +347,52 @@ class Arg:
     def parsetype(s):
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
         numpattern = r'(?:0[oxb])?[0-9a-fA-F]+'
-        modpattern  = r'(?:(?:%s)\s*)*' % '|'.join(Arg.MODIFIERS)
+        modpattern = r'(?:(?:%s)\b\s*)*' % '|'.join(Arg.MODIFIERS)
         primpattern = r'(?:%s)\b' % '|'.join(Arg.PRIMITIVES)
+        arraypattern = (r'\s*'.join([
+            r'\[',
+                r'(?:(%(name)s)|(%(num)s))',
+            r'\]']) % dict(
+                name=namepattern,
+                num=numpattern))
+        ptrpattern = (r'\s*'.join([
+            r'(?:',
+                r'\*',
+            r'|',
+                r'%(array)s'
+            r')*']) % dict(
+                array=arraypattern))
         argpattern = (r'\s*'.join([
+            r'(?:', r'(%(name)s)', r':', r')?'
             r'(%(mod)s)',
             r'(%(prim)s)',
-            r'((?:\*\s*)*)',
-            r'((?:%(name)s)?)',
-            r'(?:(?:\[',
-                r'(?:(%(name)s)|(%(num)s))',
-            r'\])?)']) % dict(
+            r'(%(ptr)s)',
+            r'(%(name)s)?',
+            r'(%(ptr)s)']) % dict(
                 name=namepattern,
                 num=numpattern,
                 mod=modpattern,
-                prim=primpattern))
-        m = re.match(r'^\s*%s\s*$' % argpattern, s)
+                prim=primpattern,
+                ptr=ptrpattern))
 
+        m = re.match(r'^\s*%s\s*$' % argpattern, s)
         if not m:
             raise ValueError("Invalid type %r" % s)
+        if m.group(1) and m.group(7):
+            raise ValueError("Duplicate names in type %r?" % s)
 
-        mod  = set(m.group(1).split()) or set()
-        prim = m.group(2)
-        ptr  = (m.group(3).replace(' ', '')
-            if m.group(3) else
-            None)
-        name = m.group(4) or None
+        mod   = set(m.group(2).split()) or set()
+        prim  = m.group(3)
+        name  = m.group(1) or m.group(7) or None
+        ptr   = ''.join(c for c in m.group(4) + m.group(8) if c == '*')
         asize = (m.group(5)
             if m.group(5) else
             int(m.group(6), 0)
             if m.group(6) else
+            m.group(9)
+            if m.group(9) else
+            int(m.group(10), 0)
+            if m.group(10) else
             None)
 
         return name, mod, prim, ptr, asize
@@ -492,7 +509,7 @@ class Fn:
     @staticmethod
     def parsetype(s):
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
-        argpattern = (r'(?:(?:%(name)s|[\*\[\]0-9])\s*)+'
+        argpattern = (r'(?:(?:%(name)s|[:\*\[\]0-9])\s*)+'
             % dict(name=namepattern))
         # functions with and without parens around args/rets
         fnpattern = (r'\s*'.join([
@@ -532,9 +549,6 @@ class Fn:
         if rets in [['void'], ['']]:
             rets = []
 
-        if len(rets) > 1:
-            raise ValueError("Currently only 0 or 1 return values supported")
-
         try:
             for arg in it.chain(args, rets):
                 Arg.parsetype(arg)
@@ -550,17 +564,28 @@ class Fn:
             name, type = None, name
 
         args, rets, noreturn = self.parsetype(type)
+
+        if len(rets) > 1:
+            raise ValueError("Currently only 0 or 1 return values supported")
+
         args = [Arg(arg) for arg in args]
         rets = [Arg(ret) for ret in rets]
 
+        names = set()
+        for arg in it.chain(args, rets):
+            if arg.name:
+                if arg.name in names:
+                    raise ValueError("Arg %r not unique in %r" % (
+                        arg.name, type))
+                names.add(arg.name)
         for arg in args:
             if isinstance(arg.asize(), str):
                 if not any(arg2.name == arg.asize() for arg2 in args):
-                    raise ValueError("No arg matches array size for %r" % s)
+                    raise ValueError("No arg matches array size for %r" % type)
         for ret in rets:
             if isinstance(ret.asize(), str):
                 raise ValueError("Returning buffers with dependent sizes "
-                    "currently not supported %r" % s)
+                    "currently not supported %r" % type)
 
         if target is not None:
             self.name = '.'.join([target, name])
@@ -593,10 +618,36 @@ class Fn:
         return self.name < other.name
 
     def argnames(self):
-        yield from (arg.name or '__a%d' % i for i, arg in enumerate(self.args))
+        names = set(
+            arg.name for arg in it.chain(self.args, self.rets)
+            if arg.name)
+        for i, arg in enumerate(self.args):
+            if arg.name:
+                yield arg.name
+            else:
+                # try nice looking argname
+                name = 'a%d' % i
+                if name not in names:
+                    yield name
+                else:
+                    # fallback to this ugly (but unique!) name
+                    yield '__box_' + name
 
     def retnames(self):
-        yield from (ret.name or '__r%d' % i for i, ret in enumerate(self.rets))
+        names = set(
+            arg.name for arg in it.chain(self.args, self.rets)
+            if arg.name)
+        for i, arg in enumerate(self.rets):
+            if arg.name:
+                yield arg.name
+            else:
+                # try nice looking argname
+                name = 'r%d' % i
+                if name not in names:
+                    yield name
+                else:
+                    # fallback to this ugly (but unique!) name
+                    yield '__box_' + name
 
     def retname(self):
         return next(it.chain(self.retnames(), ['__r0']))
@@ -703,22 +754,6 @@ class Box:
         for Output in OUTPUTS.values():
             outputparser.add_nestedparser(Output)
 
-        parser.add_argument('--debug', type=bool,
-            help='Hint that the box should be in debug mode. Defaults '
-                'to false.')
-        parser.add_argument('--lto', type=bool,
-            help='Hint that the box should be built with link-time '
-                'optimizations. Defaults to true.')
-        parser.add_argument('--srcs', type=list,
-            help='Supply source directories. Defaults to [\'.\'].')
-        parser.add_argument('--incs', type=list,
-            help='Supply include directories. Defaults to what\'s '
-                'passed to --srcs.')
-        defineparser = parser.add_set('--define', append=True)
-        defineparser.add_argument('define',
-            help='Add preprocessor defines to the build. It\'s up to the '
-                'output backends for these to be passed to compilation.')
-
         parser.add_set(Memory)
         parser.add_nestedparser('--stack', Section)
         parser.add_nestedparser('--heap', Section)
@@ -765,13 +800,6 @@ class Box:
                     if k != 'path'})
             for name, outputargs in output.__dict__.items()
             if outputargs.path)
-
-        self.debug = debug if debug is not None else False
-        self.lto = lto if lto is not None else True
-        self.srcs = srcs if srcs is not None else ['.']
-        self.incs = incs if incs is not None else self.srcs
-        self.defines = co.OrderedDict(sorted(
-            (k, getattr(v, 'define', v)) for k, v in define.items()))
 
         # build the runtime stack
         from .outputs import OutputGlue
