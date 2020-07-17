@@ -29,12 +29,18 @@ export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
 import.boxc_add2  = 'fn(i32, i32) -> err32'
 import.boxc_hello = 'fn() -> err'
+import.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+import.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+import.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 import.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 import.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
 import.boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 import.boxrust_add2  = 'fn(i32, i32) -> err32'
 import.boxrust_hello = 'fn() -> err'
+import.boxrust_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+import.boxrust_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+import.boxrust_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 import.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 import.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
 import.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
@@ -53,6 +59,10 @@ output.mk = 'Makefile'
 
 export.boxc_add2 = 'fn(i32, i32) -> err32'
 export.boxc_hello = 'fn() -> err'
+
+export.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+export.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+export.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 
 export.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 export.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
@@ -74,6 +84,10 @@ srcs = ['.', 'bb/src']
 
 export.boxrust_add2 = 'fn(i32, i32) -> err32'
 export.boxrust_hello = 'fn() -> err'
+
+export.boxrust_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+export.boxrust_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+export.boxrust_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 
 export.boxrust_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 export.boxrust_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'

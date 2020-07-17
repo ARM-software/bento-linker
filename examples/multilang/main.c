@@ -121,36 +121,83 @@ void main(void) {
     int x2 = boxrust_hello();
     printf("return values: %d %d\n", x1, x2);
 
+    printf("testing boxc fib\n");
+    uint32_t *boxc_fib_buffer = boxc_fib_alloc(10*sizeof(uint32_t));
+    assert(boxc_fib_buffer);
+    int res = boxc_fib(boxc_fib_buffer, 10*sizeof(uint32_t), 0, 1);
+    printf("result: %d\n", res);
+    printf("fib: [");
+    for (int i = 0; i < 10; i++) {
+        printf("%d%s", boxc_fib_buffer[i], (i < 10-1) ? ", " : "");
+    }
+    printf("]\n");
+
+    printf("testing boxrust fib\n");
+    uint32_t *boxrust_fib_buffer = boxrust_fib_alloc(10*sizeof(uint32_t));
+    assert(boxrust_fib_buffer);
+    res = boxrust_fib(boxrust_fib_buffer, 10*sizeof(uint32_t), 0, 1);
+    printf("result: %d\n", res);
+    printf("fib: [");
+    for (int i = 0; i < 10; i++) {
+        printf("%d%s", boxrust_fib_buffer[i], (i < 10-1) ? ", " : "");
+    }
+    printf("]\n");
+
+    printf("testing fib where we switch languages every number\n");
+    res = 0;
+    boxc_fib_buffer[0] = 0;
+    boxc_fib_buffer[1] = 1;
+    for (int i = 2; i <= 10-1; i += 2) {
+        res = boxc_fib_next(&boxc_fib_buffer[i],
+            boxc_fib_buffer[i-1], boxc_fib_buffer[i-2]);
+        if (res) {
+            break;
+        }
+
+        res = boxrust_fib_next(&boxrust_fib_buffer[0],
+            boxc_fib_buffer[i+1-1], boxc_fib_buffer[i+1-2]);
+        boxc_fib_buffer[i+1] = boxrust_fib_buffer[0];
+        if (res) {
+            break;
+        }
+    }
+    printf("result: %d\n", res);
+    printf("fib: [");
+    for (int i = 0; i < 10; i++) {
+        printf("%d%s", boxc_fib_buffer[i], (i < 10-1) ? ", " : "");
+    }
+    printf("]\n");
+
     printf("testing boxc qsort\n");
-    uint32_t *boxc_buffer = boxc_qsort_alloc(10*sizeof(uint32_t));
+    uint32_t *boxc_qsort_buffer = boxc_qsort_alloc(10*sizeof(uint32_t));
     // "random"
-    memcpy(boxc_buffer,
+    memcpy(boxc_qsort_buffer,
             (uint32_t[]){9,4,7,5,1,2,6,3,8,0},
             10*sizeof(uint32_t));
-    int res = boxc_qsort(boxc_buffer, 10);
+    res = boxc_qsort(boxc_qsort_buffer, 10);
     printf("result: %d\n", res);
     printf("qsort: [");
     for (int i = 0; i < 10; i++) {
-        printf("%d%s", boxc_buffer[i], (i < 10-1) ? ", " : "");
+        printf("%d%s", boxc_qsort_buffer[i], (i < 10-1) ? ", " : "");
     }
     printf("]\n");
 
     printf("testing boxrust qsort\n");
-    uint32_t *boxrust_buffer = boxrust_qsort_alloc(10*sizeof(uint32_t));
+    uint32_t *boxrust_qsort_buffer = boxrust_qsort_alloc(10*sizeof(uint32_t));
     // "random"
-    memcpy(boxrust_buffer,
+    memcpy(boxrust_qsort_buffer,
             (uint32_t[]){9,4,7,5,1,2,6,3,8,0},
             10*sizeof(uint32_t));
-    res = boxrust_qsort(boxrust_buffer, 10);
+    res = boxrust_qsort(boxrust_qsort_buffer, 10);
     printf("result: %d\n", res);
     printf("qsort: [");
     for (int i = 0; i < 10; i++) {
-        printf("%d%s", boxrust_buffer[i], (i < 10-1) ? ", " : "");
+        printf("%d%s", boxrust_qsort_buffer[i], (i < 10-1) ? ", " : "");
     }
     printf("]\n");
 
     printf("testing qsort where we switch languages for every partition\n");
-    memcpy(boxc_buffer,
+    memcpy(boxc_qsort_buffer,
             (uint32_t[]){9,4,7,5,1,2,6,3,8,0},
             10*sizeof(uint32_t));
     res = qsort(
@@ -159,13 +206,13 @@ void main(void) {
                 boxrust_qsort_partition},
             0, 2,
             (uint32_t *const[]){
-                boxc_buffer,
-                boxrust_buffer},
+                boxc_qsort_buffer,
+                boxrust_qsort_buffer},
             0, 10);
     printf("result: %d\n", res);
     printf("qsort: [");
     for (int i = 0; i < 10; i++) {
-        printf("%d%s", boxc_buffer[i], (i < 10-1) ? ", " : "");
+        printf("%d%s", boxc_qsort_buffer[i], (i < 10-1) ? ", " : "");
     }
     printf("]\n");
 

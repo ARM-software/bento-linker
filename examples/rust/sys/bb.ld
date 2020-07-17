@@ -3,10 +3,13 @@
 /* box calls */
 __box_boxrust_rawinit = 0x1e000000 + 1*4 + 1*2 + 1;
 __box_boxrust_raw_boxrust_add2 = 0x1e000000 + 3*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_hello = 0x1e000000 + 5*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_qsort = 0x1e000000 + 7*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_qsort_alloc = 0x1e000000 + 9*4 + 0*2 + 1;
-__box_boxrust_raw_boxrust_qsort_partition = 0x1e000000 + 11*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_fib = 0x1e000000 + 5*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_fib_alloc = 0x1e000000 + 7*4 + 0*2 + 1;
+__box_boxrust_raw_boxrust_fib_next = 0x1e000000 + 9*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_hello = 0x1e000000 + 11*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_qsort = 0x1e000000 + 13*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_qsort_alloc = 0x1e000000 + 15*4 + 0*2 + 1;
+__box_boxrust_raw_boxrust_qsort_partition = 0x1e000000 + 17*4 + 1*2 + 1;
 
 ENTRY(__box_reset_handler)
 

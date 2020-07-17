@@ -13,6 +13,10 @@ output.mk = 'Makefile'
 export.boxc_add2= 'fn(i32, i32) -> err32'
 export.boxc_hello = 'fn() -> err'
 
+export.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+export.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+export.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
+
 export.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 export.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'
 export.boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
@@ -49,6 +53,10 @@ export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
 
 import.boxc_add2  = 'fn(i32, i32) -> err32'
 import.boxc_hello = 'fn() -> err'
+
+import.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
+import.boxc_fib_next = 'fn(mut u32 *next, u32 a, u32 b) -> err'
+import.boxc_fib = 'fn(mut u32 buffer[size], usize size, u32 a, u32 b) -> err'
 
 import.boxc_qsort_alloc = 'fn(usize size) -> nullable mut u8*'
 import.boxc_qsort_partition = 'fn(mut u32 buffer[size], usize size, u32 pivot) -> errsize'

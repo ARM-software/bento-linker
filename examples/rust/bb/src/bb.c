@@ -10,6 +10,12 @@
 
 extern int32_t boxrust_add2(int32_t __a0, int32_t __a1);
 
+extern int boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+
+extern void* boxrust_fib_alloc(size_t size);
+
+extern int boxrust_fib_next(uint32_t *next, uint32_t a, uint32_t b);
+
 extern int boxrust_hello(void);
 
 extern int boxrust_qsort(uint32_t *buffer, size_t size);
@@ -443,6 +449,9 @@ const uint32_t __box_boxrust_jumptable[] = {
     (uint32_t)&__stack_end,
     (uint32_t)__box_init,
     (uint32_t)boxrust_add2,
+    (uint32_t)boxrust_fib,
+    (uint32_t)boxrust_fib_alloc,
+    (uint32_t)boxrust_fib_next,
     (uint32_t)boxrust_hello,
     (uint32_t)boxrust_qsort,
     (uint32_t)boxrust_qsort_alloc,

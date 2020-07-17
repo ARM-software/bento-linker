@@ -77,15 +77,29 @@ void main(void) {
     int x1 = boxrust_hello();
     printf("return values: %d\n", x1);
 
+    printf("testing fib\n");
+    uint32_t *fib_buffer = boxrust_fib_alloc(10*sizeof(uint32_t));
+    assert(fib_buffer);
+    int res = boxrust_fib(fib_buffer, 10*sizeof(uint32_t), 0, 1);
+    printf("result: %d\n", res);
+    printf("fib: [");
+    for (int i = 0; i < 10; i++) {
+        printf("%d%s", fib_buffer[i], (i < 10-1) ? ", " : "");
+    }
+    printf("]\n");
+
     printf("testing qsort\n");
-    uint32_t *buffer = boxrust_qsort_alloc(10*sizeof(uint32_t));
+    uint32_t *qsort_buffer = boxrust_qsort_alloc(10*sizeof(uint32_t));
+    assert(qsort_buffer);
     // "random"
-    memcpy(buffer, (uint32_t[]){9,4,7,5,1,2,6,3,8,0}, 10*sizeof(uint32_t));
-    int res = boxrust_qsort(buffer, 10);
+    memcpy(qsort_buffer,
+            (uint32_t[]){9,4,7,5,1,2,6,3,8,0},
+            10*sizeof(uint32_t));
+    res = boxrust_qsort(qsort_buffer, 10);
     printf("result: %d\n", res);
     printf("qsort: [");
     for (int i = 0; i < 10; i++) {
-        printf("%d%s", buffer[i], (i < 10-1) ? ", " : "");
+        printf("%d%s", qsort_buffer[i], (i < 10-1) ? ", " : "");
     }
     printf("]\n");
 

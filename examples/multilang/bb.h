@@ -9,6 +9,12 @@
 
 int32_t boxc_add2(int32_t __a0, int32_t __a1);
 
+int boxc_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+
+void* boxc_fib_alloc(size_t size);
+
+int boxc_fib_next(uint32_t *next, uint32_t a, uint32_t b);
+
 int boxc_hello(void);
 
 int boxc_qsort(uint32_t *buffer, size_t size);
@@ -18,6 +24,12 @@ void* boxc_qsort_alloc(size_t size);
 ssize_t boxc_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
 int32_t boxrust_add2(int32_t __a0, int32_t __a1);
+
+int boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+
+void* boxrust_fib_alloc(size_t size);
+
+int boxrust_fib_next(uint32_t *next, uint32_t a, uint32_t b);
 
 int boxrust_hello(void);
 

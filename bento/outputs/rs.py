@@ -142,15 +142,13 @@ class RustOutput(outputs.Output):
                         'as *%(const)s [%(prim)s; %(asize)s];',
                         const='const' if arg.isconst() else 'mut',
                         prim=arg.prim())
-                out.printf('let %(name)s = unsafe { '
-                    '%(name)s.%(as_ref)s() };',
-                    as_ref=('as_mut'
-                            if arg.ismut() else
-                            'as_ref')
-                        if arg.isnullable() else
-                        ('as_mut_unchecked'
-                            if arg.ismut() else
-                            'as_ref_unchecked'))
+                if arg.isnullable():
+                    out.printf('let %(name)s = unsafe { '
+                        '%(name)s.%(as_ref)s() };',
+                        as_ref='as_mut' if arg.ismut() else 'as_ref')
+                else:
+                    out.printf('let %(name)s = unsafe { &%(mut)s*%(name)s };',
+                        mut='mut ' if arg.ismut() else '')
             if isinstance(arg.asize(), str):
                 if arg.isnullable():
                     out.printf('let %(name)s = match !%(name)s.is_null() {')

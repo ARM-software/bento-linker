@@ -11,6 +11,12 @@
 
 int32_t boxrust_add2(int32_t __a0, int32_t __a1);
 
+int boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+
+void* boxrust_fib_alloc(size_t size);
+
+int boxrust_fib_next(uint32_t *next, uint32_t a, uint32_t b);
+
 int boxrust_hello(void);
 
 int boxrust_qsort(uint32_t *buffer, size_t size);
@@ -1218,6 +1224,42 @@ int32_t boxrust_add2(int32_t __a0, int32_t __a1) {
 
     extern int32_t __box_boxrust_raw_boxrust_add2(int32_t __a0, int32_t __a1);
     return __box_boxrust_raw_boxrust_add2(__a0, __a1);
+}
+
+int boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_boxrust_raw_boxrust_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+    return __box_boxrust_raw_boxrust_fib(buffer, size, a, b);
+}
+
+void* boxrust_fib_alloc(size_t size) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            __box_abort(_err);
+        }
+    }
+
+    extern void* __box_boxrust_raw_boxrust_fib_alloc(size_t size);
+    return __box_boxrust_raw_boxrust_fib_alloc(size);
+}
+
+int boxrust_fib_next(uint32_t *next, uint32_t a, uint32_t b) {
+    if (!__box_boxrust_state.initialized) {
+        int _err = __box_boxrust_init();
+        if (_err) {
+            return _err;
+        }
+    }
+
+    extern int __box_boxrust_raw_boxrust_fib_next(uint32_t *next, uint32_t a, uint32_t b);
+    return __box_boxrust_raw_boxrust_fib_next(next, a, b);
 }
 
 int boxrust_hello(void) {

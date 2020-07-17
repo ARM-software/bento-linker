@@ -10,13 +10,41 @@ int boxc_hello(void) {
     return 0;
 }
 
-static uint8_t buffer[64];
-void *boxc_qsort_alloc(size_t size) {
-    if (size > sizeof(buffer)) {
+static uint8_t fib_buffer[64];
+void *boxc_fib_alloc(size_t size) {
+    if (size > sizeof(fib_buffer)) {
         return NULL;
     }
 
-    return buffer;
+    return fib_buffer;
+}
+
+int boxc_fib_next(uint32_t *next, uint32_t a, uint32_t b) {
+    *next = a + b;
+    return 0;
+}
+
+int boxc_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b) {
+    if (size < 2) {
+        return -EINVAL;
+    }
+
+    buffer[0] = a;
+    buffer[1] = b;
+    for (int i = 2; i < size; i++) {
+        buffer[i] = buffer[i-1] + buffer[i-2];
+    }
+
+    return 0;
+}
+
+static uint8_t qsort_buffer[64];
+void *boxc_qsort_alloc(size_t size) {
+    if (size > sizeof(qsort_buffer)) {
+        return NULL;
+    }
+
+    return qsort_buffer;
 }
 
 ssize_t boxc_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot) {

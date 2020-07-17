@@ -9,6 +9,12 @@
 
 extern int32_t boxc_add2(int32_t __a0, int32_t __a1);
 
+extern int boxc_fib(uint32_t *buffer, size_t size, uint32_t a, uint32_t b);
+
+extern void* boxc_fib_alloc(size_t size);
+
+extern int boxc_fib_next(uint32_t *next, uint32_t a, uint32_t b);
+
 extern int boxc_hello(void);
 
 extern int boxc_qsort(uint32_t *buffer, size_t size);

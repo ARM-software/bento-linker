@@ -34,6 +34,53 @@ pub mod export {
         __r0
     }
 
+    #[export_export(type=fn(buffer: &mut [u32], a: u32, b: u32) -> __box_exports::Result<()>)]
+    pub fn boxrust_fib(buffer: *mut u32, size: usize, a: u32, b: u32) -> i32 {
+        #[allow(unused_imports)]
+        use core::{convert::TryFrom, ptr, slice};
+        #[allow(unused_imports)]
+        use __box_exports::{Result, Error};
+        let buffer = unsafe { slice::from_raw_parts_mut(buffer, size) };
+        let __r0 = __box_export_boxrust_fib(buffer, a, b);
+        let __r0 = match __r0 {
+            Ok(()) => 0,
+            Err(err) => -err.get_i32(),
+        };
+        __r0
+    }
+
+    #[export_export(type=fn(size: usize) -> Option<&'static mut u8>)]
+    pub fn boxrust_fib_alloc(size: usize) -> *mut u8 {
+        #[allow(unused_imports)]
+        use core::{convert::TryFrom, ptr, slice};
+        #[allow(unused_imports)]
+        use __box_exports::{Result, Error};
+        let __r0 = __box_export_boxrust_fib_alloc(size);
+        let __r0 = match __r0 {
+            Some(__r0) => {
+                let __r0 = __r0 as *mut u8;
+                __r0
+            },
+            None => ptr::null_mut(),
+        };
+        __r0
+    }
+
+    #[export_export(type=fn(next: &mut u32, a: u32, b: u32) -> __box_exports::Result<()>)]
+    pub fn boxrust_fib_next(next: *mut u32, a: u32, b: u32) -> i32 {
+        #[allow(unused_imports)]
+        use core::{convert::TryFrom, ptr, slice};
+        #[allow(unused_imports)]
+        use __box_exports::{Result, Error};
+        let next = unsafe { &mut *next };
+        let __r0 = __box_export_boxrust_fib_next(next, a, b);
+        let __r0 = match __r0 {
+            Ok(()) => 0,
+            Err(err) => -err.get_i32(),
+        };
+        __r0
+    }
+
     #[export_export(type=fn() -> __box_exports::Result<()>)]
     pub fn boxrust_hello() -> i32 {
         #[allow(unused_imports)]

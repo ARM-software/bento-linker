@@ -158,6 +158,10 @@ pub fn export_export(attrs: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
+    if cfg!(feature = "debug-gen") {
+        println!("export_export gen => {}", q);
+    }
+
     q.into()
 }
 
@@ -180,6 +184,10 @@ pub fn export(attrs: TokenStream, input: TokenStream) -> TokenStream {
         #export_path!(#name);
         #f
     };
+
+    if cfg!(feature = "debug-gen") {
+        println!("export gen => {}", q);
+    }
 
     q.into()
 }

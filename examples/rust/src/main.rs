@@ -13,6 +13,40 @@ pub fn hello() -> Result<()> {
     Ok(())
 }
 
+// fib example
+static mut FIB_BUFFER: [u8; 64] = [0; 64];
+
+#[export(export::boxrust_fib_alloc)]
+pub fn fib_alloc(size: usize) -> Option<&'static mut u8> {
+    let buffer = unsafe { &mut FIB_BUFFER };
+    if size > buffer.len() {
+        return None;
+    }
+
+    Some(&mut buffer[0])
+}
+
+#[export(export::boxrust_fib_next)]
+pub fn fib_next(next: &mut u32, a: u32, b: u32) -> Result<()> {
+    *next = a + b;
+    Ok(())
+}
+
+#[export(export::boxrust_fib)]
+pub fn fib(buffer: &mut [u32], a: u32, b: u32) -> Result<()> {
+    if buffer.len() < 2 {
+        Err(Error::INVAL)?;
+    }
+
+    buffer[0] = a;
+    buffer[1] = b;
+    for i in 2..buffer.len() {
+        buffer[i] = buffer[i-1] + buffer[i-2];
+    }
+
+    Ok(())
+}
+
 // quicksort example
 static mut QSORT_BUFFER: [u8; 64] = [0; 64];
 

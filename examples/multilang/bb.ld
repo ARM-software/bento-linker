@@ -3,16 +3,22 @@
 /* box calls */
 __box_boxc_rawinit = 0x1e000000 + 1*4 + 1*2 + 1;
 __box_boxc_raw_boxc_add2 = 0x1e000000 + 4*4 + 1*2 + 1;
-__box_boxc_raw_boxc_hello = 0x1e000000 + 7*4 + 1*2 + 1;
-__box_boxc_raw_boxc_qsort = 0x1e000000 + 10*4 + 1*2 + 1;
-__box_boxc_raw_boxc_qsort_alloc = 0x1e000000 + 13*4 + 0*2 + 1;
-__box_boxc_raw_boxc_qsort_partition = 0x1e000000 + 16*4 + 1*2 + 1;
+__box_boxc_raw_boxc_fib = 0x1e000000 + 7*4 + 1*2 + 1;
+__box_boxc_raw_boxc_fib_alloc = 0x1e000000 + 10*4 + 0*2 + 1;
+__box_boxc_raw_boxc_fib_next = 0x1e000000 + 13*4 + 1*2 + 1;
+__box_boxc_raw_boxc_hello = 0x1e000000 + 16*4 + 1*2 + 1;
+__box_boxc_raw_boxc_qsort = 0x1e000000 + 19*4 + 1*2 + 1;
+__box_boxc_raw_boxc_qsort_alloc = 0x1e000000 + 22*4 + 0*2 + 1;
+__box_boxc_raw_boxc_qsort_partition = 0x1e000000 + 25*4 + 1*2 + 1;
 __box_boxrust_rawinit = 0x1e000000 + 2*4 + 1*2 + 1;
 __box_boxrust_raw_boxrust_add2 = 0x1e000000 + 5*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_hello = 0x1e000000 + 8*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_qsort = 0x1e000000 + 11*4 + 1*2 + 1;
-__box_boxrust_raw_boxrust_qsort_alloc = 0x1e000000 + 14*4 + 0*2 + 1;
-__box_boxrust_raw_boxrust_qsort_partition = 0x1e000000 + 17*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_fib = 0x1e000000 + 8*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_fib_alloc = 0x1e000000 + 11*4 + 0*2 + 1;
+__box_boxrust_raw_boxrust_fib_next = 0x1e000000 + 14*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_hello = 0x1e000000 + 17*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_qsort = 0x1e000000 + 20*4 + 1*2 + 1;
+__box_boxrust_raw_boxrust_qsort_alloc = 0x1e000000 + 23*4 + 0*2 + 1;
+__box_boxrust_raw_boxrust_qsort_partition = 0x1e000000 + 26*4 + 1*2 + 1;
 
 ENTRY(__box_reset_handler)
 
