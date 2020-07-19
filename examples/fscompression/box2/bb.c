@@ -125,7 +125,11 @@ void __assert_func(const char *file, int line,
 
 __attribute__((noreturn))
 void _exit(int returncode) {
-    __box_abort(-returncode);
+    if (returncode > 0) {
+        returncode = -returncode;
+    }
+
+    __box_abort(returncode);
 }
 #endif
 

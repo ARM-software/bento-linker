@@ -148,14 +148,6 @@ class BuildCommand:
         box.box()
         box.link()
 
-        def stackwarn(box):
-            if not box.stack.size:
-                print("%s: warning: box %s has no stack!" % (
-                    os.path.basename(sys.argv[0]), box.name))
-            for child in box.boxes:
-                stackwarn(child)
-        stackwarn(box)
-
         print("building...")
         box.build()
 

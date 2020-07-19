@@ -16,7 +16,11 @@ void __assert_func(const char *file, int line,
 
 __attribute__((noreturn))
 void _exit(int returncode) {
-    __box_abort(-returncode);
+    if (returncode > 0) {
+        returncode = -returncode;
+    }
+
+    __box_abort(returncode);
 }
 #endif
 """
@@ -55,7 +59,7 @@ class AbortGlue(glue.Glue):
     __name = 'abort_glue'
     def box(self, box):
         super().box(box)
-        self._abort_hook = box.addimport(
+        self.__abort_hook = box.addimport(
             '__box_abort', 'fn(err32) -> void',
             target=box.name, source=self.__name, weak=True,
             doc="May be called by well-behaved code to terminate the box "
@@ -67,7 +71,7 @@ class AbortGlue(glue.Glue):
         super().build_c(output, box)
 
         output.decls.append('//// __box_abort glue ////')
-        if not self._abort_hook.link:
+        if not self.__abort_hook.link:
             # defaults to just halting
             out = output.decls.append()
             out.printf('__attribute__((noreturn))')
@@ -76,7 +80,7 @@ class AbortGlue(glue.Glue):
                 out.printf('// if there\'s no other course of action, we spin')
                 out.printf('while (1) {}')
             out.printf('}')
-        elif self._abort_hook.link.export.alias != '__box_abort':
+        elif self.__abort_hook.link.export.alias != '__box_abort':
             # jump to correct implementation
             out = output.decls.append()
             out.printf('__attribute__((noreturn))')

@@ -358,7 +358,7 @@ class WriteGlue(glue.Glue):
     __name = 'write_glue'
     def box(self, box):
         super().box(box)
-        self._write_hook = box.addimport(
+        self.__write_hook = box.addimport(
             '__box_write', 'fn(i32, const u8*, usize) -> errsize',
             target=box.name, source=self.__name, weak=True,
             doc="Provides a minimal implementation of stdout to the box. "
@@ -370,7 +370,7 @@ class WriteGlue(glue.Glue):
         super().build_c(output, box)
 
         output.decls.append('//// __box_write glue ////')
-        if not self._write_hook.link:
+        if not self.__write_hook.link:
             # defaults to noop
             out = output.decls.append()
             out.printf('ssize_t __box_write(int32_t fd, '
@@ -378,14 +378,14 @@ class WriteGlue(glue.Glue):
             with out.indent():
                 out.printf('return size;')
             out.printf('}')
-        elif self._write_hook.link.export.alias != '__box_write':
+        elif self.__write_hook.link.export.alias != '__box_write':
             # jump to correct implementation
             out = output.decls.append()
             out.printf('ssize_t __box_write(int32_t fd, '
                 'const void *buffer, size_t size) {')
             with out.indent():
                 out.printf('return %(alias)s(fd, buffer, size);',
-                    alias=self._write_hook.link.export.alias)
+                    alias=self.__write_hook.link.export.alias)
             out.printf('}')
 
         if output.printf_impl == 'minimal':

@@ -46,7 +46,10 @@ class HOutput(outputs.Output):
         return ''.join(it.chain(
             (attr + ('\n' if attr.startswith('__') else ' ')
                 for attr in it.chain(
-                    (['__attribute__((noreturn))'] if fn.isnoreturn() else []) +
+                    (['__attribute__((noreturn))']
+                        if fn.isnoreturn() and (
+                            name is None or '*' not in name) else
+                        []) +
                     attrs)), [
             '%s ' % HOutput.repr_arg(fn.rets[0], '') if fn.rets else
             'void ',

@@ -41,6 +41,8 @@ class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
     __name = __argname__
     def box(self, box):
+        if not box.stack.size:
+            print("warning: Box `%s` has no stack!" % box.name)
         super().box(box)
         self._isr_vector.alloc(box, 'rp')
 

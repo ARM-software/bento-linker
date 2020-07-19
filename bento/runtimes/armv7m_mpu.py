@@ -505,6 +505,8 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         super().box_parent(parent, box)
 
     def box(self, box):
+        if not box.stack.size:
+            print("warning: Box `%s` has no stack!" % box.name)
         super().box(box)
         self._jumptable.alloc(box, 'rp')
         # plumbing
@@ -523,7 +525,7 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             target=box.name, source=self.__name, weak=True)
         if self._zero:
             # zeroing takes care of bss
-            box.addexport('__box_boss_init', 'fn() -> void',
+            box.addexport('__box_bss_init', 'fn() -> void',
                 target=box.name, source=self.__argname__, weak=True)
 
     # overridable

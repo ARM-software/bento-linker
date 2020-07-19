@@ -541,9 +541,9 @@ class Fn:
             (m.group(1) or m.group(2) or '').split(',')]
         rets = [ret.strip() for ret in
             (m.group(3) or m.group(4) or '').split(',')]
-        if args == ['noreturn']:
+        if rets == ['noreturn']:
             noreturn = True
-            args = []
+            rets = []
         if args in [['void'], ['']]:
             args = []
         if rets in [['void'], ['']]:
@@ -616,6 +616,13 @@ class Fn:
 
     def __lt__(self, other):
         return self.name < other.name
+
+    def uniquename(self, name):
+        """ Insure name is unique given arg/rets """
+        if any(arg.name == name for arg in it.chain(self.args, self.rets)):
+            return '__box_' + name
+        else:
+            return name
 
     def argnames(self):
         names = set(

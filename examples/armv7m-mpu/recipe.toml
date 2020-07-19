@@ -1,0 +1,101 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+heap = 0x800
+stack = 0x800
+
+runtime = 'armv7m_sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates'
+]
+
+export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.sys_ping = 'fn(i32) -> err32'
+
+import.box1_ping = 'fn(i32) -> err32'
+import.box1_ping_import = 'fn(i32) -> err32'
+import.box1_ping_abort = 'fn(i32) -> err32'
+import.box1_hello = 'fn() -> err'
+
+import.box2_ping = 'fn(i32) -> err32'
+import.box2_ping_import = 'fn(i32) -> err32'
+import.box2_ping_abort = 'fn(i32) -> err32'
+import.box2_hello = 'fn() -> err'
+
+import.box3_ping = 'fn(i32) -> err32'
+import.box3_ping_import = 'fn(i32) -> err32'
+import.box3_ping_abort = 'fn(i32) -> err32'
+import.box3_hello = 'fn() -> err'
+
+[box.box1]
+runtime = 'armv7m_mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x2000'
+heap = 0x800
+stack = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box1_ping = 'fn(i32) -> err32'
+export.box1_ping_import = 'fn(i32) -> err32'
+export.box1_ping_abort = 'fn(i32) -> err32'
+export.box1_hello = 'fn() -> err'
+
+[box.box2]
+runtime = 'armv7m_mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x2000'
+heap = 0x800
+stack = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box2_ping = 'fn(i32) -> err32'
+export.box2_ping_import = 'fn(i32) -> err32'
+export.box2_ping_abort = 'fn(i32) -> err32'
+export.box2_hello = 'fn() -> err'
+
+[box.box3]
+runtime = 'armv7m_mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x2000'
+heap = 0x800
+stack = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box3_ping = 'fn(i32) -> err32'
+export.box3_ping_import = 'fn(i32) -> err32'
+export.box3_ping_abort = 'fn(i32) -> err32'
+export.box3_hello = 'fn() -> err'
+
