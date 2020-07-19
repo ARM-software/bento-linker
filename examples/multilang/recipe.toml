@@ -3,7 +3,7 @@ memory.ram   = 'rw 0x20000000-0x2003ffff'
 stack = 0x800
 heap = 0x800
 
-runtime = 'armv7m_sys'
+runtime = 'armv7m-sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
@@ -53,7 +53,7 @@ import.boxrust_qsort_partition = '''
 import.boxrust_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 [box.boxc]
-runtime = 'armv7m_mpu'
+runtime = 'armv7m-mpu'
 memory.flash = 'rxp 0x8000'
 memory.ram = 'rw 0x2000'
 stack = 0x800
@@ -80,7 +80,7 @@ export.boxc_qsort_partition = '''
 export.boxc_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 [box.boxrust]
-runtime = 'armv7m_mpu'
+runtime = 'armv7m-mpu'
 memory.flash = 'rxp 0x8000'
 memory.ram = 'rw 0x2000'
 stack = 0x800

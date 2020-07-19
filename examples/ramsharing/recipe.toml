@@ -3,7 +3,7 @@ memory.ram   = 'rw 0x20000000-0x2003ffff'
 stack = 0x800
 heap = 0x800
 
-runtime = 'armv7m_sys'
+runtime = 'armv7m-sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
@@ -34,7 +34,7 @@ import.box3_add2  = 'fn(i32, i32) -> err32'
 import.box3_hello = 'fn() -> err'
 
 [box.box1]
-runtime = 'armv7m_mpu'
+runtime = 'armv7m-mpu'
 memory.flash = 'r-xp 8192 bytes'
 memory.ram   = 'rw-- 0x2003e000-0x2003ffff 8192 bytes'
 stack = 0x800
@@ -50,7 +50,7 @@ export.box1_add2= 'fn(i32, i32) -> err32'
 export.box1_hello = 'fn() -> err'
 
 [box.box2]
-runtime = 'armv7m_mpu'
+runtime = 'armv7m-mpu'
 memory.flash = 'r-xp 8192 bytes'
 memory.ram   = 'rw-- 0x2003e000-0x2003ffff 8192 bytes'
 stack = 0x800
@@ -66,7 +66,7 @@ export.box2_add2= 'fn(i32, i32) -> err32'
 export.box2_hello = 'fn() -> err'
 
 [box.box3]
-runtime = 'armv7m_mpu'
+runtime = 'armv7m-mpu'
 memory.flash = 'r-xp 8192 bytes'
 memory.ram   = 'rw-- 0x2003e000-0x2003ffff 8192 bytes'
 stack = 0x800

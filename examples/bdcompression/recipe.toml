@@ -3,7 +3,7 @@ memory.ram   = 'rwx- 0x20000000-0x2003ffff'
 stack = 0x800
 heap = 0x800
 
-runtime = 'armv7m_sys'
+runtime = 'armv7m-sys'
 output.ld = 'bb.ld'
 output.h = 'bb.h'
 output.c = 'bb.c'
@@ -40,8 +40,8 @@ import.box3_add2  = 'fn(i32, i32) -> err32'
 import.box3_hello = 'fn() -> err'
 
 [box.box1]
-runtime = 'armv7m_mpu'
-loader.select = 'bd'
+runtime = 'armv7m-mpu'
+loader.loader = 'bd'
 loader.bd.region = '0x00000000-0x00002000'
 loader.bd.block_size = 4096
 loader.bd.glz = '../glz'
@@ -60,8 +60,8 @@ export.box1_add2= 'fn(i32, i32) -> err32'
 export.box1_hello = 'fn() -> err'
 
 [box.box2]
-runtime = 'armv7m_mpu'
-loader.select = 'bd'
+runtime = 'armv7m-mpu'
+loader.loader = 'bd'
 loader.bd.region = '0x00002000-0x00004000'
 loader.bd.block_size = 4096
 loader.bd.glz = '../glz'
@@ -80,8 +80,8 @@ export.box2_add2= 'fn(i32, i32) -> err32'
 export.box2_hello = 'fn() -> err'
 
 [box.box3]
-runtime = 'armv7m_mpu'
-loader.select = 'bd'
+runtime = 'armv7m-mpu'
+loader.loader = 'bd'
 loader.bd.region = '0x00004000-0x00006000'
 loader.bd.block_size = 4096
 loader.bd.glz = '../glz'

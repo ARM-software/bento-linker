@@ -501,7 +501,7 @@ class Fn:
             help=cls.__arghelp__)
         parser.add_argument("--type", pred=cls.parsetype,
             help="Type of the function.")
-        parser.add_argument("--alias",
+        parser.add_argument("--alias", underscore=True,
             help="Name used in the box for the function.")
         parser.add_argument("--doc",
             help="Documentation for the function.")
@@ -715,17 +715,17 @@ class Box:
         parser.add_argument('--recipe',
             help='Path to reciple.toml file for box-specific configuration. '
                 'Defaults to <path>/recipe.toml.')
-        parser.add_argument('--name',
+        parser.add_argument('--name', underscore=True,
             help='Name of the box. Only valid for the top-level box.')
 
         from .runtimes import RUNTIMES
         runtimeparser = parser.add_nestedparser('--runtime')
-        runtimeparser.add_argument("select",
-            metavar='RUNTIME', choices=RUNTIMES,
+        runtimeparser.add_argument("runtime",
+            metavar='RUNTIME', choices=RUNTIMES, underscore=True,
             help='Runtime for the box. This can be one of the following '
                 'runtimes: {%(choices)s}.')
-        runtimeparser.add_argument("--select",
-            metavar='RUNTIME', choices=RUNTIMES,
+        runtimeparser.add_argument("--runtime",
+            metavar='RUNTIME', choices=RUNTIMES, underscore=True,
             help='Runtime for the box. This can be one of the following '
                 'runtimes: {%(choices)s}.')
         for Runtime in RUNTIMES.values():
@@ -733,12 +733,12 @@ class Box:
 
         from .loaders import LOADERS
         loaderparser = parser.add_nestedparser('--loader')
-        loaderparser.add_argument("select",
-            metavar='LOADER', choices=LOADERS,
+        loaderparser.add_argument("loader",
+            metavar='LOADER', choices=LOADERS, underscore=True,
             help='Loader for the box. This can be one of the following '
                 'loaders: {%(choices)s}. Defaults to noop.')
-        loaderparser.add_argument("--select",
-            metavar='LOADER', choices=LOADERS,
+        loaderparser.add_argument("--loader",
+            metavar='LOADER', choices=LOADERS, underscore=True,
             help='Loader for the box. This can be one of the following '
                 'loaders: {%(choices)s}. Defaults to noop.')
         for Loader in LOADERS.values():
@@ -786,12 +786,13 @@ class Box:
         self.recipe = recipe
 
         from .runtimes import RUNTIMES
-        selected = runtime.select or 'noop'
+        assert runtime.runtime, "No runtime specified for box `%s`" % self.name
+        selected = runtime.runtime
         self.runtime = RUNTIMES[selected](**getattr(
             runtime, selected, argstuff.Namespace()).__dict__)
 
         from .loaders import LOADERS
-        selected = loader.select or 'noop'
+        selected = loader.loader or 'noop'
         self.loader = LOADERS[selected](**getattr(
             loader, selected, argstuff.Namespace()).__dict__)
 

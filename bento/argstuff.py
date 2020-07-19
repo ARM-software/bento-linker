@@ -101,6 +101,14 @@ class ArgumentParser(argparse.ArgumentParser):
                 kwargs.pop('pred'),
                 kwargs.pop('type', lambda x: x))
 
+        # do underscore sanitation
+        if kwargs.pop('underscore', False):
+            def mktype(rawtype):
+                def type(x):
+                    return rawtype(x.replace('-', '_'))
+                return type
+            kwargs['type'] = mktype(kwargs.pop('type', lambda x: x))
+
         # some extra special types
         if kwargs.get('type', None) == list:
             def parselist(x):
