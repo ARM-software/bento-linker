@@ -6,7 +6,7 @@ __heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00001000;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x000dc000, LENGTH = 0x00020000
-    RAM              (RW ) : ORIGIN = 0x2001c000, LENGTH = 0x00020000
+    RAM              (RW ) : ORIGIN = 0x20034000, LENGTH = 0x00008000
 }
 
 SECTIONS {

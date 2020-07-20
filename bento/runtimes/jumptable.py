@@ -142,9 +142,9 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         out = output.decls.append()
         out.printf('//// %(box)s state ////')
-        out.printf('static bool __box_%(box)s_initialized = false;')
+        out.printf('bool __box_%(box)s_initialized = false;')
         if not self._abort_hook.link and not self._no_longjmp:
-            out.printf('static jmp_buf *__box_%(box)s_jmpbuf = NULL;')
+            out.printf('jmp_buf *__box_%(box)s_jmpbuf = NULL;')
         out.printf('extern uint32_t __box_%(box)s_jumptable[];')
         out.printf('#define __box_%(box)s_exportjumptable '
             '__box_%(box)s_jumptable')

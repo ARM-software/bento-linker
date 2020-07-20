@@ -249,9 +249,7 @@ ssize_t __box_cbprintf(
     ssize_t res = 0;
     while (true) {
         // first consume everything until a '%'
-        const char *np = strchr(p, '%');
-        size_t skip = np ? np - p : strlen(p);
-
+        size_t skip = strcspn(p, "%");
         if (skip > 0) {
             ssize_t nres = write(ctx, p, skip);
             if (nres < 0) {
@@ -260,13 +258,14 @@ ssize_t __box_cbprintf(
             res += nres;
         }
 
+        p += skip;
+
         // hit end of string?
-        if (!np) {
+        if (!*p) {
             return res;
         }
 
         // format parser
-        p = np;
         bool zero_justify = false;
         bool left_justify = false;
         bool precision_mode = false;
@@ -277,18 +276,18 @@ ssize_t __box_cbprintf(
         uint32_t value = 0;
         size_t size = 0;
 
-        for (;; np++) {
-            if (np[1] >= '0' && np[1] <= '9') {
+        for (;; p++) {
+            if (p[1] >= '0' && p[1] <= '9') {
                 // precision/width
                 if (precision_mode) {
-                    precision = precision*10 + (np[1]-'0');
-                } else if (np[1] > '0' || width > 0) {
-                    width = width*10 + (np[1]-'0');
+                    precision = precision*10 + (p[1]-'0');
+                } else if (p[1] > '0' || width > 0) {
+                    width = width*10 + (p[1]-'0');
                 } else {
                     zero_justify = true;
                 }
 
-            } else if (np[1] == '*') {
+            } else if (p[1] == '*') {
                 // dynamic precision/width
                 if (precision_mode) {
                     precision = va_arg(args, size_t);
@@ -296,29 +295,29 @@ ssize_t __box_cbprintf(
                     width = va_arg(args, size_t);
                 }
 
-            } else if (np[1] == '.') {
+            } else if (p[1] == '.') {
                 // switch mode
                 precision_mode = true;
 
-            } else if (np[1] == '-') {
+            } else if (p[1] == '-') {
                 // left-justify
                 left_justify = true;
 
-            } else if (np[1] == '%') {
+            } else if (p[1] == '%') {
                 // single '%'
                 mode = 'c';
                 value = '%';
                 size = 1;
                 break;
 
-            } else if (np[1] == 'c') {
+            } else if (p[1] == 'c') {
                 // char
                 mode = 'c';
                 value = va_arg(args, int);
                 size = 1;
                 break;
 
-            } else if (np[1] == 's') {
+            } else if (p[1] == 's') {
                 // string
                 mode = 's';
                 const char *s = va_arg(args, const char *);
@@ -330,7 +329,7 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == 'd' || np[1] == 'i') {
+            } else if (p[1] == 'd' || p[1] == 'i') {
                 // signed decimal number
                 mode = 'd';
                 int32_t d = va_arg(args, int32_t);
@@ -348,7 +347,7 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == 'u') {
+            } else if (p[1] == 'u') {
                 // unsigned decimal number
                 mode = 'u';
                 value = va_arg(args, uint32_t);
@@ -361,14 +360,14 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] >= ' ' && np[1] <= '?') {
+            } else if (p[1] >= ' ' && p[1] <= '?') {
                 // unknown modifier? skip
 
             } else {
                 // hex or unknown character, terminate
 
                 // make it prettier for pointers
-                if (!(np[1] == 'x' || np[1] == 'X')) {
+                if (!(p[1] == 'x' || p[1] == 'X')) {
                     zero_justify = true;
                     width = 2*sizeof(void*);
                 }
@@ -388,7 +387,7 @@ ssize_t __box_cbprintf(
         }
 
         // consume the format
-        p = np+2;
+        p += 2;
 
         // format printing
         if (!left_justify) {

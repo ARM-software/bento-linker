@@ -159,7 +159,7 @@ import.tlsbox_rsa_pkcs1_decrypt = '''
 [box.tlsbox]
 runtime = 'jumptable'
 memory.flash = 'rxp 0x20000'
-memory.ram = 'rw 0x20000'
+memory.ram = 'rw 0x8000'
 heap = 0x1000
 
 output.ld = 'bb.ld'

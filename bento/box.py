@@ -1142,7 +1142,7 @@ class Box:
                                     "memory.%s = %s in %s\n"
                                     "memory.%s = %s in %s" % (
                                     memory.name, memory, child.name,
-                                    memory2.name, memory2, child.name))
+                                    memory2.name, memory2, child2.name))
                                 if child2 not in child.roommates:
                                     child.roommates.append(child2)
 

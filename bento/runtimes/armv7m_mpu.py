@@ -32,14 +32,18 @@ BOX_MPU_DISPATCH = """
 #define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
 #define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
 #define MPU_RASR ((volatile uint32_t*)0xe000eda0)
+#define CCR      ((volatile uint32_t*)0xe000ed14)
 
 static int32_t __box_mpu_init(void) {
     // make sure MPU is initialized
     if (!(*MPU_CTRL & 0x1)) {
         // do we have an MPU?
         assert(*MPU_TYPE >= %(mpuregions)d);
-        // enable MemManage exception
+        // enable MemManage exceptions
         *SHCSR = *SHCSR | 0x00070000;
+        // disable stack align during exceptions
+        // TODO we should handle this properly
+        *CCR &= ~0x00000200;
         // setup call region
         *MPU_RBAR = %(callprefix)#010x | 0x10;
         // disallow execution
@@ -72,6 +76,7 @@ struct __box_frame {
     uint32_t *fp;
     uint32_t lr;
     uint32_t *sp;
+    uint32_t caller;
 };
 
 // foward declaration of fault wrapper, may be called directly
@@ -94,6 +99,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     frame->fp = fp;
     frame->lr = state->lr;
     frame->sp = state->sp;
+    frame->caller = state->caller;
     state->lr = lr;
     state->sp = sp;
 
@@ -147,7 +153,7 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "it eq \\n\\t"
         "vstmdbeq r1!, {s16-s31} \\n\\t"
         // make space to save state
-        "sub r1, r1, #3*4 \\n\\t"
+        "sub r1, r1, #4*4 \\n\\t"
         // sp == msp?
         "tst r0, #0x4 \\n\\t"
         "it eq \\n\\t"
@@ -163,7 +169,7 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "msreq msp, r1 \\n\\t"
         "msrne psp, r1 \\n\\t"
         // drop reserved frame?
-        "subne sp, sp, #8*4 \\n\\t"
+        "addne sp, sp, #8*4 \\n\\t"
         // return to call
         "bx r0 \\n\\t"
     );
@@ -188,6 +194,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     uint32_t *targetfp = targetframe->fp;
     targetstate->lr = targetframe->lr;
     targetstate->sp = targetframe->sp;
+    targetstate->caller = targetframe->caller;
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
@@ -216,7 +223,7 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         // call into c new that we have stack control
         "bl __box_retsetup \\n\\t"
         // drop saved state
-        "add r1, r1, #3*4 \\n\\t"
+        "add r1, r1, #4*4 \\n\\t"
         // restore fp registers?
         "tst r0, #0x10 \\n\\t"
         "it eq \\n\\t"
@@ -265,6 +272,7 @@ uint64_t __box_faultsetup(int32_t err) {
     __box_active = state->caller;
     targetstate->lr = targetbf->lr;
     targetstate->sp = targetbf->sp;
+    targetstate->caller = targetbf->caller;
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
@@ -291,7 +299,7 @@ void __box_faulthandler(int32_t err) {
         // call into c with stack control
         "bl __box_faultsetup \\n\\t"
         // drop saved state
-        "add r1, r1, #3*4 \\n\\t"
+        "add r1, r1, #4*4 \\n\\t"
         // restore fp registers?
         "tst r0, #0x10 \\n\\t"
         "it eq \\n\\t"
