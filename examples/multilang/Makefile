@@ -108,9 +108,9 @@ override LDFLAGS += -Wl,--wrap,fflush
 
 ### user provided flags ###
 
-override CFLAGS += -DNRF52840_XXAA=1
-override CFLAGS += -DNRFX_UARTE0_ENABLED=1
-override CFLAGS += -DNRFX_UARTE_ENABLED=1
+override CFLAGS += -DNRF52840_XXAA='1'
+override CFLAGS += -DNRFX_UARTE0_ENABLED='1'
+override CFLAGS += -DNRFX_UARTE_ENABLED='1'
 
 # target rule
 $(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)
@@ -205,6 +205,7 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
+	    $(shell find $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.S,$(SRC))))

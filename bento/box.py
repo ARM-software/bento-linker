@@ -517,17 +517,21 @@ class Fn:
             r'(?:',
                 r'\(',
                 r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r',?',
                 r'\)',
             r'|',
                 r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r',?',
             r')',
             r'->',
             r'(?:',
                 r'\(',
                 r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r',?',
                 r'\)',
             r'|',
                 r'((?:%(arg)s', r'(?:', r',', r'%(arg)s', r')*)?)',
+                r',?',
             r')']) % dict(
                 name=namepattern,
                 arg=argpattern))
@@ -565,11 +569,14 @@ class Fn:
 
         args, rets, noreturn = self.parsetype(type)
 
+        args = [Arg(arg) for arg in args]
+        rets = [Arg(ret) for ret in rets]
+
+        if sum(arg.size() for arg in args) > 4*4:
+            raise ValueError("Currently only 0-4 arguments are supported")
         if len(rets) > 1:
             raise ValueError("Currently only 0 or 1 return values supported")
 
-        args = [Arg(arg) for arg in args]
-        rets = [Arg(ret) for ret in rets]
 
         names = set()
         for arg in it.chain(args, rets):

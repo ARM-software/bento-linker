@@ -485,14 +485,14 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         for memory in box.memories:
             assert math.log2(memory.size) % 1 == 0, (
-                "Memory region %r not aligned to a power-of-two"
-                    % memory.name)
+                "Memory region `%s` not aligned to a power-of-two in box `%s`"
+                    % (memory.name, box.name))
             assert memory.addr % memory.size == 0, (
-                "Memory region %r not aligned to its size"
-                    % memory.name)
+                "Memory region `%s` not aligned to its size in box `%s`"
+                    % (memory.name, box.name))
             assert memory.size >= 32, (
-                "Memory region %r too small (< 32 bytes)"
-                    % memory.name)
+                "Memory region `%s` too small (< 32 bytes) in box `%s`"
+                    % (memory.name, box.name))
 
         parent.addimport(
             '__box_init', 'fn() -> err32',

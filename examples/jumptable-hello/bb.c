@@ -959,11 +959,6 @@ int __box_box1_clobber(void) {
 }
 
 int __box_box1_init(void) {
-    // do nothing if already initialized
-    if (__box_box1_initialized) {
-        return 0;
-    }
-
     int err;
     // load the box if unloaded
     err = __box_box1_load();
@@ -1127,11 +1122,6 @@ int __box_box2_clobber(void) {
 }
 
 int __box_box2_init(void) {
-    // do nothing if already initialized
-    if (__box_box2_initialized) {
-        return 0;
-    }
-
     int err;
     // load the box if unloaded
     err = __box_box2_load();
@@ -1295,11 +1285,6 @@ int __box_box3_clobber(void) {
 }
 
 int __box_box3_init(void) {
-    // do nothing if already initialized
-    if (__box_box3_initialized) {
-        return 0;
-    }
-
     int err;
     // load the box if unloaded
     err = __box_box3_load();

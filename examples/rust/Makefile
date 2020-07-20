@@ -164,6 +164,7 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
+	    $(shell find $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.S,$(SRC))))

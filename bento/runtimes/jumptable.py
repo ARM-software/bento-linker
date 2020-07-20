@@ -267,12 +267,6 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         out = output.decls.append()
         out.printf('int __box_%(box)s_init(void) {')
         with out.indent():
-            out.printf('// do nothing if already initialized')
-            out.printf('if (__box_%(box)s_initialized) {')
-            with out.indent():
-                out.printf('return 0;')
-            out.printf('}')
-            out.printf()
             out.printf('int err;')
             if box.roommates:
                 out.printf('// bring down any overlapping boxes')

@@ -4,3 +4,6 @@
 [submodule "extra/toml"]
 	path = extra/toml
 	url = gitlab.com:arm-research/security/bento-box/toml.git
+[submodule "extra/mbedtls"]
+	path = extra/mbedtls
+	url = git@github.com:armmbed/mbedtls

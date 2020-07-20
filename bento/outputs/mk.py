@@ -319,6 +319,7 @@ class MKOutput(outputs.Output):
         with out.indent():
             out.writef('$(strip ctags')
             with out.indent():
+                out.writef(' \\\n$(shell find $(INC) -name \'*.h\')')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.c,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.s,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.S,$(SRC)))')
@@ -396,7 +397,7 @@ class MKOutput(outputs.Output):
         if self._defines or self._c_flags:
             out = self.decls.append()
             for k, v in self._defines.items():
-                out.printf('override CFLAGS += -D%s=%s' % (k, v))
+                out.printf('override CFLAGS += -D%s=%r' % (k, v))
 
             for cflag in self._c_flags:
                 out.printf('override CFLAGS += %s' % cflag)
