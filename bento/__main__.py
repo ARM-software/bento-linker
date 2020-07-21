@@ -7,6 +7,7 @@ import textwrap
 import re
 from .box import Box
 from .argstuff import ArgumentParser
+from .glue.error_glue import ErrorGlue
 
 COMMANDS = co.OrderedDict()
 def command(cls):
@@ -143,25 +144,28 @@ class BuildCommand:
     def __argparse__(cls, parser):
         box_argparse(cls, parser)
     def __init__(self, **args):
-        print("scanning...")
         box = Box.scan(**args)
         box.box()
         box.link()
-
-        print("building...")
         box.build()
 
         def outputwrite(box):
             for output in box.outputs:
-                print("writing %s %s %s > %s..." % (
-                    box.name, box.runtime.name, output.name, output.path))
+                print('generating %(name)s(%(runtime)s%(loader)s+%(output)s) '
+                    '%(path)s' % dict(
+                        name=box.name,
+                        runtime=box.runtime.name,
+                        loader=('+'+box.loader.name
+                            if box.loader.name != 'noop' else
+                            ''),
+                        output=output.name,
+                        path=output.path))
                 with open(output.path, 'w') as outf:
                     # TODO open in Output.__init__?
                     outf.write(output.getvalue())
             for child in box.boxes:
                 outputwrite(child)
         outputwrite(box)
-        print("done!")
 
 @command
 class OptionsCommand:
@@ -266,6 +270,42 @@ class HooksCommand:
                 hooks(child)
 
         hooks(box)
+
+@command
+class ErrorsCommand:
+    """
+    List or look up error codes based on name or number.
+    """
+    __argname__ = "errors"
+    __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser):
+        parser.add_argument("error", nargs='?',
+            help="Error code to look up, either by name or by number.")
+    def __init__(self, error):
+        if error is None:
+            namew, codew = 0, 0
+            for name, code, desc in ErrorGlue.errors():
+                if len(name) > namew:
+                    namew = len(name)
+                if len(str(code)) > codew:
+                    codew = len(str(code))
+            for name, code, desc in ErrorGlue.errors():
+                print('%-*s  %*d  %s' % (namew, name, codew, code, desc))
+        else:
+            try:
+                error = int(error, 0)
+            except ValueError:
+                pass
+
+            found = ErrorGlue.geterror(error)
+            if found is None:
+                print('Unknown error')
+                sys.exit(1)
+
+            name, code, desc = found
+            print('%s %s %s' % (name, code, desc))
+
 
 def main():
     parser = ArgumentParser(

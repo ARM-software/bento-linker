@@ -157,6 +157,34 @@ class ErrorGlue(glue.Glue):
     Helper layer for generating error codes in different languages.
     """
     __name = 'error_glue'
+
+    @staticmethod
+    def errors():
+        """ Iterate over errors """
+        return ((name, code, desc) for name, _, code, desc in ERRORS)
+
+    @staticmethod
+    def geterror(error):
+        """ Look up errors via name or number """
+        if isinstance(error, int):
+            # code?
+            if error < 0:
+                error = -error
+            for name, _, code, desc in ERRORS:
+                if code == error:
+                    return (name, code, desc)
+        else:
+            # name?
+            for name, _, code, desc in ERRORS:
+                if name == error:
+                    return (name, code, desc)
+            # Rust name?
+            if error.startswith('Error::'):
+                error = error[len('Error::'):]
+            for name, rustname, code, desc in ERRORS:
+                if rustname == error:
+                    return (name, code, desc)
+
     def __build_common_prologue(self, output, box):
         out = output.decls.append()
         out.printf('//// box error codes ////')
