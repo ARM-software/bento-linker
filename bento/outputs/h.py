@@ -97,23 +97,12 @@ class HOutput(outputs.Output):
 
         # functions we can expect from runtimes
         self.decls.append('//// box hooks ////')
-        self.decls.append(
-            '__attribute__((noreturn))\n'
-            'void __box_abort(int err);',
-            doc='Forcefully terminate the current box with the specified '
-                'error. The box can not be called again after this without '
-                'a new init. Does not return.')
-        self.decls.append(
-            'ssize_t __box_write(int32_t fd, const void *buffer, size_t size);',
-            doc='Write to stdout if provided by superbox. If not provided, '
-                'this function is still available for linking, but does '
-                'nothing. Returns 0 on success, negative error code on '
-                'failure.')
         for subbox in box.boxes:
             with self.pushattrs(box=subbox.name):
                 self.decls.append(
                     'int __box_%(box)s_init(void);',
-                    doc='Initialize box %(box)s.')
+                    doc='Initialize box %(box)s. Resets the box to its '
+                        'initial state if already initialized.')
                 self.decls.append(
                     'int __box_%(box)s_clobber(void);',
                     doc='Mark the box %(box)s as needing to be reinitialized.')

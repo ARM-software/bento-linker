@@ -51,7 +51,7 @@ void* tlsbox_tempbuffer(size_t size);
 
 //// box exports ////
 
-extern ssize_t __box_write(int32_t a0, const void *a1, size_t a2);
+extern ssize_t __box_write(int32_t a0, const void *buffer, size_t size);
 
 extern int alicebox_bobbox_getpubkey(char *buffer, size_t size);
 
@@ -97,116 +97,126 @@ extern int sys_send_to_bob(const void *buffer, size_t size);
 
 //// box hooks ////
 
-// Forcefully terminate the current box with the specified error. The box can
-// not be called again after this without a new init. Does not return.
-__attribute__((noreturn))
-void __box_abort(int err);
-
-// Write to stdout if provided by superbox. If not provided, this function is
-// still available for linking, but does nothing. Returns 0 on success,
-// negative error code on failure.
-ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
-
-// Initialize box alicebox.
+// Initialize box alicebox. Resets the box to its initial state if already
+// initialized.
 int __box_alicebox_init(void);
 
 // Mark the box alicebox as needing to be reinitialized.
 int __box_alicebox_clobber(void);
 
-// Initialize box bobbox.
+// Initialize box bobbox. Resets the box to its initial state if already
+// initialized.
 int __box_bobbox_init(void);
 
 // Mark the box bobbox as needing to be reinitialized.
 int __box_bobbox_clobber(void);
 
-// Initialize box tlsbox.
+// Initialize box tlsbox. Resets the box to its initial state if already
+// initialized.
 int __box_tlsbox_init(void);
 
 // Mark the box tlsbox as needing to be reinitialized.
 int __box_tlsbox_clobber(void);
 
+// May be called by well-behaved code to terminate the box if execution can
+// not continue. Notably used for asserts. Note that __box_abort may be
+// skipped if the box is killed because of an illegal operation. Must not
+// return.
+__attribute__((noreturn))
+void __box_abort(int err);
+
+// Provides a minimal implementation of stdout to the box. The exact behavior
+// depends on the superbox's implementation of __box_write. If none is
+// provided, __box_write links but does nothing.
+ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
+
+// Provides a minimal implementation of stdout to the box. The exact behavior
+// depends on the superbox's implementation of __box_flush. If none is
+// provided, __box_flush links but does nothing.
+int __box_flush(int32_t fd);
+
 //// box error codes ////
 enum box_errors {
-    EOK               = 0,    // No error
-    EGENERAL          = 1,    // General error
-    ENOENT            = 2,    // No such file or directory
-    ESRCH             = 3,    // No such process
-    EINTR             = 4,    // Interrupted system call
-    EIO               = 5,    // I/O error
-    ENXIO             = 6,    // No such device or address
-    E2BIG             = 7,    // Argument list too long
-    ENOEXEC           = 8,    // Exec format error
-    EBADF             = 9,    // Bad file number
-    ECHILD            = 10,   // No child processes
-    EAGAIN            = 11,   // Try again
-    ENOMEM            = 12,   // Out of memory
-    EACCES            = 13,   // Permission denied
-    EFAULT            = 14,   // Bad address
-    EBUSY             = 16,   // Device or resource busy
-    EEXIST            = 17,   // File exists
-    EXDEV             = 18,   // Cross-device link
-    ENODEV            = 19,   // No such device
-    ENOTDIR           = 20,   // Not a directory
-    EISDIR            = 21,   // Is a directory
-    EINVAL            = 22,   // Invalid argument
-    ENFILE            = 23,   // File table overflow
-    EMFILE            = 24,   // Too many open files
-    ENOTTY            = 25,   // Not a typewriter
-    ETXTBSY           = 26,   // Text file busy
-    EFBIG             = 27,   // File too large
-    ENOSPC            = 28,   // No space left on device
-    ESPIPE            = 29,   // Illegal seek
-    EROFS             = 30,   // Read-only file system
-    EMLINK            = 31,   // Too many links
-    EPIPE             = 32,   // Broken pipe
-    EDOM              = 33,   // Math argument out of domain of func
-    ERANGE            = 34,   // Math result not representable
-    EDEADLK           = 35,   // Resource deadlock would occur
-    ENAMETOOLONG      = 36,   // File name too long
-    ENOLCK            = 37,   // No record locks available
-    ENOSYS            = 38,   // Function not implemented
-    ENOTEMPTY         = 39,   // Directory not empty
-    ELOOP             = 40,   // Too many symbolic links encountered
-    ENOMSG            = 42,   // No message of desired type
-    EIDRM             = 43,   // Identifier removed
-    ENOSTR            = 60,   // Device not a stream
-    ENODATA           = 61,   // No data available
-    ETIME             = 62,   // Timer expired
-    ENOSR             = 63,   // Out of streams resources
-    ENOLINK           = 67,   // Link has been severed
-    EPROTO            = 71,   // Protocol error
-    EMULTIHOP         = 72,   // Multihop attempted
-    EBADMSG           = 74,   // Not a data message
-    EOVERFLOW         = 75,   // Value too large for defined data type
-    EILSEQ            = 84,   // Illegal byte sequence
-    ENOTSOCK          = 88,   // Socket operation on non-socket
-    EDESTADDRREQ      = 89,   // Destination address required
-    EMSGSIZE          = 90,   // Message too long
-    EPROTOTYPE        = 91,   // Protocol wrong type for socket
-    ENOPROTOOPT       = 92,   // Protocol not available
-    EPROTONOSUPPORT   = 93,   // Protocol not supported
-    EOPNOTSUPP        = 95,   // Operation not supported on transport endpoint
-    EAFNOSUPPORT      = 97,   // Address family not supported by protocol
-    EADDRINUSE        = 98,   // Address already in use
-    EADDRNOTAVAIL     = 99,   // Cannot assign requested address
-    ENETDOWN          = 100,  // Network is down
-    ENETUNREACH       = 101,  // Network is unreachable
-    ENETRESET         = 102,  // Network dropped connection because of reset
-    ECONNABORTED      = 103,  // Software caused connection abort
-    ECONNRESET        = 104,  // Connection reset by peer
-    ENOBUFS           = 105,  // No buffer space available
-    EISCONN           = 106,  // Transport endpoint is already connected
-    ENOTCONN          = 107,  // Transport endpoint is not connected
-    ETIMEDOUT         = 110,  // Connection timed out
-    ECONNREFUSED      = 111,  // Connection refused
-    EHOSTUNREACH      = 113,  // No route to host
-    EALREADY          = 114,  // Operation already in progress
-    EINPROGRESS       = 115,  // Operation now in progress
-    ESTALE            = 116,  // Stale NFS file handle
-    EDQUOT            = 122,  // Quota exceeded
-    ECANCELED         = 125,  // Operation Canceled
-    EOWNERDEAD        = 130,  // Owner died
-    ENOTRECOVERABLE   = 131,  // State not recoverable
+    EOK              = 0,    // No error
+    EGENERAL         = 1,    // General error
+    ENOENT           = 2,    // No such file or directory
+    ESRCH            = 3,    // No such process
+    EINTR            = 4,    // Interrupted system call
+    EIO              = 5,    // I/O error
+    ENXIO            = 6,    // No such device or address
+    E2BIG            = 7,    // Argument list too long
+    ENOEXEC          = 8,    // Exec format error
+    EBADF            = 9,    // Bad file number
+    ECHILD           = 10,   // No child processes
+    EAGAIN           = 11,   // Try again
+    ENOMEM           = 12,   // Out of memory
+    EACCES           = 13,   // Permission denied
+    EFAULT           = 14,   // Bad address
+    EBUSY            = 16,   // Device or resource busy
+    EEXIST           = 17,   // File exists
+    EXDEV            = 18,   // Cross-device link
+    ENODEV           = 19,   // No such device
+    ENOTDIR          = 20,   // Not a directory
+    EISDIR           = 21,   // Is a directory
+    EINVAL           = 22,   // Invalid argument
+    ENFILE           = 23,   // File table overflow
+    EMFILE           = 24,   // Too many open files
+    ENOTTY           = 25,   // Not a typewriter
+    ETXTBSY          = 26,   // Text file busy
+    EFBIG            = 27,   // File too large
+    ENOSPC           = 28,   // No space left on device
+    ESPIPE           = 29,   // Illegal seek
+    EROFS            = 30,   // Read-only file system
+    EMLINK           = 31,   // Too many links
+    EPIPE            = 32,   // Broken pipe
+    EDOM             = 33,   // Math argument out of domain of func
+    ERANGE           = 34,   // Math result not representable
+    EDEADLK          = 35,   // Resource deadlock would occur
+    ENAMETOOLONG     = 36,   // File name too long
+    ENOLCK           = 37,   // No record locks available
+    ENOSYS           = 38,   // Function not implemented
+    ENOTEMPTY        = 39,   // Directory not empty
+    ELOOP            = 40,   // Too many symbolic links encountered
+    ENOMSG           = 42,   // No message of desired type
+    EIDRM            = 43,   // Identifier removed
+    ENOSTR           = 60,   // Device not a stream
+    ENODATA          = 61,   // No data available
+    ETIME            = 62,   // Timer expired
+    ENOSR            = 63,   // Out of streams resources
+    ENOLINK          = 67,   // Link has been severed
+    EPROTO           = 71,   // Protocol error
+    EMULTIHOP        = 72,   // Multihop attempted
+    EBADMSG          = 74,   // Not a data message
+    EOVERFLOW        = 75,   // Value too large for defined data type
+    EILSEQ           = 84,   // Illegal byte sequence
+    ENOTSOCK         = 88,   // Socket operation on non-socket
+    EDESTADDRREQ     = 89,   // Destination address required
+    EMSGSIZE         = 90,   // Message too long
+    EPROTOTYPE       = 91,   // Protocol wrong type for socket
+    ENOPROTOOPT      = 92,   // Protocol not available
+    EPROTONOSUPPORT  = 93,   // Protocol not supported
+    EOPNOTSUPP       = 95,   // Operation not supported on transport endpoint
+    EAFNOSUPPORT     = 97,   // Address family not supported by protocol
+    EADDRINUSE       = 98,   // Address already in use
+    EADDRNOTAVAIL    = 99,   // Cannot assign requested address
+    ENETDOWN         = 100,  // Network is down
+    ENETUNREACH      = 101,  // Network is unreachable
+    ENETRESET        = 102,  // Network dropped connection because of reset
+    ECONNABORTED     = 103,  // Software caused connection abort
+    ECONNRESET       = 104,  // Connection reset by peer
+    ENOBUFS          = 105,  // No buffer space available
+    EISCONN          = 106,  // Transport endpoint is already connected
+    ENOTCONN         = 107,  // Transport endpoint is not connected
+    ETIMEDOUT        = 110,  // Connection timed out
+    ECONNREFUSED     = 111,  // Connection refused
+    EHOSTUNREACH     = 113,  // No route to host
+    EALREADY         = 114,  // Operation already in progress
+    EINPROGRESS      = 115,  // Operation now in progress
+    ESTALE           = 116,  // Stale NFS file handle
+    EDQUOT           = 122,  // Quota exceeded
+    ECANCELED        = 125,  // Operation Canceled
+    EOWNERDEAD       = 130,  // Owner died
+    ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
 //// __box_abort glue ////
@@ -241,6 +251,10 @@ void _exit(int returncode) {
 #endif
 
 //// __box_write glue ////
+
+int __box_flush(int32_t fd) {
+    return 0;
+}
 
 ssize_t __box_cbprintf(
         ssize_t (*write)(void *ctx, const void *buf, size_t size), void *ctx,
@@ -502,8 +516,8 @@ ssize_t __wrap_fprintf(FILE *f, const char *format, ...) {
 
 __attribute__((used))
 int __wrap_fflush(FILE *f) {
-    // do nothing currently
-    return 0;
+    int32_t fd = (f == stdout) ? 1 : 2;
+    return __box_flush(fd);
 }
 
 #ifdef __GNUC__
@@ -876,8 +890,8 @@ static int __box_alicebox_load(void) {
 }
 
 //// alicebox state ////
-static bool __box_alicebox_initialized = false;
-static jmp_buf *__box_alicebox_jmpbuf = NULL;
+bool __box_alicebox_initialized = false;
+jmp_buf *__box_alicebox_jmpbuf = NULL;
 extern uint32_t __box_alicebox_jumptable[];
 #define __box_alicebox_exportjumptable __box_alicebox_jumptable
 
@@ -1012,9 +1026,13 @@ void __box_alicebox_abort(int err) {
 // redirect __box_alicebox_write -> __box_write
 #define __box_alicebox_write __box_write
 
+// redirect __box_alicebox_flush -> __box_flush
+#define __box_alicebox_flush __box_flush
+
 const uint32_t __box_alicebox_importjumptable[] = {
     (uint32_t)__box_alicebox_abort,
     (uint32_t)__box_alicebox_write,
+    (uint32_t)__box_alicebox_flush,
     (uint32_t)alicebox_bobbox_getpubkey,
     (uint32_t)sys_alicebox_rsa_freekey,
     (uint32_t)sys_alicebox_rsa_fromprivkey,
@@ -1060,8 +1078,8 @@ static int __box_bobbox_load(void) {
 }
 
 //// bobbox state ////
-static bool __box_bobbox_initialized = false;
-static jmp_buf *__box_bobbox_jmpbuf = NULL;
+bool __box_bobbox_initialized = false;
+jmp_buf *__box_bobbox_jmpbuf = NULL;
 extern uint32_t __box_bobbox_jumptable[];
 #define __box_bobbox_exportjumptable __box_bobbox_jumptable
 
@@ -1196,9 +1214,13 @@ void __box_bobbox_abort(int err) {
 // redirect __box_bobbox_write -> __box_write
 #define __box_bobbox_write __box_write
 
+// redirect __box_bobbox_flush -> __box_flush
+#define __box_bobbox_flush __box_flush
+
 const uint32_t __box_bobbox_importjumptable[] = {
     (uint32_t)__box_bobbox_abort,
     (uint32_t)__box_bobbox_write,
+    (uint32_t)__box_bobbox_flush,
     (uint32_t)bobbox_alicebox_getpubkey,
     (uint32_t)sys_bobbox_rsa_freekey,
     (uint32_t)sys_bobbox_rsa_fromprivkey,
@@ -1244,8 +1266,8 @@ static int __box_tlsbox_load(void) {
 }
 
 //// tlsbox state ////
-static bool __box_tlsbox_initialized = false;
-static jmp_buf *__box_tlsbox_jmpbuf = NULL;
+bool __box_tlsbox_initialized = false;
+jmp_buf *__box_tlsbox_jmpbuf = NULL;
 extern uint32_t __box_tlsbox_jumptable[];
 #define __box_tlsbox_exportjumptable __box_tlsbox_jumptable
 
@@ -1490,9 +1512,13 @@ void __box_tlsbox_abort(int err) {
 // redirect __box_tlsbox_write -> __box_write
 #define __box_tlsbox_write __box_write
 
+// redirect __box_tlsbox_flush -> __box_flush
+#define __box_tlsbox_flush __box_flush
+
 const uint32_t __box_tlsbox_importjumptable[] = {
     (uint32_t)__box_tlsbox_abort,
     (uint32_t)__box_tlsbox_write,
+    (uint32_t)__box_tlsbox_flush,
     (uint32_t)sys_entropy_poll,
 };
 

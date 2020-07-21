@@ -10,7 +10,7 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk = 'Makefile'
 
-export.box1_add2= 'fn(i32, i32) -> err32'
+export.box1_add2 = 'fn(i32, i32) -> err32'
 export.box1_hello = 'fn() -> err'
 
 [super.sys]
@@ -40,7 +40,7 @@ output.mk.incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 
 import.box1_add2  = 'fn(i32, i32) -> err32'
 import.box1_hello = 'fn() -> err'

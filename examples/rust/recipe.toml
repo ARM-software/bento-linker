@@ -12,7 +12,7 @@ output.rs.no_runtime_logic = true
 output.mk.path = 'Makefile'
 output.mk.srcs = ['.', 'bb/src']
 
-export.boxrust_add2= 'fn(i32, i32) -> err32'
+export.boxrust_add2 = 'fn(i32, i32) -> err32'
 export.boxrust_hello = 'fn() -> err'
 
 export.boxrust_fib_alloc = 'fn(size: usize) -> nullable mut u8*'
@@ -54,11 +54,9 @@ output.mk.incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = '''
-    fn(i32, const u8*, usize) -> errsize
-    '''
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 
-import.boxrust_add2= 'fn(i32, i32) -> err32'
+import.boxrust_add2 = 'fn(i32, i32) -> err32'
 import.boxrust_hello = 'fn() -> err'
 
 import.boxrust_fib_alloc = 'fn(size: usize) -> nullable mut u8*'

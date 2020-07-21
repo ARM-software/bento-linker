@@ -25,7 +25,7 @@ output.mk.incs = [
 ]
 
 # sys provided functions
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8 buffer[size], usize size) -> errsize'
 export.sys_entropy_poll = 'fn(mut u8 buffer[size], usize size) -> errsize'
 
 # alice connections

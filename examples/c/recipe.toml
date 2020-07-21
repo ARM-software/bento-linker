@@ -10,7 +10,7 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk = 'Makefile'
 
-export.boxc_add2= 'fn(i32, i32) -> err32'
+export.boxc_add2 = 'fn(i32, i32) -> err32'
 export.boxc_hello = 'fn() -> err'
 
 export.boxc_fib_alloc = 'fn(usize size) -> nullable mut u8*'
@@ -50,7 +50,7 @@ output.mk.incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 
 import.boxc_add2  = 'fn(i32, i32) -> err32'
 import.boxc_hello = 'fn() -> err'

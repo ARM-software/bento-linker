@@ -27,87 +27,87 @@ https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/errno.h.html
 """
 
 ERRORS = [
-    # name               rust name         code  description
-    ('OK',              'Ok',              0,   'No error'),
-    ('GENERAL',         'General',         1,   'General error'),
-    ('NOENT',           'NoEnt',           2,   'No such file or directory'),
-    ('SRCH',            'Srch',            3,   'No such process'),
-    ('INTR',            'Intr',            4,   'Interrupted system call'),
-    ('IO',              'Io',              5,   'I/O error'),
-    ('NXIO',            'NXIo',            6,   'No such device or address'),
-    ('2BIG',            'TooBig',          7,   'Argument list too long'),
-    ('NOEXEC',          'NoExec',          8,   'Exec format error'),
-    ('BADF',            'BadF',            9,   'Bad file number'),
-    ('CHILD',           'Child',           10,  'No child processes'),
-    ('AGAIN',           'Again',           11,  'Try again'),
-    ('NOMEM',           'NoMem',           12,  'Out of memory'),
-    ('ACCES',           'Acces',           13,  'Permission denied'),
-    ('FAULT',           'Fault',           14,  'Bad address'),
-    ('BUSY',            'Busy',            16,  'Device or resource busy'),
-    ('EXIST',           'Exist',           17,  'File exists'),
-    ('XDEV',            'XDev',            18,  'Cross-device link'),
-    ('NODEV',           'NoDev',           19,  'No such device'),
-    ('NOTDIR',          'NotDir',          20,  'Not a directory'),
-    ('ISDIR',           'IsDir',           21,  'Is a directory'),
-    ('INVAL',           'Inval',           22,  'Invalid argument'),
-    ('NFILE',           'NFile',           23,  'File table overflow'),
-    ('MFILE',           'MFile',           24,  'Too many open files'),
-    ('NOTTY',           'NoTty',           25,  'Not a typewriter'),
-    ('TXTBSY',          'TxtBsy',          26,  'Text file busy'),
-    ('FBIG',            'FBig',            27,  'File too large'),
-    ('NOSPC',           'NoSpc',           28,  'No space left on device'),
-    ('SPIPE',           'SPipe',           29,  'Illegal seek'),
-    ('ROFS',            'RoFs',            30,  'Read-only file system'),
-    ('MLINK',           'MLink',           31,  'Too many links'),
-    ('PIPE',            'Pipe',            32,  'Broken pipe'),
-    ('DOM',             'Dom',             33,  'Math argument out of domain of func'),
-    ('RANGE',           'Range',           34,  'Math result not representable'),
-    ('DEADLK',          'DeadLk',          35,  'Resource deadlock would occur'),
-    ('NAMETOOLONG',     'NameTooLong',     36,  'File name too long'),
-    ('NOLCK',           'NoLck',           37,  'No record locks available'),
-    ('NOSYS',           'NoSys',           38,  'Function not implemented'),
-    ('NOTEMPTY',        'NotEmpty',        39,  'Directory not empty'),
-    ('LOOP',            'Loop',            40,  'Too many symbolic links encountered'),
-    ('NOMSG',           'NoMsg',           42,  'No message of desired type'),
-    ('IDRM',            'IdRm',            43,  'Identifier removed'),
-    ('NOSTR',           'NoStr',           60,  'Device not a stream'),
-    ('NODATA',          'NoData',          61,  'No data available'),
-    ('TIME',            'Time',            62,  'Timer expired'),
-    ('NOSR',            'NoSr',            63,  'Out of streams resources'),
-    ('NOLINK',          'NoLink',          67,  'Link has been severed'),
-    ('PROTO',           'Proto',           71,  'Protocol error'),
-    ('MULTIHOP',        'Multihop',        72,  'Multihop attempted'),
-    ('BADMSG',          'BadMsg',          74,  'Not a data message'),
-    ('OVERFLOW',        'Overflow',        75,  'Value too large for defined data type'),
-    ('ILSEQ',           'IlSeq',           84,  'Illegal byte sequence'),
-    ('NOTSOCK',         'NotSock',         88,  'Socket operation on non-socket'),
-    ('DESTADDRREQ',     'DestAddrReq',     89,  'Destination address required'),
-    ('MSGSIZE',         'MsgSize',         90,  'Message too long'),
-    ('PROTOTYPE',       'Prototype',       91,  'Protocol wrong type for socket'),
-    ('NOPROTOOPT',      'NoProtoOpt',      92,  'Protocol not available'),
-    ('PROTONOSUPPORT',  'ProtoNoSupport',  93,  'Protocol not supported'),
-    ('OPNOTSUPP',       'OpNotSupp',       95,  'Operation not supported on transport endpoint'),
-    ('AFNOSUPPORT',     'AfNoSupport',     97,  'Address family not supported by protocol'),
-    ('ADDRINUSE',       'AddrInUse',       98,  'Address already in use'),
-    ('ADDRNOTAVAIL',    'AddrNotAvail',    99,  'Cannot assign requested address'),
-    ('NETDOWN',         'NetDown',         100, 'Network is down'),
-    ('NETUNREACH',      'NetUnreach',      101, 'Network is unreachable'),
-    ('NETRESET',        'NetReset',        102, 'Network dropped connection because of reset'),
-    ('CONNABORTED',     'ConnAborted',     103, 'Software caused connection abort'),
-    ('CONNRESET',       'ConnReset',       104, 'Connection reset by peer'),
-    ('NOBUFS',          'NoBufs',          105, 'No buffer space available'),
-    ('ISCONN',          'IsConn',          106, 'Transport endpoint is already connected'),
-    ('NOTCONN',         'NotConn',         107, 'Transport endpoint is not connected'),
-    ('TIMEDOUT',        'TimedOut',        110, 'Connection timed out'),
-    ('CONNREFUSED',     'ConnRefused',     111, 'Connection refused'),
-    ('HOSTUNREACH',     'HostUnreach',     113, 'No route to host'),
-    ('ALREADY',         'Already',         114, 'Operation already in progress'),
-    ('INPROGRESS',      'InProgress',      115, 'Operation now in progress'),
-    ('STALE',           'Stale',           116, 'Stale NFS file handle'),
-    ('DQUOT',           'DQuot',           122, 'Quota exceeded'),
-    ('CANCELED',        'Canceled',        125, 'Operation Canceled'),
-    ('OWNERDEAD',       'OwnerDead',       130, 'Owner died'),
-    ('NOTRECOVERABLE',  'NotRecoverable',  131, 'State not recoverable'),
+    # name              rust name          code description
+    ('EOK',             'Ok',              0,   'No error'),
+    ('EGENERAL',        'General',         1,   'General error'),
+    ('ENOENT',          'NoEnt',           2,   'No such file or directory'),
+    ('ESRCH',           'Srch',            3,   'No such process'),
+    ('EINTR',           'Intr',            4,   'Interrupted system call'),
+    ('EIO',             'Io',              5,   'I/O error'),
+    ('ENXIO',           'NXIo',            6,   'No such device or address'),
+    ('E2BIG',           'TooBig',          7,   'Argument list too long'),
+    ('ENOEXEC',         'NoExec',          8,   'Exec format error'),
+    ('EBADF',           'BadF',            9,   'Bad file number'),
+    ('ECHILD',          'Child',           10,  'No child processes'),
+    ('EAGAIN',          'Again',           11,  'Try again'),
+    ('ENOMEM',          'NoMem',           12,  'Out of memory'),
+    ('EACCES',          'Acces',           13,  'Permission denied'),
+    ('EFAULT',          'Fault',           14,  'Bad address'),
+    ('EBUSY',           'Busy',            16,  'Device or resource busy'),
+    ('EEXIST',          'Exist',           17,  'File exists'),
+    ('EXDEV',           'XDev',            18,  'Cross-device link'),
+    ('ENODEV',          'NoDev',           19,  'No such device'),
+    ('ENOTDIR',         'NotDir',          20,  'Not a directory'),
+    ('EISDIR',          'IsDir',           21,  'Is a directory'),
+    ('EINVAL',          'Inval',           22,  'Invalid argument'),
+    ('ENFILE',          'NFile',           23,  'File table overflow'),
+    ('EMFILE',          'MFile',           24,  'Too many open files'),
+    ('ENOTTY',          'NoTty',           25,  'Not a typewriter'),
+    ('ETXTBSY',         'TxtBsy',          26,  'Text file busy'),
+    ('EFBIG',           'FBig',            27,  'File too large'),
+    ('ENOSPC',          'NoSpc',           28,  'No space left on device'),
+    ('ESPIPE',          'SPipe',           29,  'Illegal seek'),
+    ('EROFS',           'RoFs',            30,  'Read-only file system'),
+    ('EMLINK',          'MLink',           31,  'Too many links'),
+    ('EPIPE',           'Pipe',            32,  'Broken pipe'),
+    ('EDOM',            'Dom',             33,  'Math argument out of domain of func'),
+    ('ERANGE',          'Range',           34,  'Math result not representable'),
+    ('EDEADLK',         'DeadLk',          35,  'Resource deadlock would occur'),
+    ('ENAMETOOLONG',    'NameTooLong',     36,  'File name too long'),
+    ('ENOLCK',          'NoLck',           37,  'No record locks available'),
+    ('ENOSYS',          'NoSys',           38,  'Function not implemented'),
+    ('ENOTEMPTY',       'NotEmpty',        39,  'Directory not empty'),
+    ('ELOOP',           'Loop',            40,  'Too many symbolic links encountered'),
+    ('ENOMSG',          'NoMsg',           42,  'No message of desired type'),
+    ('EIDRM',           'IdRm',            43,  'Identifier removed'),
+    ('ENOSTR',          'NoStr',           60,  'Device not a stream'),
+    ('ENODATA',         'NoData',          61,  'No data available'),
+    ('ETIME',           'Time',            62,  'Timer expired'),
+    ('ENOSR',           'NoSr',            63,  'Out of streams resources'),
+    ('ENOLINK',         'NoLink',          67,  'Link has been severed'),
+    ('EPROTO',          'Proto',           71,  'Protocol error'),
+    ('EMULTIHOP',       'Multihop',        72,  'Multihop attempted'),
+    ('EBADMSG',         'BadMsg',          74,  'Not a data message'),
+    ('EOVERFLOW',       'Overflow',        75,  'Value too large for defined data type'),
+    ('EILSEQ',          'IlSeq',           84,  'Illegal byte sequence'),
+    ('ENOTSOCK',        'NotSock',         88,  'Socket operation on non-socket'),
+    ('EDESTADDRREQ',    'DestAddrReq',     89,  'Destination address required'),
+    ('EMSGSIZE',        'MsgSize',         90,  'Message too long'),
+    ('EPROTOTYPE',      'Prototype',       91,  'Protocol wrong type for socket'),
+    ('ENOPROTOOPT',     'NoProtoOpt',      92,  'Protocol not available'),
+    ('EPROTONOSUPPORT', 'ProtoNoSupport',  93,  'Protocol not supported'),
+    ('EOPNOTSUPP',      'OpNotSupp',       95,  'Operation not supported on transport endpoint'),
+    ('EAFNOSUPPORT',    'AfNoSupport',     97,  'Address family not supported by protocol'),
+    ('EADDRINUSE',      'AddrInUse',       98,  'Address already in use'),
+    ('EADDRNOTAVAIL',   'AddrNotAvail',    99,  'Cannot assign requested address'),
+    ('ENETDOWN',        'NetDown',         100, 'Network is down'),
+    ('ENETUNREACH',     'NetUnreach',      101, 'Network is unreachable'),
+    ('ENETRESET',       'NetReset',        102, 'Network dropped connection because of reset'),
+    ('ECONNABORTED',    'ConnAborted',     103, 'Software caused connection abort'),
+    ('ECONNRESET',      'ConnReset',       104, 'Connection reset by peer'),
+    ('ENOBUFS',         'NoBufs',          105, 'No buffer space available'),
+    ('EISCONN',         'IsConn',          106, 'Transport endpoint is already connected'),
+    ('ENOTCONN',        'NotConn',         107, 'Transport endpoint is not connected'),
+    ('ETIMEDOUT',       'TimedOut',        110, 'Connection timed out'),
+    ('ECONNREFUSED',    'ConnRefused',     111, 'Connection refused'),
+    ('EHOSTUNREACH',    'HostUnreach',     113, 'No route to host'),
+    ('EALREADY',        'Already',         114, 'Operation already in progress'),
+    ('EINPROGRESS',     'InProgress',      115, 'Operation now in progress'),
+    ('ESTALE',          'Stale',           116, 'Stale NFS file handle'),
+    ('EDQUOT',          'DQuot',           122, 'Quota exceeded'),
+    ('ECANCELED',       'Canceled',        125, 'Operation Canceled'),
+    ('EOWNERDEAD',      'OwnerDead',       130, 'Owner died'),
+    ('ENOTRECOVERABLE', 'NotRecoverable',  131, 'State not recoverable'),
 ]
 
 RUST_ERROR_STRUCT = '''
@@ -157,15 +157,13 @@ class ErrorGlue(glue.Glue):
     Helper layer for generating error codes in different languages.
     """
     __name = 'error_glue'
-    def build_c_prologue_common(self, output, box):
-
+    def __build_common_prologue(self, output, box):
         out = output.decls.append()
         out.printf('//// box error codes ////')
         out.printf('enum box_errors {')
-        # TODO configurable prefixes?
         with out.indent():
             for name, _, code, doc in ERRORS:
-                out.printf('E%(name)-16s = %(code)-5s // %(doc)s',
+                out.printf('%(name)-16s = %(code)-5s // %(doc)s',
                     name=name,
                     code='%d,' % code,
                     doc=doc)
@@ -173,18 +171,16 @@ class ErrorGlue(glue.Glue):
 
     def build_h_prologue(self, output, box):
         super().build_h_prologue(output, box)
-        self.build_c_prologue_common(output, box)
+        self.__build_common_prologue(output, box)
 
     def build_c_prologue(self, output, box):
         super().build_c_prologue(output, box)
-        self.build_c_prologue_common(output, box)
+        self.__build_common_prologue(output, box)
 
     def build_rs_prologue(self, output, box):
         super().build_rs_prologue(output, box)
-        # TODO use proper casing?
 
         output.uses.append('core::num')
-        output.uses.append('core::convert::TryFrom')
         output.decls.append(RUST_ERROR_STRUCT)
         output.decls.append(RUST_ERROR_IMPL)
 

@@ -60,12 +60,25 @@ class AbortGlue(glue.Glue):
     def box(self, box):
         super().box(box)
         self.__abort_hook = box.addimport(
-            '__box_abort', 'fn(err32) -> void',
+            '__box_abort', 'fn(err err) -> noreturn',
             target=box.name, source=self.__name, weak=True,
             doc="May be called by well-behaved code to terminate the box "
                 "if execution can not continue. Notably used for asserts. "
                 "Note that __box_abort may be skipped if the box is killed "
                 "because of an illegal operation. Must not return.")
+
+    def __build_common_prologue(self, output, box):
+        output.decls.append('%(fn)s;',
+            fn=output.repr_fn(self.__abort_hook),
+            doc=self.__abort_hook.doc)
+
+    def build_h_prologue(self, output, box):
+        super().build_h_prologue(output, box)
+        self.__build_common_prologue(output, box)
+
+    def build_c_prologue(self, output, box):
+        super().build_c_prologue(output, box)
+        self.__build_common_prologue(output, box)
 
     def build_c(self, output, box):
         super().build_c(output, box)

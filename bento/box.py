@@ -470,8 +470,10 @@ class Arg:
         return self._asize
 
     def __eq__(self, other):
-        return ((self._mod, self._prim, self._ptr, self._asize)
-            == (other._mod, other._prim, other._ptr, other._asize))
+        return ((self._mod, self._prim, self._ptr,
+                self._asize if isinstance(self._asize, int) else 'dyn')
+            == (other._mod, other._prim, other._ptr,
+                other._asize if isinstance(other._asize, int) else 'dyn'))
 
     def __str__(self, name=None):
         name = name if name is not None else self.name
@@ -673,7 +675,21 @@ class Fn:
         return any(ret.iserr() for ret in self.rets)
 
     def iscompatible(self, other):
-        return (self.args == other.args and self.rets == other.rets)
+        anames = {arg.name: i for i, arg in enumerate(self.args) if arg.name}
+        bnames = {arg.name: i for i, arg in enumerate(other.args) if arg.name}
+        for a, b in zip(
+                it.chain(self.args, self.rets),
+                it.chain(other.args, other.rets)):
+            # check that types are equivalent?
+            if a != b:
+                return False
+
+            # check that array references are in the correct places
+            if isinstance(a.asize(), str):
+                if anames[a.asize()] != bnames[b.asize()]:
+                    return False
+
+        return True
 
     def islinkable(self, other, exportbox=None, importbox=None):
         return (self.linkname == other.linkname and 

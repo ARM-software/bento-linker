@@ -29,120 +29,130 @@ extern int __box_bdread(uint32_t block, uint32_t off, void *buffer, size_t size)
 
 extern int __box_bdread(uint32_t block, uint32_t off, void *buffer, size_t size);
 
-extern ssize_t __box_write(int32_t a0, const void *a1, size_t a2);
+extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
 //// box hooks ////
 
-// Forcefully terminate the current box with the specified error. The box can
-// not be called again after this without a new init. Does not return.
-__attribute__((noreturn))
-void __box_abort(int err);
-
-// Write to stdout if provided by superbox. If not provided, this function is
-// still available for linking, but does nothing. Returns 0 on success,
-// negative error code on failure.
-ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
-
-// Initialize box box1.
+// Initialize box box1. Resets the box to its initial state if already
+// initialized.
 int __box_box1_init(void);
 
 // Mark the box box1 as needing to be reinitialized.
 int __box_box1_clobber(void);
 
-// Initialize box box2.
+// Initialize box box2. Resets the box to its initial state if already
+// initialized.
 int __box_box2_init(void);
 
 // Mark the box box2 as needing to be reinitialized.
 int __box_box2_clobber(void);
 
-// Initialize box box3.
+// Initialize box box3. Resets the box to its initial state if already
+// initialized.
 int __box_box3_init(void);
 
 // Mark the box box3 as needing to be reinitialized.
 int __box_box3_clobber(void);
 
+// May be called by well-behaved code to terminate the box if execution can
+// not continue. Notably used for asserts. Note that __box_abort may be
+// skipped if the box is killed because of an illegal operation. Must not
+// return.
+__attribute__((noreturn))
+void __box_abort(int err);
+
+// Provides a minimal implementation of stdout to the box. The exact behavior
+// depends on the superbox's implementation of __box_write. If none is
+// provided, __box_write links but does nothing.
+ssize_t __box_write(int32_t fd, const void *buffer, size_t size);
+
+// Provides a minimal implementation of stdout to the box. The exact behavior
+// depends on the superbox's implementation of __box_flush. If none is
+// provided, __box_flush links but does nothing.
+int __box_flush(int32_t fd);
+
 //// box error codes ////
 enum box_errors {
-    EOK               = 0,    // No error
-    EGENERAL          = 1,    // General error
-    ENOENT            = 2,    // No such file or directory
-    ESRCH             = 3,    // No such process
-    EINTR             = 4,    // Interrupted system call
-    EIO               = 5,    // I/O error
-    ENXIO             = 6,    // No such device or address
-    E2BIG             = 7,    // Argument list too long
-    ENOEXEC           = 8,    // Exec format error
-    EBADF             = 9,    // Bad file number
-    ECHILD            = 10,   // No child processes
-    EAGAIN            = 11,   // Try again
-    ENOMEM            = 12,   // Out of memory
-    EACCES            = 13,   // Permission denied
-    EFAULT            = 14,   // Bad address
-    EBUSY             = 16,   // Device or resource busy
-    EEXIST            = 17,   // File exists
-    EXDEV             = 18,   // Cross-device link
-    ENODEV            = 19,   // No such device
-    ENOTDIR           = 20,   // Not a directory
-    EISDIR            = 21,   // Is a directory
-    EINVAL            = 22,   // Invalid argument
-    ENFILE            = 23,   // File table overflow
-    EMFILE            = 24,   // Too many open files
-    ENOTTY            = 25,   // Not a typewriter
-    ETXTBSY           = 26,   // Text file busy
-    EFBIG             = 27,   // File too large
-    ENOSPC            = 28,   // No space left on device
-    ESPIPE            = 29,   // Illegal seek
-    EROFS             = 30,   // Read-only file system
-    EMLINK            = 31,   // Too many links
-    EPIPE             = 32,   // Broken pipe
-    EDOM              = 33,   // Math argument out of domain of func
-    ERANGE            = 34,   // Math result not representable
-    EDEADLK           = 35,   // Resource deadlock would occur
-    ENAMETOOLONG      = 36,   // File name too long
-    ENOLCK            = 37,   // No record locks available
-    ENOSYS            = 38,   // Function not implemented
-    ENOTEMPTY         = 39,   // Directory not empty
-    ELOOP             = 40,   // Too many symbolic links encountered
-    ENOMSG            = 42,   // No message of desired type
-    EIDRM             = 43,   // Identifier removed
-    ENOSTR            = 60,   // Device not a stream
-    ENODATA           = 61,   // No data available
-    ETIME             = 62,   // Timer expired
-    ENOSR             = 63,   // Out of streams resources
-    ENOLINK           = 67,   // Link has been severed
-    EPROTO            = 71,   // Protocol error
-    EMULTIHOP         = 72,   // Multihop attempted
-    EBADMSG           = 74,   // Not a data message
-    EOVERFLOW         = 75,   // Value too large for defined data type
-    EILSEQ            = 84,   // Illegal byte sequence
-    ENOTSOCK          = 88,   // Socket operation on non-socket
-    EDESTADDRREQ      = 89,   // Destination address required
-    EMSGSIZE          = 90,   // Message too long
-    EPROTOTYPE        = 91,   // Protocol wrong type for socket
-    ENOPROTOOPT       = 92,   // Protocol not available
-    EPROTONOSUPPORT   = 93,   // Protocol not supported
-    EOPNOTSUPP        = 95,   // Operation not supported on transport endpoint
-    EAFNOSUPPORT      = 97,   // Address family not supported by protocol
-    EADDRINUSE        = 98,   // Address already in use
-    EADDRNOTAVAIL     = 99,   // Cannot assign requested address
-    ENETDOWN          = 100,  // Network is down
-    ENETUNREACH       = 101,  // Network is unreachable
-    ENETRESET         = 102,  // Network dropped connection because of reset
-    ECONNABORTED      = 103,  // Software caused connection abort
-    ECONNRESET        = 104,  // Connection reset by peer
-    ENOBUFS           = 105,  // No buffer space available
-    EISCONN           = 106,  // Transport endpoint is already connected
-    ENOTCONN          = 107,  // Transport endpoint is not connected
-    ETIMEDOUT         = 110,  // Connection timed out
-    ECONNREFUSED      = 111,  // Connection refused
-    EHOSTUNREACH      = 113,  // No route to host
-    EALREADY          = 114,  // Operation already in progress
-    EINPROGRESS       = 115,  // Operation now in progress
-    ESTALE            = 116,  // Stale NFS file handle
-    EDQUOT            = 122,  // Quota exceeded
-    ECANCELED         = 125,  // Operation Canceled
-    EOWNERDEAD        = 130,  // Owner died
-    ENOTRECOVERABLE   = 131,  // State not recoverable
+    EOK              = 0,    // No error
+    EGENERAL         = 1,    // General error
+    ENOENT           = 2,    // No such file or directory
+    ESRCH            = 3,    // No such process
+    EINTR            = 4,    // Interrupted system call
+    EIO              = 5,    // I/O error
+    ENXIO            = 6,    // No such device or address
+    E2BIG            = 7,    // Argument list too long
+    ENOEXEC          = 8,    // Exec format error
+    EBADF            = 9,    // Bad file number
+    ECHILD           = 10,   // No child processes
+    EAGAIN           = 11,   // Try again
+    ENOMEM           = 12,   // Out of memory
+    EACCES           = 13,   // Permission denied
+    EFAULT           = 14,   // Bad address
+    EBUSY            = 16,   // Device or resource busy
+    EEXIST           = 17,   // File exists
+    EXDEV            = 18,   // Cross-device link
+    ENODEV           = 19,   // No such device
+    ENOTDIR          = 20,   // Not a directory
+    EISDIR           = 21,   // Is a directory
+    EINVAL           = 22,   // Invalid argument
+    ENFILE           = 23,   // File table overflow
+    EMFILE           = 24,   // Too many open files
+    ENOTTY           = 25,   // Not a typewriter
+    ETXTBSY          = 26,   // Text file busy
+    EFBIG            = 27,   // File too large
+    ENOSPC           = 28,   // No space left on device
+    ESPIPE           = 29,   // Illegal seek
+    EROFS            = 30,   // Read-only file system
+    EMLINK           = 31,   // Too many links
+    EPIPE            = 32,   // Broken pipe
+    EDOM             = 33,   // Math argument out of domain of func
+    ERANGE           = 34,   // Math result not representable
+    EDEADLK          = 35,   // Resource deadlock would occur
+    ENAMETOOLONG     = 36,   // File name too long
+    ENOLCK           = 37,   // No record locks available
+    ENOSYS           = 38,   // Function not implemented
+    ENOTEMPTY        = 39,   // Directory not empty
+    ELOOP            = 40,   // Too many symbolic links encountered
+    ENOMSG           = 42,   // No message of desired type
+    EIDRM            = 43,   // Identifier removed
+    ENOSTR           = 60,   // Device not a stream
+    ENODATA          = 61,   // No data available
+    ETIME            = 62,   // Timer expired
+    ENOSR            = 63,   // Out of streams resources
+    ENOLINK          = 67,   // Link has been severed
+    EPROTO           = 71,   // Protocol error
+    EMULTIHOP        = 72,   // Multihop attempted
+    EBADMSG          = 74,   // Not a data message
+    EOVERFLOW        = 75,   // Value too large for defined data type
+    EILSEQ           = 84,   // Illegal byte sequence
+    ENOTSOCK         = 88,   // Socket operation on non-socket
+    EDESTADDRREQ     = 89,   // Destination address required
+    EMSGSIZE         = 90,   // Message too long
+    EPROTOTYPE       = 91,   // Protocol wrong type for socket
+    ENOPROTOOPT      = 92,   // Protocol not available
+    EPROTONOSUPPORT  = 93,   // Protocol not supported
+    EOPNOTSUPP       = 95,   // Operation not supported on transport endpoint
+    EAFNOSUPPORT     = 97,   // Address family not supported by protocol
+    EADDRINUSE       = 98,   // Address already in use
+    EADDRNOTAVAIL    = 99,   // Cannot assign requested address
+    ENETDOWN         = 100,  // Network is down
+    ENETUNREACH      = 101,  // Network is unreachable
+    ENETRESET        = 102,  // Network dropped connection because of reset
+    ECONNABORTED     = 103,  // Software caused connection abort
+    ECONNRESET       = 104,  // Connection reset by peer
+    ENOBUFS          = 105,  // No buffer space available
+    EISCONN          = 106,  // Transport endpoint is already connected
+    ENOTCONN         = 107,  // Transport endpoint is not connected
+    ETIMEDOUT        = 110,  // Connection timed out
+    ECONNREFUSED     = 111,  // Connection refused
+    EHOSTUNREACH     = 113,  // No route to host
+    EALREADY         = 114,  // Operation already in progress
+    EINPROGRESS      = 115,  // Operation now in progress
+    ESTALE           = 116,  // Stale NFS file handle
+    EDQUOT           = 122,  // Quota exceeded
+    ECANCELED        = 125,  // Operation Canceled
+    EOWNERDEAD       = 130,  // Owner died
+    ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
 __attribute__((unused))
@@ -275,14 +285,18 @@ struct __box_mpuregions {
 #define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
 #define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
 #define MPU_RASR ((volatile uint32_t*)0xe000eda0)
+#define CCR      ((volatile uint32_t*)0xe000ed14)
 
 static int32_t __box_mpu_init(void) {
     // make sure MPU is initialized
     if (!(*MPU_CTRL & 0x1)) {
         // do we have an MPU?
         assert(*MPU_TYPE >= 4);
-        // enable MemManage exception
+        // enable MemManage exceptions
         *SHCSR = *SHCSR | 0x00070000;
+        // disable stack align during exceptions
+        // TODO we should handle this properly
+        *CCR &= ~0x00000200;
         // setup call region
         *MPU_RBAR = 0x1e000000 | 0x10;
         // disallow execution
@@ -415,6 +429,7 @@ struct __box_frame {
     uint32_t *fp;
     uint32_t lr;
     uint32_t *sp;
+    uint32_t caller;
 };
 
 // foward declaration of fault wrapper, may be called directly
@@ -437,6 +452,7 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     frame->fp = fp;
     frame->lr = state->lr;
     frame->sp = state->sp;
+    frame->caller = state->caller;
     state->lr = lr;
     state->sp = sp;
 
@@ -490,7 +506,7 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "it eq \n\t"
         "vstmdbeq r1!, {s16-s31} \n\t"
         // make space to save state
-        "sub r1, r1, #3*4 \n\t"
+        "sub r1, r1, #4*4 \n\t"
         // sp == msp?
         "tst r0, #0x4 \n\t"
         "it eq \n\t"
@@ -506,7 +522,7 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "msreq msp, r1 \n\t"
         "msrne psp, r1 \n\t"
         // drop reserved frame?
-        "subne sp, sp, #8*4 \n\t"
+        "addne sp, sp, #8*4 \n\t"
         // return to call
         "bx r0 \n\t"
     );
@@ -531,6 +547,7 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     uint32_t *targetfp = targetframe->fp;
     targetstate->lr = targetframe->lr;
     targetstate->sp = targetframe->sp;
+    targetstate->caller = targetframe->caller;
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
@@ -559,7 +576,7 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         // call into c new that we have stack control
         "bl __box_retsetup \n\t"
         // drop saved state
-        "add r1, r1, #3*4 \n\t"
+        "add r1, r1, #4*4 \n\t"
         // restore fp registers?
         "tst r0, #0x10 \n\t"
         "it eq \n\t"
@@ -608,6 +625,7 @@ uint64_t __box_faultsetup(int32_t err) {
     __box_active = state->caller;
     targetstate->lr = targetbf->lr;
     targetstate->sp = targetbf->sp;
+    targetstate->caller = targetbf->caller;
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
@@ -634,7 +652,7 @@ void __box_faulthandler(int32_t err) {
         // call into c with stack control
         "bl __box_faultsetup \n\t"
         // drop saved state
-        "add r1, r1, #3*4 \n\t"
+        "add r1, r1, #4*4 \n\t"
         // restore fp registers?
         "tst r0, #0x10 \n\t"
         "it eq \n\t"
@@ -724,6 +742,10 @@ void _exit(int returncode) {
 
 //// __box_write glue ////
 
+int __box_flush(int32_t fd) {
+    return 0;
+}
+
 ssize_t __box_cbprintf(
         ssize_t (*write)(void *ctx, const void *buf, size_t size), void *ctx,
         const char *format, va_list args) {
@@ -731,9 +753,7 @@ ssize_t __box_cbprintf(
     ssize_t res = 0;
     while (true) {
         // first consume everything until a '%'
-        const char *np = strchr(p, '%');
-        size_t skip = np ? np - p : strlen(p);
-
+        size_t skip = strcspn(p, "%");
         if (skip > 0) {
             ssize_t nres = write(ctx, p, skip);
             if (nres < 0) {
@@ -742,13 +762,14 @@ ssize_t __box_cbprintf(
             res += nres;
         }
 
+        p += skip;
+
         // hit end of string?
-        if (!np) {
+        if (!*p) {
             return res;
         }
 
         // format parser
-        p = np;
         bool zero_justify = false;
         bool left_justify = false;
         bool precision_mode = false;
@@ -759,18 +780,18 @@ ssize_t __box_cbprintf(
         uint32_t value = 0;
         size_t size = 0;
 
-        for (;; np++) {
-            if (np[1] >= '0' && np[1] <= '9') {
+        for (;; p++) {
+            if (p[1] >= '0' && p[1] <= '9') {
                 // precision/width
                 if (precision_mode) {
-                    precision = precision*10 + (np[1]-'0');
-                } else if (np[1] > '0' || width > 0) {
-                    width = width*10 + (np[1]-'0');
+                    precision = precision*10 + (p[1]-'0');
+                } else if (p[1] > '0' || width > 0) {
+                    width = width*10 + (p[1]-'0');
                 } else {
                     zero_justify = true;
                 }
 
-            } else if (np[1] == '*') {
+            } else if (p[1] == '*') {
                 // dynamic precision/width
                 if (precision_mode) {
                     precision = va_arg(args, size_t);
@@ -778,29 +799,29 @@ ssize_t __box_cbprintf(
                     width = va_arg(args, size_t);
                 }
 
-            } else if (np[1] == '.') {
+            } else if (p[1] == '.') {
                 // switch mode
                 precision_mode = true;
 
-            } else if (np[1] == '-') {
+            } else if (p[1] == '-') {
                 // left-justify
                 left_justify = true;
 
-            } else if (np[1] == '%') {
+            } else if (p[1] == '%') {
                 // single '%'
                 mode = 'c';
                 value = '%';
                 size = 1;
                 break;
 
-            } else if (np[1] == 'c') {
+            } else if (p[1] == 'c') {
                 // char
                 mode = 'c';
                 value = va_arg(args, int);
                 size = 1;
                 break;
 
-            } else if (np[1] == 's') {
+            } else if (p[1] == 's') {
                 // string
                 mode = 's';
                 const char *s = va_arg(args, const char *);
@@ -812,7 +833,7 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == 'd' || np[1] == 'i') {
+            } else if (p[1] == 'd' || p[1] == 'i') {
                 // signed decimal number
                 mode = 'd';
                 int32_t d = va_arg(args, int32_t);
@@ -830,7 +851,7 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] == 'u') {
+            } else if (p[1] == 'u') {
                 // unsigned decimal number
                 mode = 'u';
                 value = va_arg(args, uint32_t);
@@ -843,14 +864,14 @@ ssize_t __box_cbprintf(
                 }
                 break;
 
-            } else if (np[1] >= ' ' && np[1] <= '?') {
+            } else if (p[1] >= ' ' && p[1] <= '?') {
                 // unknown modifier? skip
 
             } else {
                 // hex or unknown character, terminate
 
                 // make it prettier for pointers
-                if (!(np[1] == 'x' || np[1] == 'X')) {
+                if (!(p[1] == 'x' || p[1] == 'X')) {
                     zero_justify = true;
                     width = 2*sizeof(void*);
                 }
@@ -870,7 +891,7 @@ ssize_t __box_cbprintf(
         }
 
         // consume the format
-        p = np+2;
+        p += 2;
 
         // format printing
         if (!left_justify) {
@@ -985,8 +1006,8 @@ ssize_t __wrap_fprintf(FILE *f, const char *format, ...) {
 
 __attribute__((used))
 int __wrap_fflush(FILE *f) {
-    // do nothing currently
-    return 0;
+    int32_t fd = (f == stdout) ? 1 : 2;
+    return __box_flush(fd);
 }
 
 #ifdef __GNUC__

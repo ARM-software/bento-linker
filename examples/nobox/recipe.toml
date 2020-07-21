@@ -24,4 +24,4 @@ output.mk.incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'

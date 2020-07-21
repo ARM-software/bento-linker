@@ -461,7 +461,7 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                         "by the loader but can be overriden."))
                 self._write_hooks.append(parent.addimport(
                     '__box_%s_write' % child.name,
-                    'fn(i32, const u8*, usize) -> errsize',
+                    'fn(i32, const u8[size], usize size) -> errsize',
                     target=parent.name, source=self.__name, weak=True,
                     doc="Override __box_write for this specific box."))
 
@@ -526,10 +526,10 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             source=self.__name)
         # plugs
         self._abort_plug = box.addexport(
-            '__box_abort', 'fn(err32) -> void',
+            '__box_abort', 'fn(err) -> void',
             target=box.name, source=self.__name, weak=True)
         self._write_plug = box.addexport(
-            '__box_write', 'fn(i32, const u8*, usize) -> errsize',
+            '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
             target=box.name, source=self.__name, weak=True)
         if self._zero:
             # zeroing takes care of bss

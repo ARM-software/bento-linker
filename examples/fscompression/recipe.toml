@@ -24,7 +24,7 @@ output.mk.incs = [
     'nrfx/templates'
 ]
 
-export.__box_write = 'fn(i32, const u8*, usize) -> errsize'
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 export.__box_box1_open.alias = '__box_open'
 export.__box_box1_open.type = 'fn(mut i32 *fd, const i8 *path, u32 flags) -> err'
 export.__box_box1_close.alias = '__box_close'
@@ -73,7 +73,7 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk.path = 'Makefile'
 
-export.box1_add2= 'fn(i32, i32) -> err32'
+export.box1_add2 = 'fn(i32, i32) -> err32'
 export.box1_hello = 'fn() -> err'
 
 [box.box2]
@@ -92,7 +92,7 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk.path = 'Makefile'
 
-export.box2_add2= 'fn(i32, i32) -> err32'
+export.box2_add2 = 'fn(i32, i32) -> err32'
 export.box2_hello = 'fn() -> err'
 
 [box.box3]
@@ -111,6 +111,6 @@ output.h = 'bb.h'
 output.c = 'bb.c'
 output.mk.path = 'Makefile'
 
-export.box3_add2= 'fn(i32, i32) -> err32'
+export.box3_add2 = 'fn(i32, i32) -> err32'
 export.box3_hello = 'fn() -> err'
 

@@ -45,9 +45,14 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 "provided as an argument.")
         self._write_hook = parent.addimport(
             '__box_%s_write' % box.name,
-            'fn(i32, const u8*, usize) -> errsize',
+            'fn(i32, const u8[size], usize size) -> errsize',
             target=parent.name, source=self.__argname__, weak=True,
             doc="Override __box_write for this specific box.")
+        self._flush_hook = parent.addimport(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
+            target=parent.name, source=self.__argname__, weak=True,
+            doc="Override __box_flush for this specific box.")
         super().box_parent(parent, box)
 
     def box(self, box):
@@ -58,10 +63,13 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         self._jumptable.alloc(box, 'rp')
         # plugs
         self._abort_plug = box.addexport(
-            '__box_abort', 'fn(err32) -> noreturn',
+            '__box_abort', 'fn(err) -> noreturn',
             target=box.name, source=self.__argname__, weak=True)
         self._write_plug = box.addexport(
-            '__box_write', 'fn(i32, const u8*, usize) -> errsize',
+            '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
+            target=box.name, source=self.__argname__, weak=True)
+        self._flush_plug = box.addexport(
+            '__box_flush', 'fn(i32) -> err',
             target=box.name, source=self.__argname__, weak=True)
 
     def _parentimports(self, parent, box):
@@ -87,6 +95,10 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         yield Export(
             '__box_%s_write' % box.name,
             'fn(i32, const u8*, usize) -> errsize',
+            source=self.__argname__)
+        yield Export(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
             source=self.__argname__)
 
         # exports that need linking
@@ -116,8 +128,13 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             source=self.__argname__)
         yield Import(
             '__box_%s_write' % box.name,
-            'fn(i32, const u8*, usize) -> errsize',
+            'fn(i32, const u8[size], usize size) -> errsize',
             alias='__box_write',
+            source=self.__argname__)
+        yield Export(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
+            alias='__box_flush',
             source=self.__argname__)
 
         # imports that need linking
@@ -249,6 +266,13 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 doc='redirect %(write_hook)s -> __box_write')
             out.printf('#define %(write_hook)s __box_write')
 
+        if not self._flush_hook.link:
+            out = output.decls.append(
+                flush_hook=self._flush_hook.linkname,
+                doc='redirect %(flush_hook)s -> __box_flush')
+            out.printf('#define %(flush_hook)s __box_flush')
+
+        # import jumptable
         out = output.decls.append()
         out.printf('const uint32_t __box_%(box)s_importjumptable[] = {')
         with out.indent():
@@ -256,6 +280,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 out.printf('(uint32_t)%(alias)s,', alias=export.alias)
         out.printf('};')
 
+        # init code
         output.decls.append('//// %(box)s init ////')
         out = output.decls.append()
         out.printf('int __box_%(box)s_clobber(void) {')
