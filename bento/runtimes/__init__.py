@@ -37,14 +37,14 @@ class Runtime(Inherit(
         super().box(box)
         self.data_init_hook = box.addimport(
             '__box_data_init', 'fn() -> void',
-            target=box.name, source=self.__argname__, weak=True,
+            scope=box.name, source=self.__argname__, weak=True,
             doc="Artificial hook to indicate who's taking care of "
                 "initializing the data section. Some loaders take care of "
                 "initialization implicitly, otherwise its left up to the "
                 "runtime. Not actually called.")
         self.bss_init_hook = box.addimport(
             '__box_bss_init', 'fn() -> void',
-            target=box.name, source=self.__argname__, weak=True,
+            scope=box.name, source=self.__argname__, weak=True,
             doc="Artificial hook to indicate who's taking care of "
                 "initializing the bss section. Some loaders take care of "
                 "initialization implicitly, otherwise its left up to the "

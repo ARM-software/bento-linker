@@ -201,7 +201,7 @@ class GLZLoader(loaders.Loader):
         self._blob.alloc(box, 'rpc')
         # we also take care data implicitly
         box.addexport('__box_data_init', 'fn() -> void',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
 
     def build_ld(self, output, box):
         if output.emit_sections:
@@ -320,7 +320,7 @@ class GLZLoader(loaders.Loader):
         super().box_parent(parent, box)
         self._load_plug = parent.addexport(
             '__box_%s_load' % box.name, 'fn() -> err',
-            target=parent.name, source=self.__argname__, weak=True)
+            scope=parent.name, source=self.__argname__, weak=True)
 
     def build_parent_c_prologue(self, output, parent):
         super().build_parent_c_prologue(output, parent)

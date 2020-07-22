@@ -16,7 +16,7 @@ class NoOpLoader(loaders.Loader):
         super().box_parent(parent, box)
         self._load_plug = parent.addexport(
             '__box_%s_load' % box.name, 'fn() -> err',
-            target=parent.name, source=self.__argname__, weak=True)
+            scope=parent.name, source=self.__argname__, weak=True)
 
     def build_mk(self, output, box):
         # target rule

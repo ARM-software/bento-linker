@@ -512,12 +512,12 @@ class BDLoader(loaders.Loader):
         super().box_parent(parent, box)
         self._load_plug = parent.addexport(
             '__box_%s_load' % box.name, 'fn() -> err',
-            target=parent.name, source=self.__argname__, weak=True)
+            scope=parent.name, source=self.__argname__, weak=True)
         # need block device hook
         self._bdread_hook = parent.addimport(
             '__box_%s_bdread' % box.name,
             'fn(u32 block, u32 off, mut u8 *buffer, usize size) -> err',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Read from block device using a block number and offset. "
                 "Must be in multiples of the read_size.")
 
@@ -525,7 +525,7 @@ class BDLoader(loaders.Loader):
         super().box(box)
         # we also take care data implicitly
         box.addexport('__box_data_init', 'fn() -> void',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
 
     def build_mk_prologue(self, output, box):
         super().build_mk_prologue(output, box)

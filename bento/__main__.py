@@ -1,4 +1,3 @@
-import toml
 import sys
 import os.path
 import collections as co
@@ -75,14 +74,14 @@ class BoxesCommand:
                 if i == 0:
                     print('  import')
                 print('    %(name)-32s %(import_)s' % dict(
-                    name=import_.name, import_=import_))
+                    name=import_.scopedname, import_=import_))
             for i, export in enumerate(
                     export for export in box.exports
                     if p or export.source == box.name):
                 if i == 0:
                     print('  export')
                 print('    %(name)-32s %(export)s' % dict(
-                    name=export.name, export=export))
+                    name=export.scopedname, export=export))
 
             for box in box.boxes:
                 ls(box)
@@ -113,9 +112,9 @@ class LinksCommand:
                 if i == 0:
                     print('box %s' % box.name)
                 exportname = (
-                    '%s.export.%s' % (export.source, export.name)
+                    '%s.export.%s' % (export.source, export.scopedname)
                     if export.source != box.name else
-                    'export.%s' % export.name)
+                    'export.%s' % export.scopedname)
                 if len(exportname) > 32 and any(
                         link.import_ for link in export.links):
                     print('  %s' % exportname)
@@ -242,7 +241,7 @@ class HooksCommand:
         def hooks(box):
             runtimes = {}
             for import_ in box.imports:
-                if import_.target == box.name and import_.source != box.name:
+                if import_.scope == box.name and import_.source != box.name:
                     if import_.source not in runtimes:
                         runtimes[import_.source] = []
                     runtimes[import_.source].append(import_)
@@ -255,7 +254,7 @@ class HooksCommand:
                 for import_ in imports:
                     needsnl = True
                     print('    %(name)-32s %(import_)s' % dict(
-                        name=import_.linkname,
+                        name=import_.name,
                         import_=import_))
                     if import_.doc:
                         for line in textwrap.wrap(import_.doc, width=78-8):

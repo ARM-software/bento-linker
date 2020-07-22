@@ -3,9 +3,9 @@ import argparse
 import sys
 import os
 import io
-import toml
 from argparse import Namespace
 import itertools as it
+import qtoml as toml
 
 def nsnest(ns):
     """
@@ -501,7 +501,8 @@ class ArgumentParser(argparse.ArgumentParser):
         Convenience method for applying parse_dict to a toml file.
         """
         try:
-            return self.parse_dict(toml.load(path), prefix=prefix)
+            with open(path) as f:
+                return self.parse_dict(toml.loads(f.read()), prefix=prefix)
         except SystemExit:
             print("%s: error: while parsing %r" % (
                 os.path.basename(sys.argv[0]), path),

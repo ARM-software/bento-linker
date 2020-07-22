@@ -58,6 +58,13 @@ int __box_box1_init(void);
 // Mark the box box1 as needing to be reinitialized.
 int __box_box1_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_box1_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_box1_pop(size_t size);
+
 // Initialize box box2. Resets the box to its initial state if already
 // initialized.
 int __box_box2_init(void);
@@ -65,12 +72,26 @@ int __box_box2_init(void);
 // Mark the box box2 as needing to be reinitialized.
 int __box_box2_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_box2_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_box2_pop(size_t size);
+
 // Initialize box box3. Resets the box to its initial state if already
 // initialized.
 int __box_box3_init(void);
 
 // Mark the box box3 as needing to be reinitialized.
 int __box_box3_clobber(void);
+
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_box3_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_box3_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
@@ -258,18 +279,18 @@ const uint32_t __box_sys_jumptable[] = {
     (uint32_t)__box_open,
     (uint32_t)__box_read,
     (uint32_t)__box_seek,
-    (uint32_t)__box_close,
-    (uint32_t)__box_open,
-    (uint32_t)__box_read,
-    (uint32_t)__box_seek,
-    (uint32_t)__box_close,
-    (uint32_t)__box_open,
-    (uint32_t)__box_read,
-    (uint32_t)__box_seek,
-    (uint32_t)__box_write,
     (uint32_t)__box_box1_write,
+    (uint32_t)__box_close,
+    (uint32_t)__box_open,
+    (uint32_t)__box_read,
+    (uint32_t)__box_seek,
     (uint32_t)__box_box2_write,
+    (uint32_t)__box_close,
+    (uint32_t)__box_open,
+    (uint32_t)__box_read,
+    (uint32_t)__box_seek,
     (uint32_t)__box_box3_write,
+    (uint32_t)__box_write,
 };
 
 extern const uint32_t __box_box1_jumptable[];

@@ -6,7 +6,7 @@ setup(
     version='0.1dev',
     packages=['bento'],
     install_requires=[
-        'toml>=0.10'
+        'qtoml>=0.3'
     ],
     python_requires='>=3.6',
     #long_description=open('README.md').read()

@@ -436,11 +436,11 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     __name = __argname__
     def box_parent_prologue(self, parent):
         parent.addexport('__box_memmanage_handler', 'fn() -> void',
-            target=parent.name, source=self.__name)
+            scope=parent.name, source=self.__name)
         parent.addexport('__box_busfault_handler', 'fn() -> void',
-            target=parent.name, source=self.__name)
+            scope=parent.name, source=self.__name)
         parent.addexport('__box_usagefault_handler', 'fn() -> void',
-            target=parent.name, source=self.__name)
+            scope=parent.name, source=self.__name)
 
         # we collect hooks here because we need to handle them all at once
         self._fault_hooks = []
@@ -450,19 +450,19 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             if child.runtime == self:
                 self._fault_hooks.append(parent.addimport(
                     '__box_%s_fault' % child.name, 'fn(err) -> void',
-                    target=parent.name, source=self.__name, weak=True,
+                    scope=parent.name, source=self.__name, weak=True,
                     doc="Called when this box faults, either due to an illegal "
                         "memory access or other failure. the error code is "
                         "provided as an argument."))
                 self._load_hooks.append(parent.addimport(
                     '__box_%s_load' % child.name, 'fn() -> err',
-                    target=parent.name, source=self.__name,
+                    scope=parent.name, source=self.__name,
                     doc="Called to load the box during init. Normally provided "
                         "by the loader but can be overriden."))
                 self._write_hooks.append(parent.addimport(
                     '__box_%s_write' % child.name,
                     'fn(i32, const u8[size], usize size) -> errsize',
-                    target=parent.name, source=self.__name, weak=True,
+                    scope=parent.name, source=self.__name, weak=True,
                     doc="Override __box_write for this specific box."))
 
     def box_parent(self, parent, box):
@@ -504,11 +504,11 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         parent.addimport(
             '__box_init', 'fn() -> err32',
-            target=box.name, source=self.__name,
+            scope=box.name, source=self.__name,
             alias='__box_%s_rawinit' % box.name)
         parent.addexport(
             '__box_%s_write' % box.name, 'fn(i32, const u8*, usize) -> errsize',
-            target=box.name, source=self.__name)
+            scope=box.name, source=self.__name)
 
         super().box_parent(parent, box)
 
@@ -527,14 +527,14 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         # plugs
         self._abort_plug = box.addexport(
             '__box_abort', 'fn(err) -> void',
-            target=box.name, source=self.__name, weak=True)
+            scope=box.name, source=self.__name, weak=True)
         self._write_plug = box.addexport(
             '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
-            target=box.name, source=self.__name, weak=True)
+            scope=box.name, source=self.__name, weak=True)
         if self._zero:
             # zeroing takes care of bss
             box.addexport('__box_bss_init', 'fn() -> void',
-                target=box.name, source=self.__argname__, weak=True)
+                scope=box.name, source=self.__argname__, weak=True)
 
     # overridable
     def build_mpu_dispatch(self, output, sys):
@@ -614,14 +614,14 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             for load_hook in self._load_hooks:
                 if not load_hook.link:
                     out.printf('#define %(load_hook)s __box_load',
-                        load_hook=load_hook.linkname)
+                        load_hook=load_hook.name)
 
         if any(not write_hook.link for write_hook in self._write_hooks):
             out = output.decls.append(doc='Redirected __box_writes')
             for write_hook in self._write_hooks:
                 if not write_hook.link:
                     out.printf('#define %(write_hook)s __box_write',
-                        write_hook=write_hook.linkname)
+                        write_hook=write_hook.name)
 
         # jumptables
         out = output.decls.append(doc='Jumptables')
@@ -629,7 +629,7 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         with out.pushindent():
             out.printf('(uint32_t)NULL, // no stack for sys')
             for export in sys.exports:
-                if export.target != sys:
+                if export.scope != sys:
                     out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.write('};')
 
@@ -693,7 +693,7 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 out.printf('&%(fault_hook)s,',
                     fault_hook=fault_hook.link.export.alias
                         if fault_hook.link else
-                        fault_hook.linkname)
+                        fault_hook.name)
         out.printf('};')
 
         # state
@@ -889,7 +889,7 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             # special entries for the sp and __box_init
             out.printf('(uint32_t)&__stack_end,')
             for export in box.exports:
-                if export.target != box:
+                if export.scope != box:
                     out.printf('(uint32_t)%(export)s,', export=export.alias)
         out.printf('};')
 

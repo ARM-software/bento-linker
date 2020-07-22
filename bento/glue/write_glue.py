@@ -359,14 +359,14 @@ class WriteGlue(glue.Glue):
         self.__write_hook = box.addimport(
             '__box_write',
             'fn(i32 fd, const u8 buffer[size], usize size) -> errsize',
-            target=box.name, source=self.__name, weak=True,
+            scope=box.name, source=self.__name, weak=True,
             doc="Provides a minimal implementation of stdout to the box. "
                 "The exact behavior depends on the superbox's implementation "
                 "of __box_write. If none is provided, __box_write links but "
                 "does nothing.")
         self.__flush_hook = box.addimport(
             '__box_flush', 'fn(i32 fd) -> err',
-            target=box.name, source=self.__name, weak=True,
+            scope=box.name, source=self.__name, weak=True,
             doc="Provides a minimal implementation of stdout to the box. "
                 "The exact behavior depends on the superbox's implementation "
                 "of __box_flush. If none is provided, __box_flush links but "

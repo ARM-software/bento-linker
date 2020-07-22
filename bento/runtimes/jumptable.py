@@ -34,24 +34,24 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     def box_parent(self, parent, box):
         self._load_hook = parent.addimport(
             '__box_%s_load' % box.name, 'fn() -> err',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Called to load the box during init. Normally provided "
                 "by the loader but can be overriden.")
         self._abort_hook = parent.addimport(
             '__box_%s_abort' % box.name, 'fn(err err) -> noreturn',
-            target=parent.name, source=self.__argname__, weak=True,
+            scope=parent.name, source=self.__argname__, weak=True,
             doc="Called when this box aborts, either due to an illegal "
                 "memory access or other failure. the error code is "
                 "provided as an argument.")
         self._write_hook = parent.addimport(
             '__box_%s_write' % box.name,
             'fn(i32, const u8[size], usize size) -> errsize',
-            target=parent.name, source=self.__argname__, weak=True,
+            scope=parent.name, source=self.__argname__, weak=True,
             doc="Override __box_write for this specific box.")
         self._flush_hook = parent.addimport(
             '__box_%s_flush' % box.name,
             'fn(i32) -> err',
-            target=parent.name, source=self.__argname__, weak=True,
+            scope=parent.name, source=self.__argname__, weak=True,
             doc="Override __box_flush for this specific box.")
         super().box_parent(parent, box)
 
@@ -61,13 +61,13 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         # plugs
         self._abort_plug = box.addexport(
             '__box_abort', 'fn(err) -> noreturn',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
         self._write_plug = box.addexport(
             '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
         self._flush_plug = box.addexport(
             '__box_flush', 'fn(i32) -> err',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
 
     def _parentimports(self, parent, box):
         """ Get imports that need linking. """
@@ -112,7 +112,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         # exports that need linking
         for export in box.exports:
-            if export.target != box:
+            if export.scope != box:
                 yield export
 
     def _imports(self, box):
@@ -148,7 +148,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         # exports that need linking
         for export in box.exports:
-            if export.target != box:
+            if export.scope != box:
                 yield export
 
     def build_parent_c(self, output, parent, box):
@@ -241,7 +241,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 output.includes.append('<setjmp.h>')
                 out = output.decls.append(
                     fn=output.repr_fn(self._abort_hook,
-                        self._abort_hook.linkname))
+                        self._abort_hook.name))
                 out.printf('%(fn)s {')
                 with out.indent():
                     out.printf('if (__box_%(box)s_jmpbuf) {')
@@ -255,19 +255,19 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             else:
                 # just redirect to parent's __box_abort
                 out = output.decls.append(
-                    abort_hook=self._abort_hook.linkname,
+                    abort_hook=self._abort_hook.name,
                     doc='redirect %(abort_hook)s -> __box_abort')
                 out.printf('#define %(abort_hook)s __box_abort')
 
         if not self._write_hook.link:
             out = output.decls.append(
-                write_hook=self._write_hook.linkname,
+                write_hook=self._write_hook.name,
                 doc='redirect %(write_hook)s -> __box_write')
             out.printf('#define %(write_hook)s __box_write')
 
         if not self._flush_hook.link:
             out = output.decls.append(
-                flush_hook=self._flush_hook.linkname,
+                flush_hook=self._flush_hook.name,
                 doc='redirect %(flush_hook)s -> __box_flush')
             out.printf('#define %(flush_hook)s __box_flush')
 

@@ -54,12 +54,26 @@ int __box_boxc_init(void);
 // Mark the box boxc as needing to be reinitialized.
 int __box_boxc_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_boxc_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_boxc_pop(size_t size);
+
 // Initialize box boxrust. Resets the box to its initial state if already
 // initialized.
 int __box_boxrust_init(void);
 
 // Mark the box boxrust as needing to be reinitialized.
 int __box_boxrust_clobber(void);
+
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_boxrust_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_boxrust_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
@@ -222,9 +236,9 @@ uint32_t __box_active = 0;
 // Jumptables
 const uint32_t __box_sys_jumptable[] = {
     (uint32_t)NULL, // no stack for sys
-    (uint32_t)__box_write,
     (uint32_t)__box_boxc_write,
     (uint32_t)__box_boxrust_write,
+    (uint32_t)__box_write,
 };
 
 extern const uint32_t __box_boxc_jumptable[];

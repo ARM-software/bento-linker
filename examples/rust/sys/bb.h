@@ -36,6 +36,13 @@ int __box_boxrust_init(void);
 // Mark the box boxrust as needing to be reinitialized.
 int __box_boxrust_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_boxrust_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_boxrust_pop(size_t size);
+
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not

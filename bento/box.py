@@ -503,6 +503,8 @@ class Fn:
             help=cls.__arghelp__)
         parser.add_argument("--type", pred=cls.parsetype,
             help="Type of the function.")
+        parser.add_argument("--scope", underscore=True,
+            help="Box to limit import/export access to.")
         parser.add_argument("--alias", underscore=True,
             help="Name used in the box for the function.")
         parser.add_argument("--doc",
@@ -564,7 +566,7 @@ class Fn:
 
         return args, rets, noreturn
 
-    def __init__(self, name, type=None, source=None, target=None,
+    def __init__(self, name, type=None, source=None, scope=None,
             alias=None, doc=None, weak=False):
         if type is None:
             name, type = None, name
@@ -578,7 +580,6 @@ class Fn:
             raise ValueError("Currently only 0-4 arguments are supported")
         if len(rets) > 1:
             raise ValueError("Currently only 0 or 1 return values supported")
-
 
         names = set()
         for arg in it.chain(args, rets):
@@ -596,24 +597,22 @@ class Fn:
                 raise ValueError("Returning buffers with dependent sizes "
                     "currently not supported %r" % type)
 
-        if target is not None:
-            self.name = '.'.join([target, name])
-            self.target = target
-            self.linkname = name
+        if scope is None and '.' in name:
+            self.scope, self.name = name.split('.', 1)
         else:
             self.name = name
-            self.target = name.split('.', 1)[0] if '.' in name else None
-            self.linkname = name.split('.', 1)[-1]
+            self.scope = scope
+        self.scopedname = '.'.join(filter(None, [self.scope, self.name]))
 
         self.args = args
         self.rets = rets
         self._noreturn = noreturn
 
-        self.alias = alias or self.linkname
+        self.alias = alias or self.name
         self.doc = doc
         self.weak = weak
 
-        assert source is not None, "Need a source you doofus"
+        assert source is not None, "Need a source you doofus (internal error)"
         self.source = source
 
     def __str__(self):
@@ -622,6 +621,15 @@ class Fn:
             'noreturn' if self.isnoreturn() else
             'void' if not self.rets else
             ', '.join(map(str, self.rets)))
+
+    def reprcontext(self, direction):
+        return ('%(direction)s.%(name)s = '
+            '%(type)s in %(source)s%(scope)s' % dict(
+            direction=direction,
+            name=self.name,
+            type=str(self),
+            source=self.source,
+            scope=' (scope=%s)' % self.scope if self.scope else ''))
 
     def __lt__(self, other):
         return self.name < other.name
@@ -692,13 +700,13 @@ class Fn:
         return True
 
     def islinkable(self, other, exportbox=None, importbox=None):
-        return (self.linkname == other.linkname and 
-            (self.target is None or
+        return (self.name == other.name and 
+            (self.scope is None or
                 exportbox is None or
-                self.target == exportbox) and
-            (other.target is None or
+                self.scope == exportbox) and
+            (other.scope is None or
                 importbox is None or
-                other.target == importbox))
+                other.scope == importbox))
 
 class Import(Fn):
     """
@@ -712,6 +720,9 @@ class Import(Fn):
         self.box = None
         self.link = None
 
+    def reprcontext(self, direction='import'):
+        return super().reprcontext(direction)
+
 class Export(Fn):
     """
     Description of an exported function for a box.
@@ -723,6 +734,9 @@ class Export(Fn):
         # these get populated later
         self.box = None
         self.links = []
+
+    def reprcontext(self, direction='export'):
+        return super().reprcontext(direction)
 
 class Box:
     """
@@ -1079,7 +1093,7 @@ class Box:
             if box.parent:
                 assert all(child.name != box.parent.name
                     for child in box.boxes), (
-                    "Conflicting names between box's parent/child %r" %
+                    "Conflicting names between box's parent/child `%s`" %
                     box.parent.name)
 
             return box
@@ -1107,12 +1121,11 @@ class Box:
         assert all(memory.addr is not None and
                 memory.size is not None
                 for memory in self.memoryslices), (
-            "Memory insufficiently specified for box %r:\n"
-            "%s" % (
-            self.name,
-            '\n'.join("memory.%s = %s in %s" % (
-                memory.name, memory, self.name)
-                for memory in self.memoryslices)))
+            "Memory insufficiently specified for box `%s`:\n%s" % (
+                self.name,
+                '\n'.join("memory.%s = %s in %s" % (
+                    memory.name, memory, self.name)
+                    for memory in self.memoryslices)))
 
         if not stage or stage == 'boxes':
             # create memory slices for children
@@ -1248,110 +1261,84 @@ class Box:
         # during boxing)
         importset = {}
         for import_ in self.imports:
-            if import_.name in importset:
-                assert importset[import_.name].iscompatible(import_), (
-                    "Incompatible imports for %r:\n"
-                    "import.%s = %s in %s\n"
-                    "import.%s = %s in %s" % (
-                    import_.name,
-                    importset[import_.name].name,
-                    importset[import_.name],
-                    importset[import_.name].source,
-                    import_.name,
-                    import_,
-                    import_.source))
+            if (import_.scope, import_.name) in importset:
+                conflict = importset[(import_.scope, import_.name)]
+                assert conflict.iscompatible(import_), (
+                    "Incompatible imports for `%s`:\n%s" % (
+                        import_.name,
+                        '\n'.join(x.reprcontext() for x in
+                            it.chain([conflict, import_]))))
             # prioritize our own imports
-            if import_ not in importset or import_.source == self.name:
-                importset[import_.name] = import_
+            if ((import_.scope, import_.name) not in importset
+                    or import_.source == self.name):
+                importset[(import_.scope, import_.name)] = import_
         # actually don't make this unique, 
         self.imports = sorted(self.imports)
 
         exportset = {}
         for export in self.exports:
-            if export.name in exportset:
-                assert export.weak or exportset[export.name].weak, (
-                    "Conflicting exports for %r:\n"
-                    "export.%s = %s in %s\n"
-                    "export.%s = %s in %s" % (
-                    export.name,
-                    exportset[export.name].name,
-                    exportset[export.name],
-                    exportset[export.name].source,
-                    export.name,
-                    export,
-                    export.source))
-                assert exportset[export.name].iscompatible(export), (
-                    "Incompatible exports for %r:\n"
-                    "export.%s = %s in %s\n"
-                    "export.%s = %s in %s" % (
-                    export.name,
-                    exportset[export.name].name,
-                    exportset[export.name],
-                    exportset[export.name].source,
-                    export.name,
-                    export,
-                    export.source))
-            if export not in exportset or exportset[export.name].weak:
-                exportset[export.name] = export
+            if (export.scope, export.name) in exportset:
+                conflict = exportset[(export.scope, export.name)]
+                assert export.weak or conflict.weak, (
+                    "Conflicting exports for `%s`:\n%s" % (
+                        export.name,
+                        '\n'.join(x.reprcontext() for x in
+                            it.chain([conflict, export]))))
+                assert conflict.iscompatible(export), (
+                    "Incompatible exports for `%s`:\n%s" % (
+                        export.name,
+                        '\n'.join(x.reprcontext() for x in
+                            it.chain([conflict, export]))))
+            if (export.scope, export.name) not in exportset or conflict.weak:
+                exportset[(export.scope, export.name)] = export
         self.exports = sorted(exportset.values())
 
         # now create linkages
         for export in self.exports:
-            assert (export.target is None or any(
-                target.name == export.target
-                for target in it.chain(
+            assert (export.scope is None or any(
+                scope.name == export.scope
+                for scope in it.chain(
                     [self],
                     [self.parent] if self.parent else [],
                     self.boxes))), (
-                "No target %r found for export %r:\n"
-                "export.%s = %s in %s" % (
-                export.target, export.name,
-                export.name, export, export.source))
+                "No scope `%s` found for export `%s`:\n%s" % (
+                    export.scope,
+                    export.name,
+                    export.reprcontext()))
 
         for import_ in self.imports:
             targets = []
-            for target in it.chain(
+            for scope in it.chain(
                     [self],
                     [self.parent] if self.parent else [],
                     self.boxes):
-                for export in target.exports:
-                    if import_.islinkable(export, target, self):
+                for export in scope.exports:
+                    if import_.islinkable(export, scope, self):
                         targets.append(export)
 
             assert targets or import_.weak, (
-                "No export found for %r:\n"
-                "import.%s = %s in %s" % (
-                import_.name,
-                import_.name, import_, import_.source))
+                "No export found for `%s`:\n%s" % (
+                    import_.name,
+                    import_.reprcontext()))
 
             # remove weaks
-            while len(targets) > 1 and any(target.weak for target in targets):
-                maxweak = max(target.weak for target in targets)
-                targets = [target for target in targets
-                    if target.weak < maxweak]
+            while len(targets) > 1 and any(scope.weak for scope in targets):
+                maxweak = max(scope.weak for scope in targets)
+                targets = [scope for scope in targets
+                    if scope.weak < maxweak]
             assert len(targets) <= 1, (
-                "Ambiguous import/export for %r:\n"
-                "import.%s = %s in %s\n"
-                "%s" % (
-                import_.name,
-                import_.name, import_, import_.source,
-                '\n'.join("export.%s = %s in %s" % (
-                    export.name, export, export.source)
-                    for export in targets)))
+                "Ambiguous import/export for `%s`:\n%s" % (
+                    import_.name,
+                    '\n'.join(x.reprcontext() for x in
+                        it.chain([import_], targets))))
 
             if targets:
                 export = targets[0]
                 assert export.iscompatible(import_), (
-                    "Incompatible import/export for %r:\n"
-                    "export.%s = %s in %s\n"
-                    "import.%s = %s in %s" % (
-                    export.name,
-                    export.name,
-                    export,
-                    export.source,
-                    import_.name,
-                    import_,
-                    import_.source))
+                    "Incompatible import/export for `%s`:\n%s" % (
+                        export.name,
+                        '\n'.join(x.reprcontext() for x in
+                            [export, import_])))
 
                 link = Link(export, import_)
                 import_.link = link
@@ -1371,7 +1358,7 @@ class Box:
                             if not box or any(
                                 link.import_.box == box
                                 for link in export.links)
-                            if export.target != export.box):
+                            if export.scope != export.box):
                         if export is self:
                             return n
                 return n
@@ -1384,7 +1371,7 @@ class Box:
                     for n, import_ in enumerate(
                             import_ for import_ in self.box.imports
                             if not box or import_.link.export.box == box
-                            if import_.link.export.target !=
+                            if import_.link.export.scope !=
                                 import_.link.export.box):
                         if import_ is self:
                             return n

@@ -61,7 +61,7 @@ class AbortGlue(glue.Glue):
         super().box(box)
         self.__abort_hook = box.addimport(
             '__box_abort', 'fn(err err) -> noreturn',
-            target=box.name, source=self.__name, weak=True,
+            scope=box.name, source=self.__name, weak=True,
             doc="May be called by well-behaved code to terminate the box "
                 "if execution can not continue. Notably used for asserts. "
                 "Note that __box_abort may be skipped if the box is killed "

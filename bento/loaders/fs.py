@@ -453,35 +453,35 @@ class FSLoader(loaders.Loader):
         super().box_parent(parent, box)
         self._load_plug = parent.addexport(
             '__box_%s_load' % box.name, 'fn() -> err',
-            target=parent.name, source=self.__argname__, weak=True)
+            scope=parent.name, source=self.__argname__, weak=True)
         # need filesystem hooks
         self._open_hook = parent.addimport(
             '__box_%s_open' % box.name,
             # TODO const?
             'fn(mut i32 *fd, const i8 *path, u32 flags) -> err',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Open a file using a null-terminated path and flags.")
         self._close_hook = parent.addimport(
             '__box_%s_close' % box.name,
             'fn(i32 fd) -> err',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Close a file.")
         self._read_hook = parent.addimport(
             '__box_%s_read' % box.name,
             'fn(i32 fd, mut u8 *buffer, usize size) -> errsize',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Read bytes from a file.")
         self._seek_hook = parent.addimport(
             '__box_%s_seek' % box.name,
             'fn(i32 fd, usize off, u32 whence) -> errsize',
-            target=parent.name, source=self.__argname__,
+            scope=parent.name, source=self.__argname__,
             doc="Seek in a file.")
 
     def box(self, box):
         super().box(box)
         # we also take care data implicitly
         box.addexport('__box_data_init', 'fn() -> void',
-            target=box.name, source=self.__argname__, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
 
     def build_mk_prologue(self, output, box):
         super().build_mk_prologue(output, box)
