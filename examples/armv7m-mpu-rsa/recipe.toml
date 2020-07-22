@@ -1,0 +1,306 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+heap = 0x1000
+stack = 0x1000
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+]
+
+# sys provided functions
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+export.sys_entropy_poll = 'fn(mut u8 buffer[size], usize size) -> errsize'
+
+# alice connections
+import.alicebox_init = 'fn() -> err'
+import.alicebox_main = 'fn() -> err'
+import.alicebox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+import.alicebox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+import.alicebox_recv = 'fn(const u8 buffer[size], usize size) -> err'
+export.alicebox.bobbox_getpubkey.alias = 'alicebox_bobbox_getpubkey'
+export.alicebox.bobbox_getpubkey.type = '''
+    fn(mut i8 buffer[size], usize size) -> err
+    '''
+export.sys_send_to_bob = 'fn(const u8 buffer[size], usize size) -> err'
+
+# bob connections
+import.bobbox_init = 'fn() -> err'
+import.bobbox_main = 'fn() -> err'
+import.bobbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+import.bobbox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+import.bobbox_recv = 'fn(const u8 buffer[size], usize size) -> err'
+export.bobbox.alicebox_getpubkey.alias = 'bobbox_alicebox_getpubkey'
+export.bobbox.alicebox_getpubkey.type = '''
+    fn(mut i8 buffer[size], usize size) -> err
+    '''
+export.sys_send_to_alice = 'fn(const u8 buffer[size], usize size) -> err'
+
+# stitching to map TLS operations to TLS box
+export.bobbox.sys_rsa_genkey.alias = 'sys_bobbox_rsa_genkey'
+export.bobbox.sys_rsa_genkey.type = '''
+    fn(usize key_size, i32 exponent) -> err32 key
+    '''
+export.bobbox.sys_rsa_freekey.alias = 'sys_bobbox_rsa_freekey'
+export.bobbox.sys_rsa_freekey.type = '''
+    fn(i32 key) -> err
+    '''
+export.bobbox.sys_rsa_getpubkey.alias = 'sys_bobbox_rsa_getpubkey'
+export.bobbox.sys_rsa_getpubkey.type = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.bobbox.sys_rsa_getprivkey.alias = 'sys_bobbox_rsa_getprivkey'
+export.bobbox.sys_rsa_getprivkey.type = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.bobbox.sys_rsa_frompubkey.alias = 'sys_bobbox_rsa_frompubkey'
+export.bobbox.sys_rsa_frompubkey.type = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.bobbox.sys_rsa_fromprivkey.alias = 'sys_bobbox_rsa_fromprivkey'
+export.bobbox.sys_rsa_fromprivkey.type = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.bobbox.sys_rsa_pkcs1_encrypt.alias = 'sys_bobbox_rsa_pkcs1_encrypt'
+export.bobbox.sys_rsa_pkcs1_encrypt.type = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+export.bobbox.sys_rsa_pkcs1_decrypt.alias = 'sys_bobbox_rsa_pkcs1_decrypt'
+export.bobbox.sys_rsa_pkcs1_decrypt.type = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
+export.alicebox.sys_rsa_genkey.alias = 'sys_alicebox_rsa_genkey'
+export.alicebox.sys_rsa_genkey.type = '''
+    fn(usize key_size, i32 exponent) -> err32 key
+    '''
+export.alicebox.sys_rsa_freekey.alias = 'sys_alicebox_rsa_freekey'
+export.alicebox.sys_rsa_freekey.type = '''
+    fn(i32 key) -> err
+    '''
+export.alicebox.sys_rsa_getpubkey.alias = 'sys_alicebox_rsa_getpubkey'
+export.alicebox.sys_rsa_getpubkey.type = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.alicebox.sys_rsa_getprivkey.alias = 'sys_alicebox_rsa_getprivkey'
+export.alicebox.sys_rsa_getprivkey.type = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.alicebox.sys_rsa_frompubkey.alias = 'sys_alicebox_rsa_frompubkey'
+export.alicebox.sys_rsa_frompubkey.type = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.alicebox.sys_rsa_fromprivkey.alias = 'sys_alicebox_rsa_fromprivkey'
+export.alicebox.sys_rsa_fromprivkey.type = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.alicebox.sys_rsa_pkcs1_encrypt.alias = 'sys_alicebox_rsa_pkcs1_encrypt'
+export.alicebox.sys_rsa_pkcs1_encrypt.type = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+export.alicebox.sys_rsa_pkcs1_decrypt.alias = 'sys_alicebox_rsa_pkcs1_decrypt'
+export.alicebox.sys_rsa_pkcs1_decrypt.type = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
+
+# TLS imports
+import.tlsbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+import.tlsbox_drbg_seed = 'fn() -> err'
+import.tlsbox_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
+import.tlsbox_rsa_freekey = 'fn(i32 key) -> err'
+import.tlsbox_rsa_getpubkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.tlsbox_rsa_getprivkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.tlsbox_rsa_frompubkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.tlsbox_rsa_fromprivkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.tlsbox_rsa_pkcs1_encrypt = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+import.tlsbox_rsa_pkcs1_decrypt = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
+
+
+# TLS box provides crypto operations
+[box.tlsbox]
+runtime = 'armv7m-mpu'
+# allocator isn't smart enough to align this properly
+memory.flash.mode = 'rxp'
+memory.flash.addr = '0x000c0000'
+memory.flash.size = '0x20000'
+memory.ram.mode = 'rw'
+memory.ram.addr = '0x20030000'
+memory.ram.size = '0x4000'
+heap = 0x1000
+stack = 0x1000
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.MBEDTLS_CONFIG_FILE = '"mbedtls_config.h"'
+output.mk.srcs = [
+    '.',
+    'mbedtls/library',
+]
+output.mk.incs = [
+    '.',
+    'mbedtls/include',
+]
+
+import.sys_entropy_poll = 'fn(mut u8 buffer[size], usize size) -> errsize'
+
+export.tlsbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+export.tlsbox_drbg_seed = 'fn() -> err'
+export.tlsbox_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
+export.tlsbox_rsa_freekey = 'fn(i32 key) -> err'
+export.tlsbox_rsa_getpubkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.tlsbox_rsa_getprivkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+export.tlsbox_rsa_frompubkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.tlsbox_rsa_fromprivkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+export.tlsbox_rsa_pkcs1_encrypt = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+export.tlsbox_rsa_pkcs1_decrypt = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
+
+[box.alicebox]
+runtime = 'armv7m-mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x1000'
+stack = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+export.alicebox_init = 'fn() -> err'
+export.alicebox_main = 'fn() -> err'
+
+export.alicebox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+export.alicebox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+export.alicebox_recv = 'fn(const u8 buffer[size], usize size) -> err'
+
+import.bobbox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+import.sys_send_to_bob = 'fn(const u8 buffer[size], usize size) -> err'
+
+# TLS operations
+import.sys_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
+import.sys_rsa_freekey = 'fn(i32 key) -> err'
+import.sys_rsa_getpubkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.sys_rsa_getprivkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.sys_rsa_frompubkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.sys_rsa_fromprivkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.sys_rsa_pkcs1_encrypt = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+import.sys_rsa_pkcs1_decrypt = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
+
+[box.bobbox]
+runtime = 'armv7m-mpu'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x1000'
+stack = 0x800
+
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk = 'Makefile'
+
+export.bobbox_init = 'fn() -> err'
+export.bobbox_main = 'fn() -> err'
+
+export.bobbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
+export.bobbox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+export.bobbox_recv = 'fn(const u8 buffer[size], usize size) -> err'
+
+import.alicebox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
+import.sys_send_to_alice = 'fn(const u8 buffer[size], usize size) -> err'
+
+# TLS operations
+import.sys_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
+import.sys_rsa_freekey = 'fn(i32 key) -> err'
+import.sys_rsa_getpubkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.sys_rsa_getprivkey = '''
+    fn(i32 key, mut i8 buffer[size], usize size) -> err
+    '''
+import.sys_rsa_frompubkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.sys_rsa_fromprivkey = '''
+    fn(const i8 buffer[size], usize size) -> err32 key
+    '''
+import.sys_rsa_pkcs1_encrypt = '''
+    fn(i32 key,
+        const u8 input[input_size], usize input_size,
+        mut u8 *output) -> err
+    '''
+import.sys_rsa_pkcs1_decrypt = '''
+    fn(i32 key,
+        const u8 *input,
+        mut u8 output[output_size], usize output_size) -> errsize
+    '''
