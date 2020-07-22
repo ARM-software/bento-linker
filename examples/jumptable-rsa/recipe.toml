@@ -31,7 +31,6 @@ export.sys_entropy_poll = 'fn(mut u8 buffer[size], usize size) -> errsize'
 # alice connections
 import.alicebox_init = 'fn() -> err'
 import.alicebox_main = 'fn() -> err'
-import.alicebox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 import.alicebox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
 import.alicebox_recv = 'fn(const u8 buffer[size], usize size) -> err'
 export.alicebox.bobbox_getpubkey.alias = 'alicebox_bobbox_getpubkey'
@@ -43,7 +42,6 @@ export.sys_send_to_bob = 'fn(const u8 buffer[size], usize size) -> err'
 # bob connections
 import.bobbox_init = 'fn() -> err'
 import.bobbox_main = 'fn() -> err'
-import.bobbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 import.bobbox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
 import.bobbox_recv = 'fn(const u8 buffer[size], usize size) -> err'
 export.bobbox.alicebox_getpubkey.alias = 'bobbox_alicebox_getpubkey'
@@ -127,7 +125,6 @@ export.alicebox.sys_rsa_pkcs1_decrypt.type = '''
     '''
 
 # TLS imports
-import.tlsbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 import.tlsbox_drbg_seed = 'fn() -> err'
 import.tlsbox_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
 import.tlsbox_rsa_freekey = 'fn(i32 key) -> err'
@@ -160,6 +157,7 @@ import.tlsbox_rsa_pkcs1_decrypt = '''
 runtime = 'jumptable'
 memory.flash = 'rxp 0x20000'
 memory.ram = 'rw 0x8000'
+stack = 0x1000
 heap = 0x1000
 
 output.ld = 'bb.ld'
@@ -178,7 +176,6 @@ output.mk.incs = [
 
 import.sys_entropy_poll = 'fn(mut u8 buffer[size], usize size) -> errsize'
 
-export.tlsbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 export.tlsbox_drbg_seed = 'fn() -> err'
 export.tlsbox_rsa_genkey = 'fn(usize key_size, i32 exponent) -> err32 key'
 export.tlsbox_rsa_freekey = 'fn(i32 key) -> err'
@@ -209,6 +206,7 @@ export.tlsbox_rsa_pkcs1_decrypt = '''
 runtime = 'jumptable'
 memory.flash = 'rxp 0x2000'
 memory.ram = 'rw 0x2000'
+stack = 0x400
 
 output.ld = 'bb.ld'
 output.h = 'bb.h'
@@ -218,7 +216,6 @@ output.mk = 'Makefile'
 export.alicebox_init = 'fn() -> err'
 export.alicebox_main = 'fn() -> err'
 
-export.alicebox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 export.alicebox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
 export.alicebox_recv = 'fn(const u8 buffer[size], usize size) -> err'
 
@@ -255,6 +252,7 @@ import.sys_rsa_pkcs1_decrypt = '''
 runtime = 'jumptable'
 memory.flash = 'rxp 0x2000'
 memory.ram = 'rw 0x2000'
+stack = 0x400
 
 output.ld = 'bb.ld'
 output.h = 'bb.h'
@@ -264,7 +262,6 @@ output.mk = 'Makefile'
 export.bobbox_init = 'fn() -> err'
 export.bobbox_main = 'fn() -> err'
 
-export.bobbox_tempbuffer = 'fn(usize size) -> nullable mut u8*'
 export.bobbox_getpubkey = 'fn(mut i8 buffer[size], usize size) -> err'
 export.bobbox_recv = 'fn(const u8 buffer[size], usize size) -> err'
 

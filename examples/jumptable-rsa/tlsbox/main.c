@@ -15,16 +15,6 @@
 #define TLSBOX_KEY_COUNT 4
 #endif
 
-// tempbuffer allocator, only one alloc allowed per call
-void *tlsbox_tempbuffer(size_t size) {
-    static uint8_t buffer[TLSBOX_TEMPBUFFER_SIZE];
-    if (size > sizeof(buffer)) {
-        return NULL;
-    }
-
-    return buffer;
-}
-
 // binding to system source of entropy
 static int tlsbox_entropy_poll(void *eh, uint8_t *output,
         size_t len, size_t *olen) {

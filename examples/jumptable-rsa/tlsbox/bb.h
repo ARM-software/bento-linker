@@ -29,8 +29,6 @@ extern ssize_t tlsbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *ou
 
 extern int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
 
-extern void* tlsbox_tempbuffer(size_t size);
-
 //// box hooks ////
 
 // May be called by well-behaved code to terminate the box if execution can

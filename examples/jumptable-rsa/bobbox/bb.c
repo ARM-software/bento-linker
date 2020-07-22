@@ -38,8 +38,6 @@ extern int bobbox_main(void);
 
 extern int bobbox_recv(const void *buffer, size_t size);
 
-extern void* bobbox_tempbuffer(size_t size);
-
 //// box hooks ////
 
 // May be called by well-behaved code to terminate the box if execution can
@@ -538,13 +536,14 @@ int sys_send_to_alice(const void *buffer, size_t size) {
 }
 
 // box-side jumptable
+extern uint8_t __stack_end;
 __attribute__((used, section(".jumptable")))
 const uint32_t __box_exportjumptable[] = {
+    (uint32_t)&__stack_end,
     (uint32_t)__box_init,
     (uint32_t)bobbox_getpubkey,
     (uint32_t)bobbox_init,
     (uint32_t)bobbox_main,
     (uint32_t)bobbox_recv,
-    (uint32_t)bobbox_tempbuffer,
 };
 

@@ -18,14 +18,6 @@
 #define BOBBOX_SECRET_MESSAGE "secret message from bob! >:D"
 #endif
 
-void *bobbox_tempbuffer(size_t size) {
-    static uint8_t buffer[BOBBOX_TEMPBUFFER_SIZE];
-    if (size > BOBBOX_TEMPBUFFER_SIZE) {
-        return NULL;
-    }
-
-    return buffer;
-}
 
 // private RSA key
 static int32_t key;
@@ -97,7 +89,7 @@ int bobbox_main(void) {
         return err;
     }
 
-    int32_t alicekey = sys_rsa_frompubkey(alicepubkey, strlen(alicepubkey));
+    int32_t alicekey = sys_rsa_frompubkey(alicepubkey, strlen(alicepubkey)+1);
     if (alicekey < 0) {
         return alicekey;
     }

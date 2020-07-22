@@ -18,14 +18,6 @@
 #define ALICEBOX_SECRET_MESSAGE "secret message from alice! >:)"
 #endif
 
-void *alicebox_tempbuffer(size_t size) {
-    static uint8_t buffer[ALICEBOX_TEMPBUFFER_SIZE];
-    if (size > ALICEBOX_TEMPBUFFER_SIZE) {
-        return NULL;
-    }
-
-    return buffer;
-}
 
 // private RSA key
 static int32_t key;
@@ -97,7 +89,7 @@ int alicebox_main(void) {
         return err;
     }
 
-    int32_t bobkey = sys_rsa_frompubkey(bobpubkey, strlen(bobpubkey));
+    int32_t bobkey = sys_rsa_frompubkey(bobpubkey, strlen(bobpubkey)+1);
     if (bobkey < 0) {
         return bobkey;
     }

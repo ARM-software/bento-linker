@@ -30,8 +30,6 @@ extern ssize_t tlsbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *ou
 
 extern int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
 
-extern void* tlsbox_tempbuffer(size_t size);
-
 //// box hooks ////
 
 // May be called by well-behaved code to terminate the box if execution can
@@ -485,8 +483,10 @@ ssize_t sys_entropy_poll(void *buffer, size_t size) {
 }
 
 // box-side jumptable
+extern uint8_t __stack_end;
 __attribute__((used, section(".jumptable")))
 const uint32_t __box_exportjumptable[] = {
+    (uint32_t)&__stack_end,
     (uint32_t)__box_init,
     (uint32_t)tlsbox_drbg_seed,
     (uint32_t)tlsbox_rsa_freekey,
@@ -497,6 +497,5 @@ const uint32_t __box_exportjumptable[] = {
     (uint32_t)tlsbox_rsa_getpubkey,
     (uint32_t)tlsbox_rsa_pkcs1_decrypt,
     (uint32_t)tlsbox_rsa_pkcs1_encrypt,
-    (uint32_t)tlsbox_tempbuffer,
 };
 

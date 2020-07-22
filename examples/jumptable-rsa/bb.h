@@ -15,8 +15,6 @@ int alicebox_main(void);
 
 int alicebox_recv(const void *buffer, size_t size);
 
-void* alicebox_tempbuffer(size_t size);
-
 int bobbox_getpubkey(char *buffer, size_t size);
 
 int bobbox_init(void);
@@ -24,8 +22,6 @@ int bobbox_init(void);
 int bobbox_main(void);
 
 int bobbox_recv(const void *buffer, size_t size);
-
-void* bobbox_tempbuffer(size_t size);
 
 int tlsbox_drbg_seed(void);
 
@@ -44,8 +40,6 @@ int tlsbox_rsa_getpubkey(int32_t key, char *buffer, size_t size);
 ssize_t tlsbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *output, size_t output_size);
 
 int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
-
-void* tlsbox_tempbuffer(size_t size);
 
 //// box exports ////
 
@@ -102,6 +96,13 @@ int __box_alicebox_init(void);
 // Mark the box alicebox as needing to be reinitialized.
 int __box_alicebox_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_alicebox_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_alicebox_pop(size_t size);
+
 // Initialize box bobbox. Resets the box to its initial state if already
 // initialized.
 int __box_bobbox_init(void);
@@ -109,12 +110,26 @@ int __box_bobbox_init(void);
 // Mark the box bobbox as needing to be reinitialized.
 int __box_bobbox_clobber(void);
 
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_bobbox_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_bobbox_pop(size_t size);
+
 // Initialize box tlsbox. Resets the box to its initial state if already
 // initialized.
 int __box_tlsbox_init(void);
 
 // Mark the box tlsbox as needing to be reinitialized.
 int __box_tlsbox_clobber(void);
+
+// Allocate size bytes on the box's data stack. May return NULL if a stack
+// overflow would occur.
+void *__box_tlsbox_push(size_t size);
+
+// Deallocate size bytes on the box's data stack.
+void __box_tlsbox_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be

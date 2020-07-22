@@ -99,6 +99,7 @@ class HOutput(outputs.Output):
         self.decls.append('//// box hooks ////')
         for subbox in box.boxes:
             with self.pushattrs(box=subbox.name):
+                # TODO move these?
                 self.decls.append(
                     'int __box_%(box)s_init(void);',
                     doc='Initialize box %(box)s. Resets the box to its '
@@ -106,6 +107,13 @@ class HOutput(outputs.Output):
                 self.decls.append(
                     'int __box_%(box)s_clobber(void);',
                     doc='Mark the box %(box)s as needing to be reinitialized.')
+                self.decls.append(
+                    'void *__box_%(box)s_push(size_t size);',
+                    doc='Allocate size bytes on the box\'s data stack. May '
+                        'return NULL if a stack overflow would occur.')
+                self.decls.append(
+                    'void __box_%(box)s_pop(size_t size);',
+                    doc='Deallocate size bytes on the box\'s data stack.')
 
     def getvalue(self):
         self.seek(0)

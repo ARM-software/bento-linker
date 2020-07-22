@@ -56,9 +56,6 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         super().box_parent(parent, box)
 
     def box(self, box):
-        if box.stack.size:
-            print("warning: Stack allocated in box `%s`, but not used by "
-                "runtime %r" % (box.name, self.__argname__))
         super().box(box)
         self._jumptable.alloc(box, 'rp')
         # plugs
@@ -162,6 +159,8 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         out.printf('bool __box_%(box)s_initialized = false;')
         if not self._abort_hook.link and not self._no_longjmp:
             out.printf('jmp_buf *__box_%(box)s_jmpbuf = NULL;')
+        if box.stack.size > 0:
+            out.printf('uint8_t *__box_%(box)s_datasp = NULL;')
         out.printf('extern uint32_t __box_%(box)s_jumptable[];')
         out.printf('#define __box_%(box)s_exportjumptable '
             '__box_%(box)s_jumptable')
@@ -172,7 +171,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out = output.decls.append(
                 fn=output.repr_fn(import_),
                 fnptr=output.repr_fnptr(import_, ''),
-                i=i)
+                i=i+1 if box.stack.size > 0 else i)
             out.printf('%(fn)s {')
             with out.indent():
                 # inject lazy-init?
@@ -280,15 +279,8 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 out.printf('(uint32_t)%(alias)s,', alias=export.alias)
         out.printf('};')
 
-        # init code
+        # init
         output.decls.append('//// %(box)s init ////')
-        out = output.decls.append()
-        out.printf('int __box_%(box)s_clobber(void) {')
-        with out.indent():
-            out.printf('__box_%(box)s_initialized = false;')
-            out.printf('return 0;')
-        out.printf('}')
-
         out = output.decls.append()
         out.printf('int __box_%(box)s_init(void) {')
         with out.indent():
@@ -304,6 +296,11 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                         out.printf('return err;')
                     out.printf('}')
                     out.printf()
+            if box.stack.size > 0:
+                out.printf('// prepare data stack')
+                out.printf('__box_%(box)s_datasp = '
+                    '(void*)__box_%(box)s_exportjumptable[0];')
+                out.printf()
             out.printf('// load the box if unloaded')
             out.printf('err = __box_%(box)s_load();')
             out.printf('if (err) {')
@@ -321,6 +318,48 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf()
             out.printf('__box_%(box)s_initialized = true;')
             out.printf('return 0;')
+        out.printf('}')
+
+        out = output.decls.append()
+        out.printf('int __box_%(box)s_clobber(void) {')
+        with out.indent():
+            out.printf('__box_%(box)s_initialized = false;')
+            out.printf('return 0;')
+        out.printf('}')
+
+        # stack manipulation
+        output.includes.append('<assert.h>')
+        out = output.decls.append(
+            memory=box.stack.memory.name)
+        out.printf('void *__box_%(box)s_push(size_t size) {')
+        with out.indent():
+            if box.stack.size > 0:
+                out.printf('extern uint8_t __box_%(box)s_%(memory)s_start;')
+                # TODO align?
+                out.printf('if (__box_%(box)s_datasp - size '
+                        '< &__box_%(box)s_%(memory)s_start) {')
+                with out.indent():
+                    out.printf('return NULL;')
+                out.printf('}')
+                out.printf()
+                out.printf('__box_%(box)s_datasp -= size;')
+                out.printf('return __box_%(box)s_datasp;')
+            else:
+                out.printf('return NULL;')
+        out.printf('}')
+
+        out = output.decls.append(
+            memory=box.stack.memory.name)
+        out.printf('void __box_%(box)s_pop(size_t size) {')
+        with out.indent():
+            if box.stack.size > 0:
+                out.printf('__attribute__((unused))')
+                out.printf('extern uint8_t __box_%(box)s_%(memory)s_end;')
+                out.printf('assert(__box_%(box)s_datasp + size '
+                    '<= &__box_%(box)s_%(memory)s_end);')
+                out.printf('__box_%(box)s_datasp += size;')
+            else:
+                out.printf('assert(false);')
         out.printf('}')
 
     def build_parent_ld(self, output, parent, box):
@@ -400,9 +439,13 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('}')
 
         out = output.decls.append(doc='box-side jumptable')
+        if box.stack.size > 0:
+            out.printf('extern uint8_t __stack_end;')
         out.printf('__attribute__((used, section(".jumptable")))')
         out.printf('const uint32_t __box_exportjumptable[] = {')
         with out.pushindent():
+            if box.stack.size > 0:
+                out.printf('(uint32_t)&__stack_end,')
             for export in self._exports(box):
                 out.printf('(uint32_t)%(alias)s,', alias=export.alias)
         out.printf('};')

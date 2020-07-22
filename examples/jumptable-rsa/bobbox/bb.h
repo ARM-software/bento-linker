@@ -37,8 +37,6 @@ extern int bobbox_main(void);
 
 extern int bobbox_recv(const void *buffer, size_t size);
 
-extern void* bobbox_tempbuffer(size_t size);
-
 //// box hooks ////
 
 // May be called by well-behaved code to terminate the box if execution can
