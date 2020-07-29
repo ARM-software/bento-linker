@@ -468,6 +468,8 @@ int __box_init(const uint32_t *importjumptable) {
     return 0;
 }
 
+//// imports ////
+
 __attribute__((noreturn))
 void __box_abort(int a0) {
     ((void (*)(int a0))
@@ -534,6 +536,8 @@ int sys_send_to_alice(const void *buffer, size_t size) {
     return ((int (*)(const void *buffer, size_t size))
             __box_importjumptable[12])(buffer, size);
 }
+
+//// exports ////
 
 // box-side jumptable
 extern uint8_t __stack_end;

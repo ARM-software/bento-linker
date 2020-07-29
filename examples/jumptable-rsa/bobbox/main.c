@@ -79,7 +79,7 @@ int bobbox_init(void) {
     return 0;
 }
 
-int bobbox_main(void) {
+int bobbox_main() {
     // lets send alice a secret message!
     // first we need to get alice's public key
     printf("bobbox: getting alice's public key...\n");

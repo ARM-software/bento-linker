@@ -119,15 +119,15 @@ static int32_t sys_delkey(int32_t box, int32_t key) {
     return -EINVAL;
 }
 
-static int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent) {
+int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent) {
     return sys_setkey(box, tlsbox_rsa_genkey(key_size, exponent));
 }
 
-static int sys_rsa_freekey(int32_t box, int32_t key) {
+int sys_rsa_freekey(int32_t box, int32_t key) {
     return tlsbox_rsa_freekey(sys_delkey(box, key));
 }
 
-static int sys_rsa_getpubkey(int32_t box, int32_t key,
+int sys_rsa_getpubkey(int32_t box, int32_t key,
         char *buffer, size_t size) {
     char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
@@ -146,7 +146,7 @@ static int sys_rsa_getpubkey(int32_t box, int32_t key,
     return 0;
 }
 
-static int sys_rsa_getprivkey(int32_t box, int32_t key,
+int sys_rsa_getprivkey(int32_t box, int32_t key,
         char *buffer, size_t size) {
     char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
@@ -165,7 +165,7 @@ static int sys_rsa_getprivkey(int32_t box, int32_t key,
     return 0;
 }
 
-static int32_t sys_rsa_frompubkey(int32_t box,
+int32_t sys_rsa_frompubkey(int32_t box,
         const char *buffer, size_t size) {
     char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
@@ -178,7 +178,7 @@ static int32_t sys_rsa_frompubkey(int32_t box,
     return key;
 }
 
-static int32_t sys_rsa_fromprivkey(int32_t box,
+int32_t sys_rsa_fromprivkey(int32_t box,
         const char *buffer, size_t size) {
     char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
@@ -191,7 +191,7 @@ static int32_t sys_rsa_fromprivkey(int32_t box,
     return key;
 }
 
-static int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
+int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
         const void *input, size_t input_size, void *output) {
     char *tlsbuffer = __box_tlsbox_push(input_size + SYS_KEY_SIZE/8);
     if (!tlsbuffer) {
@@ -213,7 +213,7 @@ static int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
     return 0;
 }
 
-static ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
+ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
         const void *input, void *output, size_t output_size) {
     char *tlsbuffer = __box_tlsbox_push(SYS_KEY_SIZE/8 + output_size);
     if (!tlsbuffer) {
@@ -233,74 +233,6 @@ static ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
     memcpy(output, tlsbuffer+SYS_KEY_SIZE/8, res);
     __box_tlsbox_pop(SYS_KEY_SIZE/8 + output_size);
     return res;
-}
-
-int32_t sys_bobbox_rsa_genkey(size_t key_size, int32_t exponent) {
-    return sys_rsa_genkey(0, key_size, exponent);
-}
-
-int sys_bobbox_rsa_freekey(int32_t key) {
-    return sys_rsa_freekey(0, key);
-}
-
-int sys_bobbox_rsa_getpubkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getpubkey(0, key, buffer, size);
-}
-
-int sys_bobbox_rsa_getprivkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getprivkey(0, key, buffer, size);
-}
-
-int32_t sys_bobbox_rsa_frompubkey(const char *buffer, size_t size) {
-    return sys_rsa_frompubkey(0, buffer, size);
-}
-
-int32_t sys_bobbox_rsa_fromprivkey(const char *buffer, size_t size) {
-    return sys_rsa_fromprivkey(0, buffer, size);
-}
-
-int sys_bobbox_rsa_pkcs1_encrypt(
-        int32_t key, const void *input, size_t input_size, void *output) {
-    return sys_rsa_pkcs1_encrypt(0, key, input, input_size, output);
-}
-
-ssize_t sys_bobbox_rsa_pkcs1_decrypt(
-        int32_t key, const void *input, void *output, size_t output_size) {
-    return sys_rsa_pkcs1_decrypt(0, key, input, output, output_size);
-}
-
-int32_t sys_alicebox_rsa_genkey(size_t key_size, int32_t exponent) {
-    return sys_rsa_genkey(1, key_size, exponent);
-}
-
-int sys_alicebox_rsa_freekey(int32_t key) {
-    return sys_rsa_freekey(1, key);
-}
-
-int sys_alicebox_rsa_getpubkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getpubkey(1, key, buffer, size);
-}
-
-int sys_alicebox_rsa_getprivkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getprivkey(1, key, buffer, size);
-}
-
-int32_t sys_alicebox_rsa_frompubkey(const char *buffer, size_t size) {
-    return sys_rsa_frompubkey(1, buffer, size);
-}
-
-int32_t sys_alicebox_rsa_fromprivkey(const char *buffer, size_t size) {
-    return sys_rsa_fromprivkey(1, buffer, size);
-}
-
-int sys_alicebox_rsa_pkcs1_encrypt(
-        int32_t key, const void *input, size_t input_size, void *output) {
-    return sys_rsa_pkcs1_encrypt(1, key, input, input_size, output);
-}
-
-ssize_t sys_alicebox_rsa_pkcs1_decrypt(
-        int32_t key, const void *input, void *output, size_t output_size) {
-    return sys_rsa_pkcs1_decrypt(1, key, input, output, output_size);
 }
 
 // alice/bob bindings

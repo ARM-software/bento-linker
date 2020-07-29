@@ -78,7 +78,7 @@ class HOutput(outputs.Output):
         self.includes.append("<sys/types.h>")
 
         for i, import_ in enumerate(
-                import_ for import_ in box.imports
+                import_.postbound() for import_ in box.imports
                 if import_.source == box):
             if i == 0:
                 self.decls.append('//// box imports ////')
@@ -87,7 +87,7 @@ class HOutput(outputs.Output):
                 doc=import_.doc)
 
         for i, export in enumerate(
-                export for export in box.exports
+                export.prebound() for export in box.exports
                 if export.source == box):
             if i == 0:
                 self.decls.append('//// box exports ////')

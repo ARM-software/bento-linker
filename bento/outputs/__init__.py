@@ -24,7 +24,8 @@ class OutputBlob(io.StringIO):
         self.pushattrs(**kwargs)
 
     def writef(self, _fmt, **kwargs):
-        _fmt = _fmt % self.attrs(**kwargs)
+        with self.pushattrs(**kwargs):
+            _fmt = _fmt % self.attrs()
         for c in _fmt:
             if c == '\n':
                 self._needindent = True

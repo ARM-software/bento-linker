@@ -510,6 +510,9 @@ class Fn:
         parser.add_argument("--doc",
             help="Documentation for the function.")
 
+        withparser = parser.add_set("--with", metavar="ARG")
+        withparser.add_argument("value", type=int)
+
     @staticmethod
     def parsetype(s):
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
@@ -567,35 +570,17 @@ class Fn:
         return args, rets, noreturn
 
     def __init__(self, name, type=None, source=None, scope=None,
-            alias=None, doc=None, weak=False):
+            alias=None, doc=None, with_=None, weak=False,
+            postbound=False, careaboutlimits=True,
+            **kwargs):
         if type is None:
             name, type = None, name
+        with_ = with_ or kwargs.get('with', {})
 
         args, rets, noreturn = self.parsetype(type)
 
         args = [Arg(arg) for arg in args]
         rets = [Arg(ret) for ret in rets]
-
-        if sum(arg.size() for arg in args) > 4*4:
-            raise ValueError("Currently only 0-4 arguments are supported")
-        if len(rets) > 1:
-            raise ValueError("Currently only 0 or 1 return values supported")
-
-        names = set()
-        for arg in it.chain(args, rets):
-            if arg.name:
-                if arg.name in names:
-                    raise ValueError("Arg %r not unique in %r" % (
-                        arg.name, type))
-                names.add(arg.name)
-        for arg in args:
-            if isinstance(arg.asize(), str):
-                if not any(arg2.name == arg.asize() for arg2 in args):
-                    raise ValueError("No arg matches array size for %r" % type)
-        for ret in rets:
-            if isinstance(ret.asize(), str):
-                raise ValueError("Returning buffers with dependent sizes "
-                    "currently not supported %r" % type)
 
         if scope is None and '.' in name:
             self.scope, self.name = name.split('.', 1)
@@ -603,6 +588,44 @@ class Fn:
             self.name = name
             self.scope = scope
         self.scopedname = '.'.join(filter(None, [self.scope, self.name]))
+
+        names = set()
+        for arg in it.chain(args, rets):
+            if arg.name:
+                if arg.name in names:
+                    raise ValueError("%s: Arg `%s` not unique in `%s`" % (
+                        self.scopedname, arg.name, type))
+                names.add(arg.name)
+        for arg in args:
+            if isinstance(arg.asize(), str):
+                if not any(arg2.name == arg.asize() for arg2 in args):
+                    raise ValueError("%s: No arg matches array size "
+                        "`%s` in `%s`" % (self.scopedname, arg.asize(), type))
+        for ret in rets:
+            if isinstance(ret.asize(), str):
+                raise ValueError("%s: Returning buffers with dependent sizes "
+                    "currently not supported in `%s`" % (self.scopedname, type))
+
+        with_ = {k: v.value if hasattr(v, 'value') else v
+            for k, v in with_.items()}
+        for k, v in with_.items():
+            if not any(arg.name == k for arg in args):
+                raise ValueError("%s: Unknown arg `%s` being bound in `%s`"
+                    % (self.scopedname, k, type))
+        self.boundargs = with_
+        self.preboundargs = args
+        self.postboundargs = [arg for arg in args if arg.name not in with_]
+
+        if postbound:
+            args = self.postboundargs
+
+        if careaboutlimits:
+            if sum(arg.size() for arg in args) > 4*4:
+                raise ValueError("%s: Currently only 0-4 arguments "
+                    "are supported" % self.scopedname)
+            if len(rets) > 1:
+                raise ValueError("%s: Currently only 0 or 1 return "
+                    "values supported" % self.scopedname)
 
         self.args = args
         self.rets = rets
@@ -615,9 +638,14 @@ class Fn:
         assert source is not None, "Need a source you doofus (internal error)"
         self.source = source
 
-    def __str__(self):
+    def __str__(self, prebound=False, postbound=False):
         return 'fn(%s) -> %s' % (
-            ', '.join(map(str, self.args)),
+            ', '.join(map(str,
+                self.postboundargs
+                if postbound else
+                self.preboundargs
+                if prebound else
+                self.args)),
             'noreturn' if self.isnoreturn() else
             'void' if not self.rets else
             ', '.join(map(str, self.rets)))
@@ -636,16 +664,22 @@ class Fn:
 
     def uniquename(self, name):
         """ Insure name is unique given arg/rets """
-        if any(arg.name == name for arg in it.chain(self.args, self.rets)):
+        if any(arg.name == name
+                for arg in it.chain(self.preboundargs, self.rets)):
             return '__box_' + name
         else:
             return name
 
-    def argnames(self):
+    def argnames(self, prebound=False, postbound=False):
         names = set(
-            arg.name for arg in it.chain(self.args, self.rets)
+            arg.name for arg in it.chain(self.preboundargs, self.rets)
             if arg.name)
-        for i, arg in enumerate(self.args):
+        prebound = prebound or len(self.args) != len(self.postboundargs)
+
+        for i, arg in enumerate(self.preboundargs):
+            if not prebound and arg.name and arg.name in self.boundargs:
+                continue
+
             if arg.name:
                 yield arg.name
             else:
@@ -657,9 +691,18 @@ class Fn:
                     # fallback to this ugly (but unique!) name
                     yield '__box_' + name
 
+    def argnamesandbounds(self):
+        for name in self.argnames(prebound=True):
+            if name in self.boundargs:
+                assert isinstance(self.boundargs[name], int)
+                yield self.boundargs[name]
+            else:
+                assert isinstance(name, str)
+                yield name
+
     def retnames(self):
         names = set(
-            arg.name for arg in it.chain(self.args, self.rets)
+            arg.name for arg in it.chain(self.preboundargs, self.rets)
             if arg.name)
         for i, arg in enumerate(self.rets):
             if arg.name:
@@ -708,6 +751,30 @@ class Fn:
                 importbox is None or
                 other.scope == importbox))
 
+    def prebound(self):
+        nfn = self.__class__(self.name,
+            self.__str__(prebound=True),
+            source=self.source,
+            scope=self.scope,
+            alias=self.alias,
+            doc=self.doc,
+            careaboutlimits=False)
+        nfn.boundargs = self.boundargs
+        nfn.postboundargs = self.postboundargs
+        return nfn
+
+    def postbound(self):
+        nfn = self.__class__(self.name,
+            self.__str__(postbound=True),
+            source=self.source,
+            scope=self.scope,
+            alias=self.alias,
+            doc=self.doc,
+            careaboutlimits=False)
+        nfn.boundargs = self.boundargs
+        nfn.preboundargs = self.preboundargs
+        return nfn
+
 class Import(Fn):
     """
     Description of an imported function for a box.
@@ -723,6 +790,20 @@ class Import(Fn):
     def reprcontext(self, direction='import'):
         return super().reprcontext(direction)
 
+    def prebound(self):
+        # propogate linkage
+        nfn = super().prebound()
+        nfn.box = self.box
+        nfn.link = self.link
+        return nfn
+
+    def postbound(self):
+        # propogate linkage
+        nfn = super().postbound()
+        nfn.box = self.box
+        nfn.link = self.link
+        return nfn
+
 class Export(Fn):
     """
     Description of an exported function for a box.
@@ -730,13 +811,27 @@ class Export(Fn):
     __argname__ = "export"
     __arghelp__ = __doc__
     def __init__(self, name, *args, **kwargs):
-        super().__init__(name, *args, **kwargs)
+        super().__init__(name, *args, postbound=True, **kwargs)
         # these get populated later
         self.box = None
         self.links = []
 
     def reprcontext(self, direction='export'):
         return super().reprcontext(direction)
+
+    def prebound(self):
+        # propogate linkage
+        nfn = super().prebound()
+        nfn.box = self.box
+        nfn.links = self.links
+        return nfn
+
+    def postbound(self):
+        # propogate linkage
+        nfn = super().postbound()
+        nfn.box = self.box
+        nfn.links = self.links
+        return nfn
 
 class Box:
     """
@@ -816,7 +911,9 @@ class Box:
             srcs=None, incs=None, define={},
             memory=None, stack=None, heap=None,
             text=None, data=None, bss=None,
-            export={}, box={}, **kwargs):
+            import_={}, export={}, box={}, **kwargs):
+        import_ = import_ or kwargs.get('import', {})
+
         self.name = name or 'sys'
         self.parent = parent
         self.path = path
@@ -868,8 +965,8 @@ class Box:
                 [('%s.%s' % (k, k2), v2) for k2, v2 in v.items()]
                 if isinstance(v, dict) else
                 [(k, v)]
-                for k, v in kwargs.get('import', {}).items())
-            if importargs is not None)
+                for k, v in import_.items())
+            if importargs not in [None, {}])
             # TODO probably look into this last condition
 
         self.exports = sorted(
@@ -879,7 +976,7 @@ class Box:
                 if isinstance(v, dict) else
                 [(k, v)]
                 for k, v in export.items())
-            if exportargs is not None)
+            if exportargs not in [None, {}])
             # TODO probably look into this last condition
 
         self.boxes = [] 

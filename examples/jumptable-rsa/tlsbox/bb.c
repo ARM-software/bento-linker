@@ -460,6 +460,8 @@ int __box_init(const uint32_t *importjumptable) {
     return 0;
 }
 
+//// imports ////
+
 __attribute__((noreturn))
 void __box_abort(int a0) {
     ((void (*)(int a0))
@@ -481,6 +483,8 @@ ssize_t sys_entropy_poll(void *buffer, size_t size) {
     return ((ssize_t (*)(void *buffer, size_t size))
             __box_importjumptable[3])(buffer, size);
 }
+
+//// exports ////
 
 // box-side jumptable
 extern uint8_t __stack_end;
