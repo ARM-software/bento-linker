@@ -184,12 +184,6 @@ enum box_errors {
     ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
-struct __box_mpuregions {
-    uint32_t control;
-    uint32_t count;
-    uint32_t regions[][2];
-};
-
 uint32_t __box_active = 0;
 extern uint32_t __box_callregion;
 extern void __box_return(void);
@@ -199,7 +193,12 @@ extern void __box_return(void);
 #define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
 #define MPU_RBAR ((volatile uint32_t*)0xe000ed9c)
 #define MPU_RASR ((volatile uint32_t*)0xe000eda0)
-#define CCR      ((volatile uint32_t*)0xe000ed14)
+
+struct __box_mpuregions {
+    uint32_t control;
+    uint32_t count;
+    uint32_t regions[][2];
+};
 
 static int32_t __box_mpu_init(void) {
     // make sure MPU is initialized
@@ -211,7 +210,6 @@ static int32_t __box_mpu_init(void) {
         // setup call region
         *MPU_RBAR = (uint32_t)&__box_callregion | 0x10;
         // disallow execution
-        //*MPU_RASR = 0x10230021;
         *MPU_RASR = 0x10000001 | ((6-1) << 1);
         // enable the MPU
         *MPU_CTRL = 5;

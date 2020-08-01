@@ -38,7 +38,34 @@ class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 if isr_vector.size is not None else
                 0x400})
 
-    __name = __argname__
+    # may be overridden
+    def _box_esr_hooks(self, box):
+        return [
+            box.addimport('__box_nmi_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_hardfault_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_memmanage_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_busfault_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_usagefault_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            None,
+            None,
+            None,
+            None,
+            box.addimport('__box_svc_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_debugmon_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            None,
+            box.addimport('__box_pendsv_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+            box.addimport('__box_systick_handler', 'fn() -> void',
+                scope=box.name, source=self.__argname__, weak=True),
+        ]
+
     def box(self, box):
         if not box.stack.size:
             print("warning: Box `%s` has no stack!" % box.name)
@@ -49,42 +76,18 @@ class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             # allow overloading main, but default to using main if available
             self._main_hook = box.addimport(
                 '__box_main', 'fn() -> void',
-                scope=box.name, source=self.__name, weak=True,
+                scope=box.name, source=self.__argname__, weak=True,
                 doc="Entry point to the program. By default this will be "
                     "hooked up to call the normal C main.")
 
             # link isr vector entries
-            self._esr_hooks = [
-                box.addimport('__box_nmi_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_hardfault_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_memmanage_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_busfault_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_usagefault_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                None,
-                None,
-                None,
-                None,
-                box.addimport('__box_svc_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_debugmon_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                None,
-                box.addimport('__box_pendsv_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-                box.addimport('__box_systick_handler', 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True),
-            ]
+            self._esr_hooks = self._box_esr_hooks(box)
 
             self._isr_hooks = []
             for i in range(self._isr_vector.size//4 - 16):
                 self._isr_hooks.append(box.addimport(
                     '__box_irq%d_handler' % i, 'fn() -> void',
-                    scope=box.name, source=self.__name, weak=True))
+                    scope=box.name, source=self.__argname__, weak=True))
 
     def build_ld(self, output, box):
         # reset handler

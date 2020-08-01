@@ -1,6 +1,16 @@
 import itertools as it
 
 
+def override(super):
+    """
+    Assert that method is an override of a superclass's method
+    """
+    def override(method):
+        assert method.__name__ in dir(super)
+        return method
+    return override
+
+
 def Inherit(methods):
     """
     Allow mixins across explicit methods.

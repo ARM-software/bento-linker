@@ -5,6 +5,33 @@ import os
 import itertools as it
 import collections as co
 
+CPUS = co.defaultdict(
+    lambda: 'cortex-m4'
+)
+
+FPUS = co.defaultdict(
+    lambda: '',
+    **{
+        'cortex-m4': 'fpv4-sp-d16',
+        'cortex-m33': 'fpv5-sp-d16',
+    }
+)
+
+ISAS = co.defaultdict(
+    lambda: 'thumb',
+)
+
+GCC_TRIPLES = co.defaultdict(
+    lambda: 'arm-none-eabi'
+)
+
+RUST_TRIPLES = co.defaultdict(
+    lambda: 'thumbv7em-none-eabi',
+    **{
+        'cortex-m33': 'thumbv8m.main-none-eabi',
+    }
+)
+
 @outputs.output
 class MKOutput(outputs.Output):
     """
@@ -48,6 +75,13 @@ class MKOutput(outputs.Output):
         parser.add_argument('--baud',
             help='Override the baud rate (115200) for the makefile.')
 
+        parser.add_argument('--cpu',
+            help='CPU to provide to build system. Defaults to cortex-m4.')
+        parser.add_argument('--fpu',
+            help='FPU to provide to build system. Default based on CPU.')
+        parser.add_argument('--isa',
+            help='ISA to provide to build system. Default based on CPU.')
+
         defineparser = parser.add_set('--define', append=True)
         defineparser.add_argument('define',
             help='Adds custom defines to the Makefile. For example: '
@@ -72,6 +106,7 @@ class MKOutput(outputs.Output):
             cc=None, cargo=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
+            cpu=None, fpu=None, isa=None,
             define=None, srcs=None, incs=None, libs=None,
             c_flags=None, asm_flags=None, ld_flags=None):
         super().__init__(path)
@@ -79,17 +114,21 @@ class MKOutput(outputs.Output):
         self._target = target
         self._debug = debug if debug is not None else False
         self._lto = lto if lto is not None else True
-        self._cc = cc or 'arm-none-eabi-gcc'
+        self._cc = cc or '%(gcctriple)s-gcc'
         self._cargo = cargo or 'cargo'
-        self._objcopy = objcopy or 'arm-none-eabi-objcopy'
-        self._objdump = objdump or 'arm-none-eabi-objdump'
-        self._ar = ar or 'arm-none-eabi-ar'
-        self._size = size or 'arm-none-eabi-size'
-        self._gdb = gdb or 'arm-none-eabi-gdb'
+        self._objcopy = objcopy or '%(gcctriple)s-objcopy'
+        self._objdump = objdump or '%(gcctriple)s-objdump'
+        self._ar = ar or '%(gcctriple)s-ar'
+        self._size = size or '%(gcctriple)s-size'
+        self._gdb = gdb or '%(gcctriple)s-gdb'
         self._gdb_addr = gdb_addr or 'localhost'
         self._gdb_port = gdb_port or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
         self._baud = baud or 115200
+
+        self._cpu = cpu if cpu is not None else 'cortex-m4'
+        self._fpu = fpu if fpu is not None else FPUS[self._cpu]
+        self._isa = isa if isa is not None else ISAS[self._cpu]
 
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
@@ -120,7 +159,12 @@ class MKOutput(outputs.Output):
             gdb_addr=self._gdb_addr,
             gdb_port=self._gdb_port,
             tty=self._tty,
-            baud=self._baud)
+            baud=self._baud,
+            cpu=self._cpu,
+            fpu=self._fpu,
+            isa=self._isa,
+            gcctriple=GCC_TRIPLES[self._cpu],
+            rusttriple=RUST_TRIPLES[self._cpu])
 
     def build_prologue(self, box):
         out = self.decls.append()
@@ -164,7 +208,7 @@ class MKOutput(outputs.Output):
             '        --format-version=1 --no-deps $\\\n'
             '        | jq -r \'.packages|.[].name|gsub("-";"_")\'),$\\\n'
             '    $(patsubst %%/Cargo.toml,%%,$(1))/$\\\n'
-            '        target/thumbv7em-none-eabi/$\\\n'
+            '        target/%(rusttriple)s/$\\\n'
             '        $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
             '        lib$(lib).a)')
 
@@ -206,10 +250,13 @@ class MKOutput(outputs.Output):
         out.printf('override CFLAGS += -flto')
         out.printf('endif')
         out.printf('endif')
-        out.printf('override CFLAGS += -mthumb')
-        out.printf('override CFLAGS += -mcpu=cortex-m4')
-        out.printf('override CFLAGS += -mfpu=fpv4-sp-d16')
-        out.printf('override CFLAGS += -mfloat-abi=softfp')
+        if out.get('isa', False):
+            out.printf('override CFLAGS += -m%(isa)s')
+        if out.get('cpu', False):
+            out.printf('override CFLAGS += -mcpu=%(cpu)s')
+        if out.get('fpu', False):
+            out.printf('override CFLAGS += -mfpu=%(fpu)s')
+            out.printf('override CFLAGS += -mfloat-abi=softfp')
         out.printf('override CFLAGS += -std=c99')
         out.printf('override CFLAGS += -Wall -Wno-format')
         out.printf('override CFLAGS += -fno-common')
@@ -220,7 +267,7 @@ class MKOutput(outputs.Output):
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
 
         out = self.decls.append()
-        out.printf('override CARGOFLAGS += --target=thumbv7em-none-eabi')
+        out.printf('override CARGOFLAGS += --target=%(rusttriple)s')
         out.printf('ifeq ($(DEBUG),0)')
         out.printf('override CARGOFLAGS += --release')
         out.printf('endif')

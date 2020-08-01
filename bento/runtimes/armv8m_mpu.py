@@ -1,17 +1,11 @@
 from .. import argstuff
 from .. import runtimes
-import math
-import itertools as it
+from ..box import Region
+from ..glue import override
 from .armv7m_mpu import ARMv7MMPURuntime
+import itertools as it
 
-BOX_STRUCT_MPUREGIONS = """
-struct __box_mpuregions {
-    uint32_t count;
-    uint32_t regions[][2];
-};
-"""
-
-BOX_MPU_DISPATCH = """
+MPU_IMPL = """
 #define SHCSR        ((volatile uint32_t*)0xe000ed24)
 #define MPU_TYPE     ((volatile uint32_t*)0xe000ed90)
 #define MPU_CTRL     ((volatile uint32_t*)0xe000ed94)
@@ -20,6 +14,12 @@ BOX_MPU_DISPATCH = """
 #define MPU_RNR      ((volatile uint32_t*)0xe000ed98)
 #define MPU_RBAR     ((volatile uint32_t*)0xe000ed9c)
 #define MPU_RLAR     ((volatile uint32_t*)0xe000eda0)
+
+struct __box_mpuregions {
+    uint32_t control;
+    uint32_t count;
+    uint32_t regions[][2];
+};
 
 static int32_t __box_mpu_init(void) {
     // make sure MPU is initialized
@@ -31,9 +31,9 @@ static int32_t __box_mpu_init(void) {
         // setup call region, dissallow execution
         *MPU_RNR = 0;
         *MPU_MAIR0 = 0x00000044;
-        *MPU_RBAR = %(callprefix)#010x | 0x1;
+        *MPU_RBAR = (uint32_t)&__box_callregion | 0x1;
         *MPU_RLAR = (~0x1f & (
-            %(callprefix)#010x + %(callregionsize)#010x-1))
+            (uint32_t)&__box_callregion + %(callsize)d - 1))
             | 0x1;
         // enable the MPU
         *MPU_CTRL = 5;
@@ -56,6 +56,13 @@ static void __box_mpu_switch(const struct __box_mpuregions *regions) {
         }
     }
     *MPU_CTRL = 5;
+
+    // update CONTROL state, note that return-from-exception acts
+    // as an instruction barrier
+    uint32_t control;
+    __asm__ volatile ("mrs %%0, control" : "=r"(control));
+    control = (~1 & control) | (regions->control);
+    __asm__ volatile ("msr control, %%0" :: "r"(control));
 }
 """
 
@@ -68,59 +75,63 @@ class ARMv8MMPURuntime(ARMv7MMPURuntime):
     __argname__ = "armv8m_mpu"
     __arghelp__ = __doc__
 
-    def box_parent(self, parent, box):
-        assert math.log2(self._call_region.size) % 1 == 0, (
-            "MPU call region is not aligned to a power-of-two %s"
-                % self._call_region)
-        assert self._call_region.addr % self._call_region.size == 0, (
-            "MPU call region is not aligned to size %s"
-                % self._call_region)
-        self.pushattrs(
-            callprefix=self._call_region.addr,
-            callmask=(self._call_region.size//2)-1,
-            retprefix=self._call_region.addr + self._call_region.size//2,
-            retmask=(self._call_region.size//2)-1,
-            callregionaddr=self._call_region.addr,
-            callregionsize=self._call_region.size,
-            callregionlog2=int(math.log2(self._call_region.size)),
-            mpuregions=self._mpu_regions)
+    @override(ARMv7MMPURuntime)
+    def _box_call_region(self, parent):
+        callmemory = parent.bestmemory(
+            'rx', size=0, reverse=True).origmemory
+        addr = callmemory.addr + callmemory.size
 
-        for box in parent.boxes:
-            if box.runtime == self:
-                for memory in box.memories:
-                    assert memory.size >= 32, (
-                        "Memory region %r too small (< 32 bytes)"
-                            % memory.name)
-                    assert memory.addr % 32 == 0 and memory.size % 32 == 0, (
-                        "Memory region %r not aligned to 32 byte address"
-                            % memory.name)
+        importcount = max(it.chain(
+            [3+sum(len(box.exports)
+                for box in parent.boxes
+                if box.runtime == self)],
+            (4+len(box.imports)
+                for box in parent.boxes
+                if box.runtime == self)))
+        # fit into MPU limits
+        size = (((4*importcount)+31)//32)*32
 
-        self.ids = {}
+        return Region(addr=addr, size=size)
 
-        for j, export in enumerate(it.chain(
-                ['__box_write'],
-                (export.name for export in parent.exports))):
-            self.ids[export] = j*(len(parent.boxes)+1)
+    @override(ARMv7MMPURuntime)
+    def _check_call_region(self, call_region):
+        assert call_region.addr % 32 == 0 and call_region.size % 32 == 0, (
+            "%s: MPU call region not aligned to 32 byte address"
+                % (self.name, call_region))
+        assert call_region.size >= 32, (
+            "%s: MPU call region too small (< 32 bytes) `%r`"
+                % (self.name, call_region))
 
-        for i, box in enumerate(parent.boxes):
-            # TODO make unique name?
-            self.ids['box ' + box.name] = i+1
-            for j, export in enumerate(it.chain(
-                    ['__box_%s_rawinit' % box.name],
-                    (export.name for export in box.exports))):
-                self.ids[export] = j*(len(parent.boxes)+1) + i+1
+    @override(ARMv7MMPURuntime)
+    def _check_mpu_region(self, memory):
+        assert memory.addr % 32 == 0 and memory.size % 32 == 0, (
+            "%s: Memory region `%s` not aligned to 32 byte address"
+                % (self.name, memory.name, memory))
+        assert memory.size >= 32, (
+            "%s: Memory region `%s` too small (< 32 bytes) `%r`"
+                % (self.name, memory.name, memory))
 
-    def build_mpu_dispatch(self, output, sys):
-        output.decls.append(BOX_STRUCT_MPUREGIONS)
-        output.decls.append(BOX_MPU_DISPATCH)
+    @override(ARMv7MMPURuntime)
+    def _build_mpu_impl(self, output, parent):
+        output.decls.append(MPU_IMPL)
 
-    def build_mpu_regions(self, output, sys, box):
-        out = output.decls.append(box=box.name)
-        out.printf('const struct __box_mpuregions '
-            '__box_%(box)s_mpuregions = {')
+    @override(ARMv7MMPURuntime)
+    def _build_mpu_sysregions(self, output, parent):
+        out = output.decls.append()
+        out.printf('const struct __box_mpuregions __box_sys_mpuregions = {')
         with out.pushindent():
-            out.printf('.count = %(count)d,',
-                count=len(box.memories))
+            out.printf('.control = 0,')
+            out.printf('.count = 0,')
+            out.printf('.regions = {}')
+        out.printf('};')
+
+    @override(ARMv7MMPURuntime)
+    def _build_mpu_regions(self, output, parent, box):
+        out = output.decls.append(box=box.name)
+        out.printf('const struct __box_mpuregions __box_%(box)s_mpuregions = {')
+        with out.pushindent():
+            out.printf('.control = 1,')
+            out.printf('.count = %(count)d,', count=len(box.memories))
             out.printf('.regions = {')
             with out.pushindent():
                 for memory in box.memories:
@@ -136,6 +147,4 @@ class ARMv8MMPURuntime(ARMv7MMPURuntime):
                             | 0x1)
             out.printf('},')
         out.printf('};')
-
-
 
