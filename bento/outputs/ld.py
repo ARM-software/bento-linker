@@ -15,19 +15,18 @@ class LDOutput(outputs.Output):
     @classmethod
     def __argparse__(cls, parser, **kwargs):
         super().__argparse__(parser, **kwargs)
-        parser.add_argument('--emit_sections', type=bool,
-            help='Enable/disable linker sections, not emitting sections '
-                'makes it possible to include the generated linkerscript '
-                'in a custom linkerscript.')
+        parser.add_argument('--no_sections', type=bool,
+            help="Don't emit linker sections, not emitting sections "
+                "makes it possible to include the generated linkerscript "
+                "in a custom linkerscript.")
         defineparser = parser.add_set('--define')
         defineparser.add_argument('define',
             help='Add custom symbols to the linkerscript. For example: '
                 '--define.__HeapLimit=__heap_end.')
 
-    def __init__(self, path=None, emit_sections=None, define={}):
+    def __init__(self, path=None, no_sections=None, define={}):
         super().__init__(path)
-        self.emit_sections = (
-            emit_sections if emit_sections is not None else True)
+        self.no_sections = no_sections or False
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
 
@@ -63,7 +62,7 @@ class LDOutput(outputs.Output):
                 memory='box_%(box)s_'+memory.name,
                 addr=memory.addr, size=memory.size)
 
-            if self.emit_sections:
+            if not self.no_sections:
                 out = self.sections.append(
                     section='.box.%(box)s.' + memory.name,
                     memory='box_%(box)s_' + memory.name,
@@ -90,7 +89,7 @@ class LDOutput(outputs.Output):
                 addr=memory.addr, size=memory.size)
 
         # The rest of this only deals with sections
-        if not self.emit_sections:
+        if self.no_sections:
             return
 
         constants = self.decls.append(doc='overridable constants')
@@ -262,8 +261,7 @@ class LDOutput(outputs.Output):
             self.print('}')
             self.print('')
 
-        assert self.emit_sections or not self.sections
-        if self.sections:
+        if self.sections and not self.no_sections:
             self.print('SECTIONS {')
             # order sections based on memories' address
             sections = self.sections

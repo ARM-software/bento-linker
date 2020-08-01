@@ -127,8 +127,8 @@ int __box_glz_fsdecode(uint8_t k,
 
 BOX_LOAD = """
 int __box_%(box)s_load(void) {
-    extern uint32_t __box_%(box)s_%(memory)s_start;
-    extern uint32_t __box_%(box)s_%(memory)s_end;
+    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern uint8_t __box_%(box)s_%(memory)s_end;
 
     // open file
     int32_t fd;
@@ -147,15 +147,15 @@ int __box_%(box)s_load(void) {
         return -ENOEXEC;
     }
 
-    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
-            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+    if (size > &__box_%(box)s_%(memory)s_end
+            - &__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
         return -ENOEXEC;
     }
 
     // load image
     res = %(read_alias)s(fd,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start,
+            &__box_%(box)s_%(memory)s_start,
             size);
     if (res < size) {
         if (res < 0) {
@@ -201,8 +201,8 @@ static int __box_%(box)s_seekread(void *ctx,
 
 // add checks for input size
 int __box_%(box)s_load(void) {
-    extern uint32_t __box_%(box)s_%(memory)s_start;
-    extern uint32_t __box_%(box)s_%(memory)s_end;
+    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern uint8_t __box_%(box)s_%(memory)s_end;
 
     // open file
     int32_t fd;
@@ -224,8 +224,8 @@ int __box_%(box)s_load(void) {
     uint8_t k = 0xf & (x[0] >> 24);
     uint32_t off = 0x00ffffff & x[0];
     uint32_t size = x[1];
-    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
-            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+    if (size > &__box_%(box)s_%(memory)s_end
+            - &__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
         return -ENOEXEC;
     }
@@ -235,7 +235,7 @@ int __box_%(box)s_load(void) {
             __box_%(box)s_seekread,
             &(struct __box_%(box)s_seekread){fd, 8},
             off,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start,
+            &__box_%(box)s_%(memory)s_start,
             size);
     if (err) {
         return err;
@@ -590,17 +590,17 @@ class FSLoader(loaders.Loader):
                 out = output.decls.append()
                 for memory, _, _ in loadmemories:
                     with out.pushattrs(memory=memory):
-                        out.printf('extern uint32_t '
+                        out.printf('extern uint8_t '
                             '__box_%(box)s_%(memory)s_start;')
-                        out.printf('extern uint32_t '
+                        out.printf('extern uint8_t '
                             '__box_%(box)s_%(memory)s_end;')
                 out.printf('uint8_t *const __box_%(box)s_loadregions[][2] = {')
                 with out.indent():
                     for memory, _, _ in loadmemories:
                         with out.pushattrs(memory=memory):
                             out.printf('{'
-                                '(uint32_t*)&__box_%(box)s_%(memory)s_start, '
-                                '(uint32_t*)&__box_%(box)s_%(memory)s_end}')
+                                '&__box_%(box)s_%(memory)s_start, '
+                                '&__box_%(box)s_%(memory)s_end}')
                 out.printf('};')
 
                 if not self._glz:

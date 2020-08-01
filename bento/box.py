@@ -251,7 +251,8 @@ class Memory(Region):
         return mode, addr, size
 
     def __init__(self, name, memory=None,
-            mode=None, addr=None, size=None, align=None):
+            mode=None, addr=None, size=None, align=None,
+            origmemory=None):
         self.name = name.name if isinstance(name, Memory) else name
         memory = Memory.parsememory(memory) if memory else (None, None, None)
         self.mode = Memory.parsemode(mode) if mode else memory[0] or set()
@@ -273,6 +274,9 @@ class Memory(Region):
         self.sections = name.sections if isinstance(name, Memory) else []
         self._addr = self.addr
         self._size = self.size
+
+        # track original memory for slices
+        self.origmemory = origmemory if origmemory is not None else self
 
     def __str__(self):
         return "%(mode)s %(range)s %(size)d bytes" % dict(
@@ -329,7 +333,8 @@ class Memory(Region):
     def __sub__(self, regions):
         return [
             Memory(self.name, mode=self.mode, align=self.align,
-                addr=region.addr, size=region.size)
+                addr=region.addr, size=region.size,
+                origmemory=self.origmemory)
             for region in super().__sub__(regions)]
 
 class Arg:

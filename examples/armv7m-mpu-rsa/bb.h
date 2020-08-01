@@ -15,8 +15,6 @@ int alicebox_main(void);
 
 int alicebox_recv(const void *buffer, size_t size);
 
-void* alicebox_tempbuffer(size_t size);
-
 int bobbox_getpubkey(char *buffer, size_t size);
 
 int bobbox_init(void);
@@ -24,8 +22,6 @@ int bobbox_init(void);
 int bobbox_main(void);
 
 int bobbox_recv(const void *buffer, size_t size);
-
-void* bobbox_tempbuffer(size_t size);
 
 int tlsbox_drbg_seed(void);
 
@@ -45,11 +41,9 @@ ssize_t tlsbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *output, s
 
 int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
 
-void* tlsbox_tempbuffer(size_t size);
-
 //// box exports ////
 
-extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
+extern ssize_t __box_write(int32_t a0, const void *buffer, size_t size);
 
 extern int bobbox_alicebox_getpubkey(char *buffer, size_t size);
 
@@ -57,37 +51,37 @@ extern int alicebox_bobbox_getpubkey(char *buffer, size_t size);
 
 extern ssize_t sys_entropy_poll(void *buffer, size_t size);
 
-extern int sys_bobbox_rsa_freekey(int32_t key);
+extern int sys_rsa_freekey(int32_t box, int32_t key);
 
-extern int sys_alicebox_rsa_freekey(int32_t key);
+extern int sys_rsa_freekey(int32_t box, int32_t key);
 
-extern int32_t sys_bobbox_rsa_fromprivkey(const char *buffer, size_t size);
+extern int32_t sys_rsa_fromprivkey(int32_t box, const char *buffer, size_t size);
 
-extern int32_t sys_alicebox_rsa_fromprivkey(const char *buffer, size_t size);
+extern int32_t sys_rsa_fromprivkey(int32_t box, const char *buffer, size_t size);
 
-extern int32_t sys_bobbox_rsa_frompubkey(const char *buffer, size_t size);
+extern int32_t sys_rsa_frompubkey(int32_t box, const char *buffer, size_t size);
 
-extern int32_t sys_alicebox_rsa_frompubkey(const char *buffer, size_t size);
+extern int32_t sys_rsa_frompubkey(int32_t box, const char *buffer, size_t size);
 
-extern int32_t sys_bobbox_rsa_genkey(size_t key_size, int32_t exponent);
+extern int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent);
 
-extern int32_t sys_alicebox_rsa_genkey(size_t key_size, int32_t exponent);
+extern int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent);
 
-extern int sys_bobbox_rsa_getprivkey(int32_t key, char *buffer, size_t size);
+extern int sys_rsa_getprivkey(int32_t box, int32_t key, char *buffer, size_t size);
 
-extern int sys_alicebox_rsa_getprivkey(int32_t key, char *buffer, size_t size);
+extern int sys_rsa_getprivkey(int32_t box, int32_t key, char *buffer, size_t size);
 
-extern int sys_bobbox_rsa_getpubkey(int32_t key, char *buffer, size_t size);
+extern int sys_rsa_getpubkey(int32_t box, int32_t key, char *buffer, size_t size);
 
-extern int sys_alicebox_rsa_getpubkey(int32_t key, char *buffer, size_t size);
+extern int sys_rsa_getpubkey(int32_t box, int32_t key, char *buffer, size_t size);
 
-extern ssize_t sys_bobbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *output, size_t output_size);
+extern ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key, const void *input, void *output, size_t output_size);
 
-extern ssize_t sys_alicebox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *output, size_t output_size);
+extern ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key, const void *input, void *output, size_t output_size);
 
-extern int sys_bobbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
+extern int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key, const void *input, size_t input_size, void *output);
 
-extern int sys_alicebox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
+extern int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key, const void *input, size_t input_size, void *output);
 
 extern int sys_send_to_alice(const void *buffer, size_t size);
 

@@ -98,7 +98,7 @@ int alicebox_main(void) {
     uint8_t buffer[ALICEBOX_KEY_SIZE/8];
     err = sys_rsa_pkcs1_encrypt(bobkey,
             ALICEBOX_SECRET_MESSAGE,
-            strlen(ALICEBOX_SECRET_MESSAGE),
+            strlen(ALICEBOX_SECRET_MESSAGE)+1,
             buffer);
     if (err) {
         return err;

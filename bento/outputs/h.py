@@ -99,7 +99,6 @@ class HOutput(outputs.Output):
         self.decls.append('//// box hooks ////')
         for subbox in box.boxes:
             with self.pushattrs(box=subbox.name):
-                # TODO move these?
                 self.decls.append(
                     'int __box_%(box)s_init(void);',
                     doc='Initialize box %(box)s. Resets the box to its '

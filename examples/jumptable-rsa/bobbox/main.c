@@ -98,7 +98,7 @@ int bobbox_main() {
     uint8_t buffer[BOBBOX_KEY_SIZE/8];
     err = sys_rsa_pkcs1_encrypt(alicekey,
             BOBBOX_SECRET_MESSAGE,
-            strlen(BOBBOX_SECRET_MESSAGE),
+            strlen(BOBBOX_SECRET_MESSAGE)+1,
             buffer);
     if (err) {
         return err;

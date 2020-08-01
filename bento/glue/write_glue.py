@@ -1,6 +1,6 @@
 from .. import glue
 
-BOX_MINIMAL_PRINTF = """
+C_MINIMAL_PRINTF = """
 ssize_t __box_cbprintf(
         ssize_t (*write)(void *ctx, const void *buf, size_t size), void *ctx,
         const char *format, va_list args) {
@@ -266,7 +266,7 @@ int __wrap_fflush(FILE *f) {
 }
 """
 
-BOX_STDLIB_HOOKS = """
+C_STDLIB_HOOKS = """
 #ifdef __GNUC__
 int _write(int handle, const char *buffer, int size) {
     return __box_write(handle, (const uint8_t*)buffer, size);
@@ -274,7 +274,7 @@ int _write(int handle, const char *buffer, int size) {
 #endif
 """
 
-BOX_RUST_HOOKS = '''
+RUST_HOOKS = '''
 pub fn write(fd: i32, buffer: &[u8]) -> Result<usize> {
     extern "C" {
         fn __box_write(fd: i32, buffer: *const u8, size: usize) -> isize;
@@ -302,7 +302,7 @@ pub fn flush(fd: i32) -> Result<()> {
 }
 '''
 
-BOX_RUST_STDOUT = '''
+RUST_STDOUT = '''
 /// %(name)s implementation
 pub struct %(Name)s;
 
@@ -430,10 +430,10 @@ class WriteGlue(glue.Glue):
             output.includes.append('<stdarg.h>')
             output.includes.append('<string.h>')
             out = output.decls.append()
-            out.printf(BOX_MINIMAL_PRINTF)
+            out.printf(C_MINIMAL_PRINTF)
 
         if not output.no_stdlib_hooks:
-            output.decls.append(BOX_STDLIB_HOOKS)
+            output.decls.append(C_STDLIB_HOOKS)
 
     def build_mk(self, output, box):
         super().build_mk(output, box)
@@ -451,10 +451,10 @@ class WriteGlue(glue.Glue):
     def build_rs(self, output, box):
         super().build_rs(output, box)
         output.uses.append('core::fmt')
-        output.decls.append(BOX_RUST_HOOKS)
-        output.decls.append(BOX_RUST_STDOUT,
+        output.decls.append(RUST_HOOKS)
+        output.decls.append(RUST_STDOUT,
             name='stdout', Name='Stdout',
             fd=1, print='print')
-        output.decls.append(BOX_RUST_STDOUT,
+        output.decls.append(RUST_STDOUT,
             name='stderr', Name='Stderr',
             fd=2, print='eprint')

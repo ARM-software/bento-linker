@@ -38,8 +38,6 @@ extern int bobbox_main(void);
 
 extern int bobbox_recv(const void *buffer, size_t size);
 
-extern void* bobbox_tempbuffer(size_t size);
-
 //// box hooks ////
 
 // May be called by well-behaved code to terminate the box if execution can
@@ -169,10 +167,6 @@ void _exit(int returncode) {
 #endif
 
 //// __box_write glue ////
-
-int __box_flush(int32_t fd) {
-    return 0;
-}
 
 ssize_t __box_cbprintf(
         ssize_t (*write)(void *ctx, const void *buf, size_t size), void *ctx,
@@ -444,9 +438,7 @@ int _write(int handle, const char *buffer, int size) {
 }
 #endif
 
-//// jumptable implementation ////
-
-int32_t __box_init(void) {
+int __box_init(void) {
     // load data
     extern uint32_t __data_init_start;
     extern uint32_t __data_start;
@@ -470,18 +462,19 @@ int32_t __box_init(void) {
     return 0;
 }
 
-extern uint32_t __stack_end;
+//// imports ////
+
+//// exports ////
 
 // box-side jumptable
-__attribute__((section(".jumptable")))
-__attribute__((used))
-const uint32_t __box_bobbox_jumptable[] = {
+extern uint8_t __stack_end;
+__attribute__((used, section(".jumptable")))
+const uint32_t __box_jumptable[] = {
     (uint32_t)&__stack_end,
     (uint32_t)__box_init,
     (uint32_t)bobbox_getpubkey,
     (uint32_t)bobbox_init,
     (uint32_t)bobbox_main,
     (uint32_t)bobbox_recv,
-    (uint32_t)bobbox_tempbuffer,
 };
 

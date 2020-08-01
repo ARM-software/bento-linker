@@ -130,29 +130,29 @@ BOX_LOAD = """
 #define BOX_%(BOX)s_READ_SIZE %(read_size)d
 
 int __box_%(box)s_load(void) {
-    extern uint32_t __box_%(box)s_%(memory)s_start;
-    extern uint32_t __box_%(box)s_%(memory)s_end;
+    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern uint8_t __box_%(box)s_%(memory)s_end;
 
     // load metadata? We can use our RAM as a buffer here
     int err = %(alias)s(%(block)d, %(off)d,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start,
+            &__box_%(box)s_%(memory)s_start,
             __box_bd_max(sizeof(uint32_t), BOX_%(BOX)s_READ_SIZE));
     if (err) {
         return err;
     }
 
-    size_t size = *(uint32_t*)(uint8_t*)&__box_%(box)s_%(memory)s_start;
+    size_t size = *(uint32_t*)&__box_%(box)s_%(memory)s_start;
     // align to read size
     size = __box_bd_alignup(size, BOX_%(BOX)s_READ_SIZE);
-    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
-            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+    if (size > &__box_%(box)s_%(memory)s_end
+            - &__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
         return -ENOEXEC;
     }
 
     // load image
     err = %(alias)s(%(block)d, %(off)d,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start,
+            &__box_%(box)s_%(memory)s_start,
             size);
     if (err) {
         return err;
@@ -215,8 +215,8 @@ static int __box_%(box)s_buffer_read(void *ctx,
 
 // add checks for input size
 int __box_%(box)s_load(void) {
-    extern uint32_t __box_%(box)s_%(memory)s_start;
-    extern uint32_t __box_%(box)s_%(memory)s_end;
+    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern uint8_t __box_%(box)s_%(memory)s_end;
     // init buffer
     __box_%(box)s_buffer_block = -1;
 
@@ -233,8 +233,8 @@ int __box_%(box)s_load(void) {
 
     // align to read size
     size = __box_bd_alignup(size, BOX_%(BOX)s_READ_SIZE);
-    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
-            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+    if (size > &__box_%(box)s_%(memory)s_end
+            - &__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
         return -ENOEXEC;
     }
@@ -243,7 +243,7 @@ int __box_%(box)s_load(void) {
     return __box_glz_bddecode(k,
             __box_%(box)s_buffer_read, (void*)(%(addr)d + 8),
             off,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start,
+            &__box_%(box)s_%(memory)s_start,
             size);
 }
 """
@@ -638,17 +638,17 @@ class BDLoader(loaders.Loader):
                 out = output.decls.append()
                 for memory, _, _ in loadmemories:
                     with out.pushattrs(memory=memory):
-                        out.printf('extern uint32_t '
+                        out.printf('extern uint8_t '
                             '__box_%(box)s_%(memory)s_start;')
-                        out.printf('extern uint32_t '
+                        out.printf('extern uint8_t '
                             '__box_%(box)s_%(memory)s_end;')
                 out.printf('uint8_t *const __box_%(box)s_loadregions[][2] = {')
                 with out.indent():
                     for memory, _, _ in loadmemories:
                         with out.pushattrs(memory=memory):
                             out.printf('{'
-                                '(uint32_t*)&__box_%(box)s_%(memory)s_start, '
-                                '(uint32_t*)&__box_%(box)s_%(memory)s_end}')
+                                '&__box_%(box)s_%(memory)s_start, '
+                                '&__box_%(box)s_%(memory)s_end}')
                 out.printf('};')
 
                 if not self._glz:

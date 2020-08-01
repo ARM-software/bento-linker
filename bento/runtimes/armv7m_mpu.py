@@ -3,30 +3,25 @@ import itertools as it
 import math
 from .. import argstuff
 from .. import runtimes
-from ..box import Fn, Section, Region
+from ..box import Fn, Section, Region, Import, Export
 from ..glue.error_glue import ErrorGlue
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
 from ..outputs import OutputBlob
 
-# utility functions in C
-BOX_STRUCT_STATE = """
-struct __box_state {
-    bool initialized;
-    uint32_t caller;
-    uint32_t lr;
-    uint32_t *sp;
-};
-"""
-
-BOX_STRUCT_MPUREGIONS = """
+MPU_STATE = """
 struct __box_mpuregions {
+    uint32_t control;
     uint32_t count;
     uint32_t regions[][2];
 };
+
+uint32_t __box_active = 0;
+extern uint32_t __box_callregion;
+extern void __box_return(void);
 """
 
-BOX_MPU_DISPATCH = """
+MPU_IMPL = """
 #define SHCSR    ((volatile uint32_t*)0xe000ed24)
 #define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
 #define MPU_CTRL ((volatile uint32_t*)0xe000ed94)
@@ -41,14 +36,11 @@ static int32_t __box_mpu_init(void) {
         assert(*MPU_TYPE >= %(mpuregions)d);
         // enable MemManage exceptions
         *SHCSR = *SHCSR | 0x00070000;
-        // disable stack align during exceptions
-        // TODO we should handle this properly
-        *CCR &= ~0x00000200;
         // setup call region
-        *MPU_RBAR = %(callprefix)#010x | 0x10;
+        *MPU_RBAR = (uint32_t)&__box_callregion | 0x10;
         // disallow execution
         //*MPU_RASR = 0x10230021;
-        *MPU_RASR = 0x10000001 | ((%(callregionlog2)d-1) << 1);
+        *MPU_RASR = 0x10000001 | ((%(calllog2)d-1) << 1);
         // enable the MPU
         *MPU_CTRL = 5;
     }
@@ -56,11 +48,12 @@ static int32_t __box_mpu_init(void) {
 }
 
 static void __box_mpu_switch(const struct __box_mpuregions *regions) {
+    // update MPU regions
     *MPU_CTRL = 0;
     uint32_t count = regions->count;
     for (int i = 0; i < %(mpuregions)d; i++) {
         if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RBAR = regions->regions[i][0] | 0x10 | (i+1);
             *MPU_RASR = regions->regions[i][1];
         } else {
             *MPU_RBAR = 0x10 | (i+1);
@@ -68,10 +61,26 @@ static void __box_mpu_switch(const struct __box_mpuregions *regions) {
         }
     }
     *MPU_CTRL = 5;
+
+    // update CONTROL state, note that return-from-exception acts
+    // as an instruction barrier
+    uint32_t control;
+    __asm__ volatile ("mrs %%0, control" : "=r"(control));
+    control = (~1 & control) | (regions->control);
+    __asm__ volatile ("msr control, %%0" :: "r"(control));
 }
 """
 
-BOX_SYS_DISPATCH = """
+BOX_STATE = """
+struct __box_state {
+    bool initialized;
+    uint32_t caller;
+    uint32_t lr;
+    uint32_t *sp;
+};
+"""
+
+MPU_HANDLERS = """
 struct __box_frame {
     uint32_t *fp;
     uint32_t lr;
@@ -81,16 +90,80 @@ struct __box_frame {
 
 // foward declaration of fault wrapper, may be called directly
 // in other handlers, but only in other handlers! (needs isr context)
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err);
+uint64_t __box_faultsetup(int32_t err) {
+    // mark box as uninitialized
+    __box_state[__box_active]->initialized = false;
 
-#define __BOX_ASSERT(test, code) do {   \\
-        if (!(test)) {                  \\
-            __box_faulthandler(code);   \\
-        }                               \\
-    } while (0)
+    // invoke user handler, should not return
+    // TODO should we set this up to be called in non-isr context?
+    if (__box_aborts[__box_active]) {
+        __box_aborts[__box_active](err);
+        __builtin_unreachable();
+    }
 
-__attribute__((used))
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_state *targetstate = __box_state[state->caller];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetbf->fp;
+    // in call?
+    if (!targetlr) {
+        // halt if we can't handle
+        __box_abort(-ELOOP);
+    }
+
+    // check if our return target supports erroring
+    uint32_t op = targetfp[6];
+    if (!(op & 2)) {
+        // halt if we can't handle
+        __box_abort(err);
+    }
+
+    // we can return an error
+    __box_active = state->caller;
+    targetstate->lr = targetbf->lr;
+    targetstate->sp = targetbf->sp;
+    targetstate->caller = targetbf->caller;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // copy return frame
+    targetfp[0] = err;         // r0 = arg0
+    targetfp[1] = 0;           // r1 = arg1
+    targetfp[2] = 0;           // r2 = arg2
+    targetfp[3] = 0;           // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((naked, noreturn))
+void __box_faulthandler(int32_t err) {
+    __asm__ volatile (
+        // call into c with stack control
+        "bl __box_faultsetup \\n\\t"
+        // drop saved state
+        "add r1, r1, #4*4 \\n\\t"
+        // restore fp registers?
+        "tst r0, #0x10 \\n\\t"
+        "it eq \\n\\t"
+        "vldmiaeq r1!, {s16-s31} \\n\\t"
+        // restore core registers
+        "ldmia r1!, {r4-r11} \\n\\t"
+        // update sp
+        "tst r0, #0x4 \\n\\t"
+        "ite eq \\n\\t"
+        "msreq msp, r1 \\n\\t"
+        "msrne psp, r1 \\n\\t"
+        // return
+        "bx r0 \\n\\t"
+        ::
+        "i"(__box_faultsetup)
+    );
+}
+
 uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
@@ -103,10 +176,13 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     state->lr = lr;
     state->sp = sp;
 
-    uint32_t path = (op & %(callmask)#x)/4;
     uint32_t caller = __box_active;
-    __box_active = path %% (__BOX_COUNT+1);
-    const uint32_t *targetjumptable = __box_jumptables[__box_active];
+    __box_active = (caller == 0)
+        ? (((op/4)-2) %% __BOX_COUNT) + 1
+        : 0;
+    uint32_t targetpc = (caller == 0)
+        ? __box_jumptables[__box_active-1][((op/4)-2) / __BOX_COUNT + 1]
+        : __box_sys_jumptables[caller-1][((op/4)-2)];
     struct __box_state *targetstate = __box_state[__box_active];
     uint32_t targetlr = targetstate->lr;
     uint32_t *targetsp = targetstate->sp;
@@ -116,16 +192,9 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetstate->lr = 0;
     // need sp to fixup instruction aborts
     targetstate->sp = targetsp;
-    uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %%0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0" :: "r"(control));
 
     // setup new call frame
     targetsp -= 8;
@@ -134,14 +203,14 @@ uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
     targetsp[2] = fp[2];        // r2 = arg2
     targetsp[3] = fp[3];        // r3 = arg3
     targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = %(retprefix)#010x + 1; // lr = __box_ret
+    targetsp[5] = (uint32_t)&__box_return; // lr = __box_return
     targetsp[6] = targetpc;     // pc = targetpc
     targetsp[7] = fp[7];        // psr = psr
 
     return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-__attribute__((used, naked, noreturn))
+__attribute__((naked))
 void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of args
@@ -172,11 +241,12 @@ void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "addne sp, sp, #8*4 \\n\\t"
         // return to call
         "bx r0 \\n\\t"
+        ::
+        "i"(__box_callsetup)
     );
 }
 
-__attribute__((used))
-uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
+uint64_t __box_returnsetup(uint32_t lr, uint32_t *sp,
         uint32_t op, uint32_t *fp) {
     // save lr + sp
     struct __box_state *state = __box_state[__box_active];
@@ -186,9 +256,14 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     state->sp = sp;
 
     __box_active = state->caller;
+
     struct __box_state *targetstate = __box_state[__box_active];
     uint32_t targetlr = targetstate->lr;
-    __BOX_ASSERT(targetlr, -EFAULT); // in call?
+    // in call?
+    if (!targetlr) {
+        __box_faulthandler(-EFAULT);
+        __builtin_unreachable();
+    }
     uint32_t *targetsp = targetstate->sp;
     struct __box_frame *targetframe = (struct __box_frame*)targetsp;
     uint32_t *targetfp = targetframe->fp;
@@ -198,12 +273,6 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
 
     // select MPU regions
     __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %%0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0" :: "r"(control));
 
     // copy return frame
     targetfp[0] = fp[0];       // r0 = arg0
@@ -215,13 +284,13 @@ uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
     return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
 }
 
-__attribute__((used, naked, noreturn))
-void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
+__attribute__((naked, noreturn))
+void __box_returnhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
     __asm__ volatile (
         // keep track of rets
         "mov r3, r1 \\n\\t"
         // call into c new that we have stack control
-        "bl __box_retsetup \\n\\t"
+        "bl __box_returnsetup \\n\\t"
         // drop saved state
         "add r1, r1, #4*4 \\n\\t"
         // restore fp registers?
@@ -237,82 +306,8 @@ void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
         "msrne psp, r1 \\n\\t"
         // return
         "bx r0 \\n\\t"
-    );
-}
-
-__attribute__((used))
-uint64_t __box_faultsetup(int32_t err) {
-    // mark box as uninitialized
-    __box_state[__box_active]->initialized = false;
-
-    // invoke user handler, may not return
-    // TODO should we set this up to be called in non-isr context?
-    __box_faults[__box_active](err);
-
-    struct __box_state *state = __box_state[__box_active];
-    struct __box_state *targetstate = __box_state[state->caller];
-    uint32_t targetlr = targetstate->lr;
-    uint32_t *targetsp = targetstate->sp;
-    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
-    uint32_t *targetfp = targetbf->fp;
-    // in call?
-    if (!targetlr) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // check if our return target supports erroring
-    uint32_t op = targetfp[6];
-    if (!(op & 2)) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // we can return an error
-    __box_active = state->caller;
-    targetstate->lr = targetbf->lr;
-    targetstate->sp = targetbf->sp;
-    targetstate->caller = targetbf->caller;
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %%0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %%0" :: "r"(control));
-
-    // copy return frame
-    targetfp[0] = err;         // r0 = arg0
-    targetfp[1] = 0;           // r1 = arg1
-    targetfp[2] = 0;           // r2 = arg2
-    targetfp[3] = 0;           // r3 = arg3
-    targetfp[6] = targetfp[5]; // pc = lr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err) {
-    __asm__ volatile (
-        // call into c with stack control
-        "bl __box_faultsetup \\n\\t"
-        // drop saved state
-        "add r1, r1, #4*4 \\n\\t"
-        // restore fp registers?
-        "tst r0, #0x10 \\n\\t"
-        "it eq \\n\\t"
-        "vldmiaeq r1!, {s16-s31} \\n\\t"
-        // restore core registers
-        "ldmia r1!, {r4-r11} \\n\\t"
-        // update sp
-        "tst r0, #0x4 \\n\\t"
-        "ite eq \\n\\t"
-        "msreq msp, r1 \\n\\t"
-        "msrne psp, r1 \\n\\t"
-        // return
-        "bx r0 \\n\\t"
+        ::
+        "i"(__box_returnsetup)
     );
 }
 
@@ -334,77 +329,43 @@ void __box_mpu_handler(void) {
         "mrsne r1, psp \\n\\t"
         // get pc
         "ldr r2, [r1, #6*4] \\n\\t"
-        // call?
-        "ldr r3, =#%(callprefix)#010x \\n\\t"
-        "sub r3, r2, r3 \\n\\t"
-        "lsrs r3, r3, #%(callregionlog2)d-1 \\n\\t"
-        "beq __box_callhandler \\n\\t"
-        // ret?
-        "ldr r3, =#%(retprefix)#010x \\n\\t"
-        "subs r3, r2, r3 \\n\\t"
-        "beq __box_rethandler \\n\\t"
-        // fallback to fault handler
-        // explicit fault?
-        "ldr r3, =#%(retprefix)#010x + 1*4 \\n\\t"
-        "subs r3, r2, r3 \\n\\t"
-        "ite eq \\n\\t"
+
+        // check type of call
+        // return?
+        "ldr r3, =__box_callregion \\n\\t"
+        "subs r2, r2, r3 \\n\\t"
+        "beq __box_returnhandler \\n\\t"
+
+        // explicit abort?
+        "cmp r2, #4 \\n\\t"
+        "itt eq \\n\\t"
         "ldreq r0, [r1, #0] \\n\\t"
-        "ldrne r0, =%%0 \\n\\t"
+        "beq __box_faulthandler \\n\\t"
+
+        // call?
+        "ldr r3, =%(callsize)d \\n\\t"
+        "cmp r2, r3 \\n\\t"
+        "blo __box_callhandler \\n\\t"
+
+        // if we've reached here this is a true fault
+        "ldr r0, =%%[EFAULT] \\n\\t"
         "b __box_faulthandler \\n\\t"
-        :
-        : "i"(-EFAULT)
+        "b ."
+        ::
+        "i"(__box_faulthandler),
+        "i"(__box_callhandler),
+        "i"(__box_returnhandler),
+        "i"(&__box_callregion),
+        [EFAULT]"i"(-EFAULT)
     );
 }
 """
 
-BOX_SYS_INIT = """
-int __box_%(box)s_clobber(void) {
-    __box_%(box)s_state.initialized = false;
-    return 0;
-}
-
-int __box_%(box)s_init(void) {
-    // do nothing if already initialized
-    if (__box_%(box)s_state.initialized) {
-        return 0;
-    }
-
-    int err;
-%(roommate_clobbers)s
-    // check that MPU is initialized
-    err = __box_mpu_init();
-    if (err) {
-        return err;
-    }
-
-%(zero)s
-    // load the box if unloaded
-    err = __box_%(box)s_load();
-    if (err) {
-        return err;
-    }
-
-    // prepare box's stack
-    // must use PSP, otherwise boxes could overflow ISR stack
-    __box_%(box)s_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_%(box)s_state.sp = (uint32_t*)__box_%(box)s_jumptable[0];
-
-    // call box's init
-    extern int __box_%(box)s_rawinit(void);
-    err = __box_%(box)s_rawinit();
-    if (err) {
-        return err;
-    }
-
-    __box_%(box)s_state.initialized = true;
-    return 0;
-}
-"""
 
 @runtimes.runtime
 class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     """
-    A bento-box runtime that uses a v7 MPU to provide memory isolation
+    A bento-box runtime that uses an Arm v7 MPU to provide memory isolation
     between boxes.
     """
     __argname__ = "armv7m_mpu"
@@ -427,70 +388,92 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         super().__init__()
         self._mpu_regions = mpu_regions if mpu_regions is not None else 4
         self._jumptable = Section('jumptable', **jumptable.__dict__)
-        self._call_region = (
-            Region(**call_region.__dict__)
+        self._call_region = (Region(**call_region.__dict__)
             if call_region.addr is not None else
-            Region('0x1e000000-0x1fffffff'))
+            None)
         self._zero = zero or False
 
-    __name = __argname__
     def box_parent_prologue(self, parent):
+        # we need these
         parent.addexport('__box_memmanage_handler', 'fn() -> void',
-            scope=parent.name, source=self.__name)
+            scope=parent.name, source=self.__argname__)
         parent.addexport('__box_busfault_handler', 'fn() -> void',
-            scope=parent.name, source=self.__name)
+            scope=parent.name, source=self.__argname__)
         parent.addexport('__box_usagefault_handler', 'fn() -> void',
-            scope=parent.name, source=self.__name)
+            scope=parent.name, source=self.__argname__)
 
-        # we collect hooks here because we need to handle them all at once
-        self._fault_hooks = []
-        self._load_hooks = []
-        self._write_hooks = []
-        for child in parent.boxes:
-            if child.runtime == self:
-                self._fault_hooks.append(parent.addimport(
-                    '__box_%s_fault' % child.name, 'fn(err) -> void',
-                    scope=parent.name, source=self.__name, weak=True,
-                    doc="Called when this box faults, either due to an illegal "
-                        "memory access or other failure. the error code is "
-                        "provided as an argument."))
-                self._load_hooks.append(parent.addimport(
-                    '__box_%s_load' % child.name, 'fn() -> err',
-                    scope=parent.name, source=self.__name,
-                    doc="Called to load the box during init. Normally provided "
-                        "by the loader but can be overriden."))
-                self._write_hooks.append(parent.addimport(
-                    '__box_%s_write' % child.name,
-                    'fn(i32, const u8[size], usize size) -> errsize',
-                    scope=parent.name, source=self.__name, weak=True,
-                    doc="Override __box_write for this specific box."))
+        super().box_parent_prologue(parent)
+
+        # best effort call_region size
+        if self._call_region is None:
+            callmemory = parent.bestmemory(
+                'rx', size=0, reverse=True).origmemory
+            addr = callmemory.addr + callmemory.size
+
+            # TODO fewer magic numbers here?
+            importcount = max(it.chain(
+                [3+sum(len(box.exports)
+                    for box in parent.boxes
+                    if box.runtime == self)],
+                (4+len(box.imports)
+                    for box in parent.boxes
+                    if box.runtime == self)))
+            # fit into MPU limits
+            size = 2**math.ceil(math.log2(4*importcount))
+            size = max(size, 32)
+
+            self._call_region = Region(addr=addr, size=size)
+        
+        # check our call region
+        assert math.log2(self._call_region.size) % 1 == 0, (
+            "%s: MPU call region is not aligned to a power-of-two `%s`"
+                % (self.name, self._call_region))
+        assert self._call_region.addr % self._call_region.size == 0, (
+            "%s: MPU call region is not aligned to size `%s`"
+                % (self.name, self._call_region))
+
+        parent.pushattrs(
+            mpuregions=self._mpu_regions,
+            callregion=self._call_region.addr,
+            callsize=self._call_region.addr,
+            callmask=self._call_region.size-1,
+            calllog2=math.log2(self._call_region.size))
+        for box in parent.boxes:
+            if box.runtime == self:
+                box.pushattrs(
+                    callregion=self._call_region.addr)
 
     def box_parent(self, parent, box):
-        assert math.log2(self._call_region.size) % 1 == 0, (
-            "MPU call region is not aligned to a power-of-two %s"
-                % self._call_region)
-        assert self._call_region.addr % self._call_region.size == 0, (
-            "MPU call region is not aligned to size %s"
-                % self._call_region)
-        parent.pushattrs(
-            callprefix=self._call_region.addr,
-            callmask=(self._call_region.size//2)-1,
-            retprefix=self._call_region.addr + self._call_region.size//2,
-            retmask=(self._call_region.size//2)-1,
-            callregionaddr=self._call_region.addr,
-            callregionsize=self._call_region.size,
-            callregionlog2=int(math.log2(self._call_region.size)),
-            mpuregions=self._mpu_regions)
-        box.pushattrs(
-            callprefix=self._call_region.addr,
-            callmask=(self._call_region.size//2)-1,
-            retprefix=self._call_region.addr + self._call_region.size//2,
-            retmask=(self._call_region.size//2)-1,
-            callregionaddr=self._call_region.addr,
-            callregionsize=self._call_region.size,
-            callregionlog2=int(math.log2(self._call_region.size)),
-            mpuregions=self._mpu_regions)
+        # register hooks
+        self._load_hook = parent.addimport(
+            '__box_%s_load' % box.name, 'fn() -> err',
+            scope=parent.name, source=self.__argname__,
+            doc="Called to load the box during init. Normally provided "
+                "by the loader but can be overriden.")
+        self._abort_hook = parent.addimport(
+            '__box_%s_abort' % box.name, 'fn(err err) -> noreturn',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Called when this box aborts, either due to an illegal "
+                "memory access or other failure. the error code is "
+                "provided as an argument.")
+        self._write_hook = parent.addimport(
+            '__box_%s_write' % box.name,
+            'fn(i32, const u8[size], usize size) -> errsize',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Override __box_write for this specific box.")
+        self._flush_hook = parent.addimport(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Override __box_flush for this specific box.")
+        super().box_parent(parent, box)
 
+    def box(self, box):
+        # need isolated stack
+        if not box.stack.size:
+            print("warning: Box `%s` has no stack!" % box.name)
+
+        # check memory regions against MPU limitations
         for memory in box.memories:
             assert math.log2(memory.size) % 1 == 0, (
                 "Memory region `%s` not aligned to a power-of-two in box `%s`"
@@ -502,53 +485,131 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 "Memory region `%s` too small (< 32 bytes) in box `%s`"
                     % (memory.name, box.name))
 
-        parent.addimport(
-            '__box_init', 'fn() -> err32',
-            scope=box.name, source=self.__name,
-            alias='__box_%s_rawinit' % box.name)
-        parent.addexport(
-            '__box_%s_write' % box.name, 'fn(i32, const u8*, usize) -> errsize',
-            scope=box.name, source=self.__name)
-
-        super().box_parent(parent, box)
-
-    def box(self, box):
-        if not box.stack.size:
-            print("warning: Box `%s` has no stack!" % box.name)
         super().box(box)
         self._jumptable.alloc(box, 'rp')
-        # plumbing
-        box.addexport(
-            '__box_init', 'fn() -> err32',
-            source=self.__name)
-        box.addimport(
-            '__box_%s_write' % box.name, 'fn(i32, const u8*, usize) -> errsize',
-            source=self.__name)
+
         # plugs
         self._abort_plug = box.addexport(
-            '__box_abort', 'fn(err) -> void',
-            scope=box.name, source=self.__name, weak=True)
+            '__box_abort', 'fn(err) -> noreturn',
+            scope=box.name, source=self.__argname__, weak=True)
         self._write_plug = box.addexport(
             '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
-            scope=box.name, source=self.__name, weak=True)
+            scope=box.name, source=self.__argname__, weak=True)
+        self._flush_plug = box.addexport(
+            '__box_flush', 'fn(i32) -> err',
+            scope=box.name, source=self.__argname__, weak=True)
+
+        # zeroing takes care of bss
         if self._zero:
-            # zeroing takes care of bss
             box.addexport('__box_bss_init', 'fn() -> void',
                 scope=box.name, source=self.__argname__, weak=True)
 
-    # overridable
-    def build_mpu_dispatch(self, output, sys):
-        output.decls.append(BOX_STRUCT_MPUREGIONS)
-        output.decls.append(BOX_MPU_DISPATCH)
+    def _parentimports(self, parent, box):
+        """
+        Get imports that need linking.
+        Yields import, needswrapper, needsinit.
+        """
+        # implicit imports
+        yield Import(
+            '__box_%s_postinit' % box.name,
+            'fn(const u32*) -> err32',
+            source=self.__argname__), False, False
 
-    # overridable
-    def build_mpu_regions(self, output, sys, box):
-        out = output.decls.append(box=box.name)
-        out.printf('const struct __box_mpuregions '
-            '__box_%(box)s_mpuregions = {')
+        # imports that need linking
+        for import_ in parent.imports:
+            if import_.link and import_.link.export.box == box:
+                yield (import_.postbound(),
+                    len(import_.boundargs) > 0 or box.init == 'lazy',
+                    box.init == 'lazy')
+
+    def _parentexports(self, parent, box):
+        """
+        Get exports that need linking.
+        Yields export, needswrapper.
+        """
+        # implicit exports
+        yield Export(
+            '__box_%s_write' % box.name,
+            'fn(i32, const u8*, usize) -> errsize',
+            source=self.__argname__), False
+        yield Export(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
+            source=self.__argname__), False
+
+        # exports that need linking
+        for export in parent.exports:
+            if any(link.import_.box == box for link in export.links):
+                yield export.prebound(), len(export.boundargs) > 0
+
+    def _parentallimports(self, parent):
+        for box in parent.boxes:
+            if box.runtime == self:
+                yield from self._parentimports(parent, box)
+
+    def _parentallexports(self, parent):
+        for box in parent.boxes:
+            if box.runtime == self:
+                yield from self._parentexports(parent, box)
+
+    def _imports(self, box):
+        """
+        Get imports that need linking.
+        Yields import, needswrapper.
+        """
+        # implicit imports
+        yield Import(
+            '__box_write',
+            'fn(i32, const u8[size], usize size) -> errsize',
+            source=self.__argname__), False
+        yield Export(
+            '__box_flush',
+            'fn(i32) -> err',
+            source=self.__argname__), False
+
+        # imports that need linking
+        for import_ in box.imports:
+            if import_.link and import_.link.export.box != box:
+                yield import_.postbound(), len(import_.boundargs) > 0
+
+    def _exports(self, box):
+        """
+        Get exports that need linking.
+        Yields export, needswrapper
+        """
+        # implicit exports
+        yield Export(
+            '__box_init', 'fn() -> err32',
+            source=self.__argname__), False
+
+        # exports that need linking
+        for export in box.exports:
+            if export.scope != box:
+                yield export.prebound(), len(export.boundargs) > 0
+
+    def build_parent_c_prologue(self, output, parent):
+        super().build_parent_c_prologue(output, parent)
+
+        output.decls.append(MPU_STATE)
+        output.decls.append(MPU_IMPL)
+
+        output.decls.append('#define __BOX_COUNT %(boxcount)d',
+            boxcount=sum(1 for box in parent.boxes if box.runtime == self))
+        output.decls.append(BOX_STATE)
+
+    def build_parent_c(self, output, parent, box):
+        super().build_parent_c(output, parent, box)
+
+        out = output.decls.append()
+        out.printf('//// %(box)s state ////')
+        out.printf('struct __box_state __box_%(box)s_state;')
+        out.printf('extern uint32_t __box_%(box)s_jumptable[];')
+
+        out = output.decls.append()
+        out.printf('const struct __box_mpuregions __box_%(box)s_mpuregions = {')
         with out.pushindent():
-            out.printf('.count = %(count)d,',
-                count=len(box.memories))
+            out.printf('.control = 1,')
+            out.printf('.count = %(count)d,', count=len(box.memories))
             out.printf('.regions = {')
             with out.pushindent():
                 for memory in box.memories:
@@ -568,280 +629,291 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('},')
         out.printf('};')
 
-    def _needswrapper(self, import_):
-        if (import_.link.export.source != self.__name and
-                import_.link.export.box.init == 'lazy'):
-            return True
+        output.decls.append('//// %(box)s exports ////')
+        for import_, needsinit in ((import_, needsinit)
+                for import_, needswrapper, needsinit in
+                    self._parentimports(parent, box)
+                if needswrapper):
+            out = output.decls.append(
+                fn=output.repr_fn(import_),
+                prebound=output.repr_fn(import_,
+                    name='__box_import_%(alias)s',
+                    attrs=['extern']),
+                alias=import_.alias)
+            out.printf('%(fn)s {')
+            with out.indent():
+                # inject lazy-init?
+                if needsinit:
+                    out.printf('if (!__box_%(box)s_state.initialized) {')
+                    with out.indent():
+                        out.printf('int err = __box_%(box)s_init();')
+                        out.printf('if (err) {')
+                        with out.indent():
+                            if import_.isfalible():
+                                out.printf('return err;')
+                            else:
+                                out.printf('__box_abort(err);')
+                        out.printf('}')
+                    out.printf('}')
+                    out.printf()
+                # jump to real import
+                out.printf('%(prebound)s;')
+                out.printf('%(return_)s__box_import_%(alias)s(%(args)s);',
+                    return_=('return ' if import_.rets else ''),
+                    args=', '.join(map(str, import_.argnamesandbounds())))
+            out.printf('}')
 
-        # if no conditions are hit we can shortcut straight to MPU handler
-        return False
-
-    def build_parent_ld_prologue(self, output, sys):
-        super().build_parent_ld_prologue(output, sys)
-
-        out = output.decls.append(doc='box calls')
-        for import_ in sys.imports:
-            if import_.link and import_.link.export.box != sys:
-                with out.pushattrs(
-                        box=import_.link.export.box.name,
-                        import_=import_.alias,
-                        rawimport = '__box_%(box)s_raw_%(import_)s',
-                        id=import_.link.export.n()*(len(sys.boxes)+1) +
-                            import_.link.export.box.n()+1,
-                        falible=import_.isfalible()):
-                    if import_.link.export.source != self.__name:
-                        out.printf(
-                            '%(rawimport)-16s = '
-                                '%(callprefix)#010x + '
-                                '%(id)d*4 + %(falible)d*2 + 1;')
-                    if not self._needswrapper(import_):
-                        out.printf(
-                            '%(import_)-16s = '
-                                '%(callprefix)#010x + '
-                                '%(id)d*4 + %(falible)d*2 + 1;')
-
-    def build_parent_c_prologue(self, output, sys):
-        super().build_parent_c_prologue(output, sys)
-        output.decls.append('//// jumptable implementation ////')
-        self.build_mpu_dispatch(output, sys)
-
-        out = output.decls.append(doc='System state')
-        out.printf('uint32_t __box_active = 0;')
+        output.decls.append('//// %(box)s imports ////')
 
         # redirect hooks if necessary
-        if any(not load_hook.link for load_hook in self._load_hooks):
-            out = output.decls.append(doc='Redirected __box_loads')
-            for load_hook in self._load_hooks:
-                if not load_hook.link:
-                    out.printf('#define %(load_hook)s __box_load',
-                        load_hook=load_hook.name)
+        if not self._write_hook.link:
+            out = output.decls.append(
+                write_hook=self._write_hook.name,
+                doc='redirect %(write_hook)s -> __box_write')
+            out.printf('#define %(write_hook)s __box_write')
 
-        if any(not write_hook.link for write_hook in self._write_hooks):
-            out = output.decls.append(doc='Redirected __box_writes')
-            for write_hook in self._write_hooks:
-                if not write_hook.link:
-                    out.printf('#define %(write_hook)s __box_write',
-                        write_hook=write_hook.name)
+        if not self._flush_hook.link:
+            out = output.decls.append(
+                flush_hook=self._flush_hook.name,
+                doc='redirect %(flush_hook)s -> __box_flush')
+            out.printf('#define %(flush_hook)s __box_flush')
 
-        # jumptables
-        out = output.decls.append(doc='Jumptables')
-        out.printf('const uint32_t __box_sys_jumptable[] = {')
-        with out.pushindent():
-            out.printf('(uint32_t)NULL, // no stack for sys')
-            for export in sys.exports:
-                if export.scope != sys:
-                    out.printf('(uint32_t)%(export)s,', export=export.alias)
-        out.write('};')
+        # wrappers?
+        for export in (export
+                for export, needswrapper in self._parentexports(parent, box)
+                if needswrapper):
+            out = output.decls.append(
+                fn=output.repr_fn(
+                    export.postbound(),
+                    name='__box_%(box)s_export_%(alias)s'),
+                alias=export.alias)
+            out.printf('%(fn)s {')
+            with out.indent():
+                out.printf('%(return_)s%(alias)s(%(args)s);',
+                    return_='return ' if import_.rets else '',
+                    args=', '.join(map(str, export.argnamesandbounds())))
+            out.printf('}')
+
+        # import jumptable
+        out = output.decls.append()
+        out.printf('const uint32_t __box_%(box)s_sys_jumptable[] = {')
+        with out.indent():
+            for export, needswrapper in self._parentexports(parent, box):
+                out.printf('(uint32_t)%(prefix)s%(alias)s,',
+                    prefix='__box_%(box)s_export_' if needswrapper else '',
+                    alias=export.alias)
+        out.printf('};')
+
+        # init
+        output.decls.append('//// %(box)s init ////')
+        out = output.decls.append()
+        out.printf('int __box_%(box)s_init(void) {')
+        with out.indent():
+            out.printf('int err;')
+            if box.roommates:
+                out.printf('// bring down any overlapping boxes')
+            for i, roommate in enumerate(box.roommates):
+                with out.pushattrs(roommate=roommate.name):
+                    out.printf('extern int __box_%(roommate)s_clobber(void);')
+                    out.printf('err = __box_%(roommate)s_clobber();')
+                    out.printf('if (err) {')
+                    with out.indent():
+                        out.printf('return err;')
+                    out.printf('}')
+                    out.printf()
+            out.printf('// make sure that the MPU is initialized')
+            out.printf('err = __box_mpu_init();')
+            out.printf('if (err) {')
+            with out.indent():
+                out.printf('return err;')
+            out.printf('}')
+            out.printf()
+            out.printf('// prepare the box\'s stack')
+            out.printf('// must use PSP, otherwise boxes could '
+                'overflow the ISR stack')
+            out.printf('__box_%(box)s_state.lr = '
+                '0xfffffffd; // TODO determine fp?')
+            out.printf('__box_%(box)s_state.sp = '
+                '(void*)__box_%(box)s_jumptable[0];')
+            out.printf()
+            if self._zero:
+                out.printf('// zero memory')
+                for memory in box.memoryslices:
+                    if 'w' in memory.mode:
+                        with out.pushattrs(
+                                memory=memory.name,
+                                memorystart='__box_%(box)s_%(memory)s_start',
+                                memoryend='__box_%(box)s_%(memory)s_end'):
+                            out.printf('extern uint8_t %(memorystart)s;')
+                            out.printf('extern uint8_t %(memoryend)s;')
+                            out.printf('memset(&%(memorystart)s, 0, '
+                                '&%(memoryend)s - &%(memorystart)s);')
+                out.printf()
+            out.printf('// load the box if unloaded')
+            out.printf('err = __box_%(box)s_load();')
+            out.printf('if (err) {')
+            with out.indent():
+                out.printf('return err;')
+            out.printf('}')
+            out.printf()
+            out.printf('// call box\'s init')
+            out.printf('extern int __box_%(box)s_postinit(void);')
+            out.printf('err = __box_%(box)s_postinit();')
+            out.printf('if (err) {')
+            with out.indent():
+                out.printf('return err;')
+            out.printf('}')
+            out.printf()
+            out.printf('__box_%(box)s_state.initialized = true;')
+            out.printf('return 0;')
+        out.printf('}')
 
         out = output.decls.append()
-        for box in sys.boxes:
-            if box.runtime == self:
-                out.printf(
-                    'extern const uint32_t __box_%(box)s_jumptable[];',
-                    box=box.name)
+        out.printf('int __box_%(box)s_clobber(void) {')
+        with out.indent():
+            out.printf('__box_%(box)s_state.initialized = false;')
+            out.printf('return 0;')
+        out.printf('}')
+
+        # stack manipulation
+        output.includes.append('<assert.h>')
+        out = output.decls.append(
+            memory=box.stack.memory.name)
+        out.printf('void *__box_%(box)s_push(size_t size) {')
+        with out.indent():
+            out.printf('size = (size+3)/4;')
+            out.printf('extern uint8_t __box_%(box)s_%(memory)s_start;')
+            out.printf('if (__box_%(box)s_state.sp - size '
+                    '< (uint32_t*)&__box_%(box)s_%(memory)s_start) {')
+            with out.indent():
+                out.printf('return NULL;')
+            out.printf('}')
+            out.printf()
+            out.printf('__box_%(box)s_state.sp -= size;')
+            out.printf('return __box_%(box)s_state.sp;')
+        out.printf('}')
+
+        out = output.decls.append(
+            memory=box.stack.memory.name)
+        out.printf('void __box_%(box)s_pop(size_t size) {')
+        with out.indent():
+            out.printf('size = (size+3)/4;')
+            out.printf('__attribute__((unused))')
+            out.printf('extern uint8_t __box_%(box)s_%(memory)s_end;')
+            out.printf('assert(__box_%(box)s_state.sp + size '
+                '<= (uint32_t*)&__box_%(box)s_%(memory)s_end);')
+            out.printf('__box_%(box)s_state.sp += size;')
+        out.printf('}')
+
+    def build_parent_c_epilogue(self, output, parent):
+        super().build_parent_c_epilogue(output, parent)
+
+        # state
+        output.decls.append('struct __box_state __box_sys_state;')
 
         out = output.decls.append()
-        out.printf('#define __BOX_COUNT %(boxcount)d',
-            boxcount=sum(1 for box in sys.boxes
-                if box.runtime == self))
-        out.printf('const uint32_t *const '
-            '__box_jumptables[__BOX_COUNT+1] = {');
-        with out.pushindent():
-            out.printf('__box_sys_jumptable,')
-            for box in sys.boxes:
+        out.printf('struct __box_state *const __box_state[__BOX_COUNT+1] = {')
+        with out.indent():
+            out.printf('&__box_sys_state,')
+            for box in parent.boxes:
                 if box.runtime == self:
-                    out.printf('__box_%(box)s_jumptable,',
-                        box=box.name)
-        out.printf('};');
+                    out.printf('&__box_%(box)s_state,', box=box.name)
+        out.printf('};')
+
+        # abort hooks
+        out = output.decls.append()
+        out.printf('void (*const __box_aborts[])(int err) = {')
+        with out.indent():
+            out.printf('NULL,')
+            for box in parent.boxes:
+                if box.runtime == self:
+                    if box.runtime._abort_hook.link:
+                        out.printf(box.runtime._abort_hook.link.import_.alias)
+                    else:
+                        out.printf('NULL,')
+        out.printf('};')
 
         # mpu regions
         out = output.decls.append()
         out.printf('const struct __box_mpuregions __box_sys_mpuregions = {')
         with out.pushindent():
+            out.printf('.control = 0,')
             out.printf('.count = 0,')
-            out.printf('.regions = {},')
+            out.printf('.regions = {}')
         out.printf('};')
-
-        for box in sys.boxes:
-            if box.runtime == self:
-                self.build_mpu_regions(output, sys, box)
 
         out = output.decls.append()
         out.printf('const struct __box_mpuregions *const '
             '__box_mpuregions[__BOX_COUNT+1] = {')
         with out.pushindent():
             out.printf('&__box_sys_mpuregions,')
-            for box in sys.boxes:
+            for box in parent.boxes:
                 if box.runtime == self:
                     out.printf('&__box_%(box)s_mpuregions,', box=box.name)
         out.printf('};')
 
-        # fault handlers
-        for fault_hook, child in zip(self._fault_hooks, (
-                child for child in sys.boxes
-                if child.runtime == self)):
-            if not fault_hook.link:
-                out.printf('__attribute__((used))')
-                out.printf('void __box_%(box)s_fault(int err) {}',
-                    box=child.name)
-
+        # jumptables
         out = output.decls.append()
-        out.printf('void (*const __box_faults[__BOX_COUNT+1])(int err) = {')
-        with out.indent():
-            out.printf('&__box_abort,', box=box.name)
-            for fault_hook in self._fault_hooks:
-                out.printf('&%(fault_hook)s,',
-                    fault_hook=fault_hook.link.export.alias
-                        if fault_hook.link else
-                        fault_hook.name)
-        out.printf('};')
-
-        # state
-        output.decls.append(BOX_STRUCT_STATE, doc='Box state')
-        out = output.decls.append()
-        out.printf('struct __box_state __box_sys_state;')
-        for box in sys.boxes:
-            if box.runtime == self:
-                out.printf('struct __box_state __box_%(box)s_state;',
-                    box=box.name)
-
-        out = output.decls.append()
-        out.printf('struct __box_state *const __box_state[__BOX_COUNT+1] = {')
-        with out.indent():
-            out.printf('&__box_sys_state,', box=box.name)
-            for box in sys.boxes:
+        out.printf('const uint32_t *const '
+            '__box_jumptables[__BOX_COUNT] = {')
+        with out.pushindent():
+            for box in parent.boxes:
                 if box.runtime == self:
-                    out.printf('&__box_%(box)s_state,', box=box.name)
-        out.printf('};')
+                    out.printf('__box_%(box)s_jumptable,',
+                        box=box.name)
+        out.printf('};');
 
-        # the rest of the dispatch logic
-        output.includes.append('<assert.h>') # TODO need this?
-        output.decls.append(BOX_SYS_DISPATCH, doc='Dispach logic')
+        out = output.decls.append()
+        out.printf('const uint32_t *const '
+            '__box_sys_jumptables[__BOX_COUNT] = {')
+        with out.pushindent():
+            for box in parent.boxes:
+                if box.runtime == self:
+                    out.printf('__box_%(box)s_sys_jumptable,',
+                        box=box.name)
+        out.printf('};');
+        
+        # mpu handlers
+        output.decls.append(MPU_HANDLERS)
 
-    def build_parent_ld(self, output, sys, box):
-        super().build_parent_ld(output, sys, box)
+    def build_parent_ld(self, output, parent, box):
+        super().build_parent_ld(output, parent, box)
 
-        if output.emit_sections:
-            out = output.sections.append(
-                box_memory=self._jumptable.memory.name,
-                section='.box.%(box)s.%(box_memory)s',
-                memory='box_%(box)s_%(box_memory)s')
-            out.printf('__box_%(box)s_jumptable = __%(memory)s_start;')
+        output.decls.append('__box_%(box)s_jumptable = '
+            '__box_%(box)s_%(memory)s_start;',
+            memory=self._jumptable.memory.name,
+            doc='box %(box)s jumptable')
 
-    def build_parent_c(self, output, sys, box):
-        super().build_parent_c(output, sys, box)
+    def build_parent_ld_epilogue(self, output, parent):
+        super().build_parent_ld_prologue(output, parent)
 
-        output.decls.append('//// %(box)s init ////')
-        roommate_clobbers = OutputBlob(indent=4)
-        out = roommate_clobbers
-        if box.roommates:
-            out.printf()
-            out.printf('// bring down any overlapping boxes')
-        for i, roommate in enumerate(box.roommates):
-            with out.pushattrs(roommate=roommate.name):
-                out.printf('extern int __box_%(roommate)s_clobber(void);')
-                out.printf('err = __box_%(roommate)s_clobber();')
-                out.printf('if (err) {')
-                with out.indent():
-                    out.printf('return err;')
-                out.printf('}')
+        out = output.decls.append(doc='call region')
+        out.printf('__box_callregion = %(callregion)#0.8x;')
+        out.printf('__box_return = __box_callregion;')
 
-        zero = OutputBlob(indent=4, box=box.name)
-        out = zero
-        if self._zero:
-            out.printf('// zero')
-            for memory in box.memoryslices:
-                if 'w' in memory.mode:
-                    with out.pushattrs(memory=memory.name):
-                        out.printf('extern uint32_t '
-                            '__box_%(box)s_%(memory)s_start;')
-                        out.printf('extern uint32_t '
-                            '__box_%(box)s_%(memory)s_end;')
-                        out.printf('memset(&__box_%(box)s_%(memory)s_start,')
-                        out.printf('     0,')
-                        out.printf('     &__box_%(box)s_%(memory)s_end')
-                        out.printf('     - &__box_%(box)s_%(memory)s_start);')
-
-        output.decls.append(BOX_SYS_INIT,
-            roommate_clobbers=roommate_clobbers,
-            zero=zero)
-
-        # build wrappers if needed
-        for import_ in sys.imports:
-            if (import_.link and
-                    import_.link.export.box == box and
-                    self._needswrapper(import_)):
-                out = output.decls.append(
-                    import_=import_.name,
-                    repr=output.repr_fn(import_),
-                    rawimport='__box_%(box)s_raw_%(import_)s',
-                    rawrepr=output.repr_fn(import_, '%(rawimport)s'))
-                out.printf('%(repr)s {')
-                with out.indent():
-                    if box.init == 'lazy':
-                        out.printf('if (!__box_%(box)s_state.initialized) {')
-                        with out.indent():
-                            out.printf('int _err = __box_%(box)s_init();')
-                            out.printf('if (_err) {')
-                            with out.indent():
-                                if import_.isfalible():
-                                    out.printf('return _err;')
-                                else:
-                                    out.printf('__box_abort(_err);')
-                            out.printf('}')
-                        out.printf('}')
-                        out.printf()
-                    # call the raw function
-                    out.printf('extern %(rawrepr)s;')
-                    out.printf('return %(rawimport)s(%(args)s);',
-                        args=', '.join(import_.argnames()))
-                out.printf('}')
-
-    def build_ld(self, output, box):
         # create box calls for imports
+        boxcount = sum(1 for box in parent.boxes if box.runtime == self)
         out = output.decls.append(doc='box calls')
-        for import_ in box.imports:
-            if import_.link and import_.link.export.box != box:
-                out.printf(
-                    '%(import_)-16s = %(callprefix)#010x + '
-                        '%(id)d*4 + %(falible)d*2 + 1;',
-                    import_=import_.alias,
-                    id=import_.link.export.n()*(len(box.parent.boxes)+1),
-                    falible=import_.isfalible())
-
-        out = output.decls.append(doc='special box triggers')
-        out.printf('%(name)-16s = %(retprefix)#010x + 1;',
-            name='__box_ret')
-        if self._abort_plug.links:
-            out.printf('%(name)-16s = %(retprefix)#010x + %(id)d*4 + 1;',
-                name='__box_abort',
-                id=1)
-        if self._write_plug.links:
-            out.printf('%(name)-16s = __box_%(box)s_write;',
-                name='__box_write')
-
-        if output.emit_sections:
-            out = output.sections.append(
-                section='.jumptable',
-                memory=self._jumptable.memory.name)
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__jumptable_start = .;')
-            out.printf('%(section)s . : {')
-            with out.pushindent():
-                out.printf('__jumptable = .;')
-                out.printf('KEEP(*(.jumptable))')
-            out.printf('} > %(MEMORY)s')
-            out.printf('. = ALIGN(%(align)d);')
-            out.printf('__jumptable_end = .;')
-
-        super().build_ld(output, box)
+        for i, box in enumerate(box
+                for box in parent.boxes
+                if box.runtime == self):
+            for j, (import_, needswrapper, _) in enumerate(
+                    self._parentimports(parent, box)):
+                out.printf('%(import_)-24s = __box_callregion + '
+                    '4*(2 + %(boxcount)d*%(j)d + %(i)d) + 2*%(falible)d + 1;',
+                    import_='__box_import_'+import_.alias
+                        if needswrapper else
+                        import_.alias,
+                    falible=import_.isfalible(),
+                    i=i,
+                    j=j,
+                    boxcount=boxcount)
 
     def build_c(self, output, box):
         super().build_c(output, box)
 
-        output.decls.append('//// jumptable implementation ////')
         out = output.decls.append()
-        out.printf('int32_t __box_init(void) {')
+        out.printf('int __box_init(void) {')
         with out.indent():
             if self.data_init_hook.link:
                 out.printf('// data inited by %(hook)s',
@@ -880,16 +952,85 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('return 0;')
         out.printf('}')
 
-        output.decls.append('extern uint32_t __stack_end;')
+        output.decls.append('//// imports ////')
+        for import_ in (import_
+                for import_, needswrapper in self._imports(box)
+                if needswrapper):
+            out = output.decls.append(
+                fn=output.repr_fn(import_),
+                prebound=output.repr_fn(import_,
+                    name='__box_import_%(alias)s',
+                    attrs=['extern']),
+                alias=import_.alias)
+            out.printf('%(fn)s {')
+            with out.indent():
+                out.printf('%(prebound)s;')
+                out.printf('%(return_)s__box_export_%(alias)s(%(args)s);',
+                    return_='return ' if import_.rets else '',
+                    args=', '.join(map(str, import_.argnamesandbounds())))
+            out.printf('}')
+
+        output.decls.append('//// exports ////')
+        for export in (export
+                for export, needswrapper in self._exports(box)
+                if needswrapper):
+            out = output.decls.append(
+                fn=output.repr_fn(
+                    export.postbound(),
+                    name='__box_export_%(alias)s'),
+                alias=export.alias)
+            out.printf('%(fn)s {')
+            with out.indent():
+                out.printf('%(return_)s%(alias)s(%(args)s);',
+                    return_='return ' if import_.rets else '',
+                    args=', '.join(map(str, export.argnamesandbounds())))
+            out.printf('}')
+
         out = output.decls.append(doc='box-side jumptable')
-        out.printf('__attribute__((section(".jumptable")))')
-        out.printf('__attribute__((used))')
-        out.printf('const uint32_t __box_%(box)s_jumptable[] = {')
+        out.printf('extern uint8_t __stack_end;')
+        out.printf('__attribute__((used, section(".jumptable")))')
+        out.printf('const uint32_t __box_jumptable[] = {')
         with out.pushindent():
-            # special entries for the sp and __box_init
-            out.printf('(uint32_t)&__stack_end,')
-            for export in box.exports:
-                if export.scope != box:
-                    out.printf('(uint32_t)%(export)s,', export=export.alias)
+            if box.stack.size > 0:
+                out.printf('(uint32_t)&__stack_end,')
+            for export, needswrapper in self._exports(box):
+                out.printf('(uint32_t)%(prefix)s%(alias)s,',
+                    prefix='__box_export_' if needswrapper else '',
+                    alias=export.alias)
         out.printf('};')
+
+    def build_ld(self, output, box):
+        output.decls.append('__box_callregion = %(callregion)#0.8x;')
+
+        # create box calls for imports
+        out = output.decls.append(doc='box calls')
+        out.printf('%(import_)-24s = __box_callregion + '
+            '4*%(i)d + 2*%(falible)d + 1;',
+            import_='__box_abort',
+            falible=False,
+            i=1)
+        for i, (import_, needswrapper) in enumerate(self._imports(box)):
+            out.printf('%(import_)-24s = __box_callregion + '
+                '4*%(i)d + 2*%(falible)d + 1;',
+                import_='__box_import_' + import_.alias
+                    if needswrapper else
+                    import_.alias,
+                falible=import_.isfalible(),
+                i=2+i)
+
+        if not output.no_sections:
+            out = output.sections.append(
+                section='.jumptable',
+                memory=self._jumptable.memory.name)
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable_start = .;')
+            out.printf('%(section)s . : {')
+            with out.pushindent():
+                out.printf('__jumptable = .;')
+                out.printf('KEEP(*(.jumptable))')
+            out.printf('} > %(MEMORY)s')
+            out.printf('. = ALIGN(%(align)d);')
+            out.printf('__jumptable_end = .;')
+
+        super().build_ld(output, box)
 

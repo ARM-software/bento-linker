@@ -70,20 +70,26 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             scope=box.name, source=self.__argname__, weak=True)
 
     def _parentimports(self, parent, box):
-        """ Get imports that need linking. """
+        """
+        Get imports that need linking.
+        Yields import, needsinit.
+        """
         # implicit imports
         yield Import(
-            '__box_init', 'fn(const u32*) -> err32',
-            alias='__box_%s_postinit' % box.name,
-            source=self.__argname__)
+            '__box_%s_postinit' % box.name,
+           r'fn(const u32*) -> err32',
+            source=self.__argname__), False
 
         # imports that need linking
         for import_ in parent.imports:
             if import_.link and import_.link.export.box == box:
-                yield import_.postbound()
+                yield import_.postbound(), box.init == 'lazy'
 
     def _parentexports(self, parent, box):
-        """ Get exports that need linking. """
+        """
+        Get exports that need linking
+        Yields export, needswrapper.
+        """
         # implicit exports
         yield Export(
             '__box_%s_abort' % box.name,
@@ -104,22 +110,22 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 yield export.prebound(), len(export.boundargs) > 0
 
     def _imports(self, box):
-        """ Get imports that need linking. """
+        """
+        Get imports that need linking.
+        Yields import.
+        """
         # implicit imports
         yield Import(
-            '__box_%s_abort' % box.name,
+            '__box_abort',
             'fn(err) -> noreturn',
-            alias='__box_abort',
             source=self.__argname__)
         yield Import(
-            '__box_%s_write' % box.name,
+            '__box_write',
             'fn(i32, const u8[size], usize size) -> errsize',
-            alias='__box_write',
             source=self.__argname__)
         yield Export(
-            '__box_%s_flush' % box.name,
+            '__box_flush',
             'fn(i32) -> err',
-            alias='__box_flush',
             source=self.__argname__)
 
         # imports that need linking
@@ -128,7 +134,10 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 yield import_.postbound()
 
     def _exports(self, box):
-        """ Get exports that need linking. """
+        """
+        Get exports that need linking.
+        Yields export, needswrapper.
+        """
         # implicit exports
         yield Export(
             '__box_init', 'fn() -> err32',
@@ -155,7 +164,8 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
 
         output.decls.append('//// %(box)s exports ////')
 
-        for i, import_ in enumerate(self._parentimports(parent, box)):
+        for i, (import_, needsinit) in enumerate(
+                self._parentimports(parent, box)):
             out = output.decls.append(
                 fn=output.repr_fn(import_),
                 fnptr=output.repr_fnptr(import_.prebound(), ''),
@@ -163,7 +173,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
             out.printf('%(fn)s {')
             with out.indent():
                 # inject lazy-init?
-                if box.init == 'lazy' and import_.name != '__box_init':
+                if needsinit:
                     out.printf('if (!__box_%(box)s_initialized) {')
                     with out.indent():
                         out.printf('int err = __box_%(box)s_init();')
@@ -232,6 +242,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                         self._abort_hook.name))
                 out.printf('%(fn)s {')
                 with out.indent():
+                    out.printf('__box_%(box)s_initialized = false;')
                     out.printf('if (__box_%(box)s_jmpbuf) {')
                     with out.indent():
                         out.printf('longjmp(*__box_%(box)s_jmpbuf, err);')
@@ -340,8 +351,8 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         out.printf('void *__box_%(box)s_push(size_t size) {')
         with out.indent():
             if box.stack.size > 0:
+                out.printf('size = ((size+3)/4)*4;')
                 out.printf('extern uint8_t __box_%(box)s_%(memory)s_start;')
-                # TODO align?
                 out.printf('if (__box_%(box)s_datasp - size '
                         '< &__box_%(box)s_%(memory)s_start) {')
                 with out.indent():
@@ -359,6 +370,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         out.printf('void __box_%(box)s_pop(size_t size) {')
         with out.indent():
             if box.stack.size > 0:
+                out.printf('size = ((size+3)/4)*4;')
                 out.printf('__attribute__((unused))')
                 out.printf('extern uint8_t __box_%(box)s_%(memory)s_end;')
                 out.printf('assert(__box_%(box)s_datasp + size '
@@ -371,7 +383,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
     def build_parent_ld(self, output, parent, box):
         super().build_parent_ld(output, parent, box)
 
-        if output.emit_sections:
+        if not output.no_sections:
             out = output.sections.append(
                 box_memory=self._jumptable.memory.name,
                 section='.box.%(box)s.%(box_memory)s',
@@ -476,7 +488,7 @@ class JumptableRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         out.printf('};')
 
     def build_ld(self, output, box):
-        if output.emit_sections:
+        if not output.no_sections:
             out = output.sections.append(
                 section='.jumptable',
                 memory=self._jumptable.memory.name)

@@ -119,17 +119,17 @@ static int32_t sys_delkey(int32_t box, int32_t key) {
     return -EINVAL;
 }
 
-static int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent) {
+int32_t sys_rsa_genkey(int32_t box, size_t key_size, int32_t exponent) {
     return sys_setkey(box, tlsbox_rsa_genkey(key_size, exponent));
 }
 
-static int sys_rsa_freekey(int32_t box, int32_t key) {
+int sys_rsa_freekey(int32_t box, int32_t key) {
     return tlsbox_rsa_freekey(sys_delkey(box, key));
 }
 
-static int sys_rsa_getpubkey(int32_t box, int32_t key,
+int sys_rsa_getpubkey(int32_t box, int32_t key,
         char *buffer, size_t size) {
-    char *tlsbuffer = tlsbox_tempbuffer(size);
+    char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
@@ -137,16 +137,18 @@ static int sys_rsa_getpubkey(int32_t box, int32_t key,
     int err = tlsbox_rsa_getpubkey(
             sys_getkey(box, key), tlsbuffer, size);
     if (err) {
+        __box_tlsbox_pop(size);
         return err;
     }
 
     strcpy(buffer, tlsbuffer);
+    __box_tlsbox_pop(size);
     return 0;
 }
 
-static int sys_rsa_getprivkey(int32_t box, int32_t key,
+int sys_rsa_getprivkey(int32_t box, int32_t key,
         char *buffer, size_t size) {
-    char *tlsbuffer = tlsbox_tempbuffer(size);
+    char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
@@ -154,38 +156,44 @@ static int sys_rsa_getprivkey(int32_t box, int32_t key,
     int err = tlsbox_rsa_getprivkey(
             sys_getkey(box, key), tlsbuffer, size);
     if (err) {
+        __box_tlsbox_pop(size);
         return err;
     }
 
     strcpy(buffer, tlsbuffer);
+    __box_tlsbox_pop(size);
     return 0;
 }
 
-static int32_t sys_rsa_frompubkey(int32_t box,
+int32_t sys_rsa_frompubkey(int32_t box,
         const char *buffer, size_t size) {
-    char *tlsbuffer = tlsbox_tempbuffer(size);
+    char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
 
     memcpy(tlsbuffer, buffer, size);
-    return sys_setkey(box, tlsbox_rsa_frompubkey(tlsbuffer, size));
+    int32_t key = sys_setkey(box, tlsbox_rsa_frompubkey(tlsbuffer, size));
+    __box_tlsbox_pop(size);
+    return key;
 }
 
-static int32_t sys_rsa_fromprivkey(int32_t box,
+int32_t sys_rsa_fromprivkey(int32_t box,
         const char *buffer, size_t size) {
-    char *tlsbuffer = tlsbox_tempbuffer(size);
+    char *tlsbuffer = __box_tlsbox_push(size);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
 
     memcpy(tlsbuffer, buffer, size);
-    return sys_setkey(box, tlsbox_rsa_fromprivkey(tlsbuffer, size));
+    int32_t key = sys_setkey(box, tlsbox_rsa_fromprivkey(tlsbuffer, size));
+    __box_tlsbox_pop(size);
+    return key;
 }
 
-static int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
+int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
         const void *input, size_t input_size, void *output) {
-    char *tlsbuffer = tlsbox_tempbuffer(input_size + SYS_KEY_SIZE/8);
+    char *tlsbuffer = __box_tlsbox_push(input_size + SYS_KEY_SIZE/8);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
@@ -196,16 +204,18 @@ static int sys_rsa_pkcs1_encrypt(int32_t box, int32_t key,
             tlsbuffer, input_size,
             tlsbuffer+input_size);
     if (err) {
+        __box_tlsbox_pop(input_size + SYS_KEY_SIZE/8);
         return err;
     }
 
     memcpy(output, tlsbuffer+input_size, SYS_KEY_SIZE/8);
+    __box_tlsbox_pop(input_size + SYS_KEY_SIZE/8);
     return 0;
 }
 
-static ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
+ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
         const void *input, void *output, size_t output_size) {
-    char *tlsbuffer = tlsbox_tempbuffer(SYS_KEY_SIZE/8 + output_size);
+    char *tlsbuffer = __box_tlsbox_push(SYS_KEY_SIZE/8 + output_size);
     if (!tlsbuffer) {
         return -ENOMEM;
     }
@@ -216,130 +226,77 @@ static ssize_t sys_rsa_pkcs1_decrypt(int32_t box, int32_t key,
             tlsbuffer,
             tlsbuffer+SYS_KEY_SIZE/8, output_size);
     if (res < 0) {
+        __box_tlsbox_pop(SYS_KEY_SIZE/8 + output_size);
         return res;
     }
 
     memcpy(output, tlsbuffer+SYS_KEY_SIZE/8, res);
+    __box_tlsbox_pop(SYS_KEY_SIZE/8 + output_size);
     return res;
-}
-
-int32_t sys_bobbox_rsa_genkey(size_t key_size, int32_t exponent) {
-    return sys_rsa_genkey(0, key_size, exponent);
-}
-
-int sys_bobbox_rsa_freekey(int32_t key) {
-    return sys_rsa_freekey(0, key);
-}
-
-int sys_bobbox_rsa_getpubkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getpubkey(0, key, buffer, size);
-}
-
-int sys_bobbox_rsa_getprivkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getprivkey(0, key, buffer, size);
-}
-
-int32_t sys_bobbox_rsa_frompubkey(const char *buffer, size_t size) {
-    return sys_rsa_frompubkey(0, buffer, size);
-}
-
-int32_t sys_bobbox_rsa_fromprivkey(const char *buffer, size_t size) {
-    return sys_rsa_fromprivkey(0, buffer, size);
-}
-
-int sys_bobbox_rsa_pkcs1_encrypt(
-        int32_t key, const void *input, size_t input_size, void *output) {
-    return sys_rsa_pkcs1_encrypt(0, key, input, input_size, output);
-}
-
-ssize_t sys_bobbox_rsa_pkcs1_decrypt(
-        int32_t key, const void *input, void *output, size_t output_size) {
-    return sys_rsa_pkcs1_decrypt(0, key, input, output, output_size);
-}
-
-int32_t sys_alicebox_rsa_genkey(size_t key_size, int32_t exponent) {
-    return sys_rsa_genkey(1, key_size, exponent);
-}
-
-int sys_alicebox_rsa_freekey(int32_t key) {
-    return sys_rsa_freekey(1, key);
-}
-
-int sys_alicebox_rsa_getpubkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getpubkey(1, key, buffer, size);
-}
-
-int sys_alicebox_rsa_getprivkey(int32_t key, char *buffer, size_t size) {
-    return sys_rsa_getprivkey(1, key, buffer, size);
-}
-
-int32_t sys_alicebox_rsa_frompubkey(const char *buffer, size_t size) {
-    return sys_rsa_frompubkey(1, buffer, size);
-}
-
-int32_t sys_alicebox_rsa_fromprivkey(const char *buffer, size_t size) {
-    return sys_rsa_fromprivkey(1, buffer, size);
-}
-
-int sys_alicebox_rsa_pkcs1_encrypt(
-        int32_t key, const void *input, size_t input_size, void *output) {
-    return sys_rsa_pkcs1_encrypt(1, key, input, input_size, output);
-}
-
-ssize_t sys_alicebox_rsa_pkcs1_decrypt(
-        int32_t key, const void *input, void *output, size_t output_size) {
-    return sys_rsa_pkcs1_decrypt(1, key, input, output, output_size);
 }
 
 // alice/bob bindings
 int bobbox_alicebox_getpubkey(char *buffer, size_t size) {
-    char *alicebuffer = alicebox_tempbuffer(size);
+    char *alicebuffer = __box_alicebox_push(size);
     if (!alicebuffer) {
         return -ENOMEM;
     }
 
     int err = alicebox_getpubkey(alicebuffer, size);
     if (err) {
+        __box_alicebox_pop(size);
         return err;
     }
 
     memcpy(buffer, alicebuffer, size);
+    __box_alicebox_pop(size);
     return 0;
 }
 
 int alicebox_bobbox_getpubkey(char *buffer, size_t size) {
-    char *bobbuffer = bobbox_tempbuffer(size);
+    char *bobbuffer = __box_bobbox_push(size);
     if (!bobbuffer) {
         return -ENOMEM;
     }
 
     int err = bobbox_getpubkey(bobbuffer, size);
     if (err) {
+        __box_bobbox_pop(size);
         return err;
     }
 
     memcpy(buffer, bobbuffer, size);
+    __box_bobbox_pop(size);
     return 0;
 }
 
 int sys_send_to_alice(const void *buffer, size_t size) {
-    char *alicebuffer = alicebox_tempbuffer(size);
+    char *alicebuffer = __box_alicebox_push(size);
     if (!alicebuffer) {
         return -ENOMEM;
     }
 
     memcpy(alicebuffer, buffer, size);
-    return alicebox_recv(alicebuffer, size);
+    int err = alicebox_recv(alicebuffer, size);
+    __box_alicebox_pop(size);
+    return err;
 }
 
 int sys_send_to_bob(const void *buffer, size_t size) {
-    char *bobbuffer = bobbox_tempbuffer(size);
+    char *bobbuffer = __box_bobbox_push(size);
     if (!bobbuffer) {
         return -ENOMEM;
     }
 
     memcpy(bobbuffer, buffer, size);
-    return bobbox_recv(bobbuffer, size);
+    int err = bobbox_recv(bobbuffer, size);
+    if (err) {
+        __box_bobbox_pop(size);
+        return err;
+    }
+
+    __box_bobbox_pop(size);
+    return 0;
 }
 
 

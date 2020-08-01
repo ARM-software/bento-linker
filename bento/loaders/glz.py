@@ -99,16 +99,16 @@ BOX_DECODE = """
 int __box_%(box)s_load(void) {
     extern const uint32_t __box_%(box)s_blob_start[];
     extern const uint8_t __box_%(box)s_blob_end;
-    extern uint32_t __box_%(box)s_%(memory)s_start;
-    extern uint32_t __box_%(box)s_%(memory)s_end;
+    extern uint8_t __box_%(box)s_%(memory)s_start;
+    extern uint8_t __box_%(box)s_%(memory)s_end;
 
     // load metadata
     uint32_t x = __box_%(box)s_blob_start[0];
     uint8_t k = 0xf & (x >> 24);
     uint32_t off = 0x00ffffff & x;
     uint32_t size = __box_%(box)s_blob_start[1];
-    if (size > (uint8_t*)&__box_%(box)s_%(memory)s_end
-            - (uint8_t*)&__box_%(box)s_%(memory)s_start) {
+    if (size > &__box_%(box)s_%(memory)s_end
+            - &__box_%(box)s_%(memory)s_start) {
         // can't allow overwrites now can we
         return -ENOEXEC;
     }
@@ -119,7 +119,7 @@ int __box_%(box)s_load(void) {
             &__box_%(box)s_blob_end
                 - (const uint8_t*)&__box_%(box)s_blob_start[2],
             off,
-            (uint8_t*)&__box_%(box)s_%(memory)s_start, 
+            &__box_%(box)s_%(memory)s_start, 
             size);
 }
 """
@@ -204,7 +204,7 @@ class GLZLoader(loaders.Loader):
             scope=box.name, source=self.__argname__, weak=True)
 
     def build_ld(self, output, box):
-        if output.emit_sections:
+        if not output.no_sections:
             out = output.sections.append(
                 section='.blob',
                 memory=self._blob.memory.name)
@@ -222,7 +222,7 @@ class GLZLoader(loaders.Loader):
     def build_parent_ld(self, output, sys, box):
         super().build_parent_ld(output, sys, box)
 
-        if output.emit_sections:
+        if not output.no_sections:
             out = output.sections.append(
             box_memory=self._blob.memory.name,
                 section='.box.%(box)s.%(box_memory)s',
@@ -355,17 +355,17 @@ class GLZLoader(loaders.Loader):
             out = output.decls.append()
             for memory, _, _ in loadmemories:
                 with out.pushattrs(memory=memory):
-                    out.printf('extern uint32_t '
+                    out.printf('extern uint8_t '
                         '__box_%(box)s_%(memory)s_start;')
-                    out.printf('extern uint32_t '
+                    out.printf('extern uint8_t '
                         '__box_%(box)s_%(memory)s_end;')
             out.printf('uint8_t *const __box_%(box)s_loadregions[][2] = {')
             with out.indent():
                 for memory, _, _ in loadmemories:
                     with out.pushattrs(memory=memory):
                         out.printf('{'
-                            '(uint32_t*)&__box_%(box)s_%(memory)s_start, '
-                            '(uint32_t*)&__box_%(box)s_%(memory)s_end}')
+                            '&__box_%(box)s_%(memory)s_start, '
+                            '&__box_%(box)s_%(memory)s_end}')
             out.printf('};')
 
             out = output.decls.append(BOX_DECODE_MULTI, n=len(loadmemories))

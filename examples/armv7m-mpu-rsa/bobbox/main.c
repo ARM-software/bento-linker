@@ -18,14 +18,6 @@
 #define BOBBOX_SECRET_MESSAGE "secret message from bob! >:D"
 #endif
 
-void *bobbox_tempbuffer(size_t size) {
-    static uint8_t buffer[BOBBOX_TEMPBUFFER_SIZE];
-    if (size > BOBBOX_TEMPBUFFER_SIZE) {
-        return NULL;
-    }
-
-    return buffer;
-}
 
 // private RSA key
 static int32_t key;
@@ -87,7 +79,7 @@ int bobbox_init(void) {
     return 0;
 }
 
-int bobbox_main(void) {
+int bobbox_main() {
     // lets send alice a secret message!
     // first we need to get alice's public key
     printf("bobbox: getting alice's public key...\n");
@@ -97,7 +89,7 @@ int bobbox_main(void) {
         return err;
     }
 
-    int32_t alicekey = sys_rsa_frompubkey(alicepubkey, strlen(alicepubkey));
+    int32_t alicekey = sys_rsa_frompubkey(alicepubkey, strlen(alicepubkey)+1);
     if (alicekey < 0) {
         return alicekey;
     }
@@ -106,7 +98,7 @@ int bobbox_main(void) {
     uint8_t buffer[BOBBOX_KEY_SIZE/8];
     err = sys_rsa_pkcs1_encrypt(alicekey,
             BOBBOX_SECRET_MESSAGE,
-            strlen(BOBBOX_SECRET_MESSAGE),
+            strlen(BOBBOX_SECRET_MESSAGE)+1,
             buffer);
     if (err) {
         return err;

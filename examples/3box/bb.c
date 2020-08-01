@@ -170,12 +170,15 @@ enum box_errors {
     ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
-//// jumptable implementation ////
-
 struct __box_mpuregions {
+    uint32_t control;
     uint32_t count;
     uint32_t regions[][2];
 };
+
+uint32_t __box_active = 0;
+extern uint32_t __box_callregion;
+extern void __box_return(void);
 
 #define SHCSR    ((volatile uint32_t*)0xe000ed24)
 #define MPU_TYPE ((volatile uint32_t*)0xe000ed90)
@@ -191,14 +194,11 @@ static int32_t __box_mpu_init(void) {
         assert(*MPU_TYPE >= 4);
         // enable MemManage exceptions
         *SHCSR = *SHCSR | 0x00070000;
-        // disable stack align during exceptions
-        // TODO we should handle this properly
-        *CCR &= ~0x00000200;
         // setup call region
-        *MPU_RBAR = 0x1e000000 | 0x10;
+        *MPU_RBAR = (uint32_t)&__box_callregion | 0x10;
         // disallow execution
         //*MPU_RASR = 0x10230021;
-        *MPU_RASR = 0x10000001 | ((25-1) << 1);
+        *MPU_RASR = 0x10000001 | ((6-1) << 1);
         // enable the MPU
         *MPU_CTRL = 5;
     }
@@ -206,11 +206,12 @@ static int32_t __box_mpu_init(void) {
 }
 
 static void __box_mpu_switch(const struct __box_mpuregions *regions) {
+    // update MPU regions
     *MPU_CTRL = 0;
     uint32_t count = regions->count;
     for (int i = 0; i < 4; i++) {
         if (i < count) {
-            *MPU_RBAR = (~0x1f & regions->regions[i][0]) | 0x10 | (i+1);
+            *MPU_RBAR = regions->regions[i][0] | 0x10 | (i+1);
             *MPU_RASR = regions->regions[i][1];
         } else {
             *MPU_RBAR = 0x10 | (i+1);
@@ -218,390 +219,23 @@ static void __box_mpu_switch(const struct __box_mpuregions *regions) {
         }
     }
     *MPU_CTRL = 5;
+
+    // update CONTROL state, note that return-from-exception acts
+    // as an instruction barrier
+    uint32_t control;
+    __asm__ volatile ("mrs %0, control" : "=r"(control));
+    control = (~1 & control) | (regions->control);
+    __asm__ volatile ("msr control, %0" :: "r"(control));
 }
 
-// System state
-uint32_t __box_active = 0;
-
-// Redirected __box_writes
-#define __box_box1_write __box_write
-#define __box_box2_write __box_write
-#define __box_box3_write __box_write
-
-// Jumptables
-const uint32_t __box_sys_jumptable[] = {
-    (uint32_t)NULL, // no stack for sys
-    (uint32_t)__box_box1_write,
-    (uint32_t)__box_box2_write,
-    (uint32_t)__box_box3_write,
-    (uint32_t)__box_write,
-};
-
-extern const uint32_t __box_box1_jumptable[];
-extern const uint32_t __box_box2_jumptable[];
-extern const uint32_t __box_box3_jumptable[];
-
 #define __BOX_COUNT 3
-const uint32_t *const __box_jumptables[__BOX_COUNT+1] = {
-    __box_sys_jumptable,
-    __box_box1_jumptable,
-    __box_box2_jumptable,
-    __box_box3_jumptable,
-};
 
-const struct __box_mpuregions __box_sys_mpuregions = {
-    .count = 0,
-    .regions = {},
-};
-
-const struct __box_mpuregions __box_box1_mpuregions = {
-    .count = 2,
-    .regions = {
-        {0x000fe000, 0x02000019},
-        {0x2003e000, 0x13000019},
-    },
-};
-
-const struct __box_mpuregions __box_box2_mpuregions = {
-    .count = 2,
-    .regions = {
-        {0x000fc000, 0x02000019},
-        {0x2003c000, 0x13000019},
-    },
-};
-
-const struct __box_mpuregions __box_box3_mpuregions = {
-    .count = 2,
-    .regions = {
-        {0x000fa000, 0x02000019},
-        {0x2003a000, 0x13000019},
-    },
-};
-
-const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
-    &__box_sys_mpuregions,
-    &__box_box1_mpuregions,
-    &__box_box2_mpuregions,
-    &__box_box3_mpuregions,
-};
-__attribute__((used))
-void __box_box1_fault(int err) {}
-__attribute__((used))
-void __box_box2_fault(int err) {}
-__attribute__((used))
-void __box_box3_fault(int err) {}
-
-void (*const __box_faults[__BOX_COUNT+1])(int err) = {
-    &__box_abort,
-    &__box_box1_fault,
-    &__box_box2_fault,
-    &__box_box3_fault,
-};
-
-// Box state
 struct __box_state {
     bool initialized;
     uint32_t caller;
     uint32_t lr;
     uint32_t *sp;
 };
-
-struct __box_state __box_sys_state;
-struct __box_state __box_box1_state;
-struct __box_state __box_box2_state;
-struct __box_state __box_box3_state;
-
-struct __box_state *const __box_state[__BOX_COUNT+1] = {
-    &__box_sys_state,
-    &__box_box1_state,
-    &__box_box2_state,
-    &__box_box3_state,
-};
-
-// Dispach logic
-struct __box_frame {
-    uint32_t *fp;
-    uint32_t lr;
-    uint32_t *sp;
-    uint32_t caller;
-};
-
-// foward declaration of fault wrapper, may be called directly
-// in other handlers, but only in other handlers! (needs isr context)
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err);
-
-#define __BOX_ASSERT(test, code) do {   \
-        if (!(test)) {                  \
-            __box_faulthandler(code);   \
-        }                               \
-    } while (0)
-
-__attribute__((used))
-uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
-        uint32_t op, uint32_t *fp) {
-    // save lr + sp
-    struct __box_state *state = __box_state[__box_active];
-    struct __box_frame *frame = (struct __box_frame*)sp;
-    frame->fp = fp;
-    frame->lr = state->lr;
-    frame->sp = state->sp;
-    frame->caller = state->caller;
-    state->lr = lr;
-    state->sp = sp;
-
-    uint32_t path = (op & 0xffffff)/4;
-    uint32_t caller = __box_active;
-    __box_active = path % (__BOX_COUNT+1);
-    const uint32_t *targetjumptable = __box_jumptables[__box_active];
-    struct __box_state *targetstate = __box_state[__box_active];
-    uint32_t targetlr = targetstate->lr;
-    uint32_t *targetsp = targetstate->sp;
-    // keep track of caller
-    targetstate->caller = caller;
-    // don't allow returns while executing
-    targetstate->lr = 0;
-    // need sp to fixup instruction aborts
-    targetstate->sp = targetsp;
-    uint32_t targetpc = targetjumptable[path / (__BOX_COUNT+1) + 1];
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // setup new call frame
-    targetsp -= 8;
-    targetsp[0] = fp[0];        // r0 = arg0
-    targetsp[1] = fp[1];        // r1 = arg1
-    targetsp[2] = fp[2];        // r2 = arg2
-    targetsp[3] = fp[3];        // r3 = arg3
-    targetsp[4] = fp[4];        // r12 = r12
-    targetsp[5] = 0x1f000000 + 1; // lr = __box_ret
-    targetsp[6] = targetpc;     // pc = targetpc
-    targetsp[7] = fp[7];        // psr = psr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
-    __asm__ volatile (
-        // keep track of args
-        "mov r3, r1 \n\t"
-        // save core registers
-        "stmdb r1!, {r4-r11} \n\t"
-        // save fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vstmdbeq r1!, {s16-s31} \n\t"
-        // make space to save state
-        "sub r1, r1, #4*4 \n\t"
-        // sp == msp?
-        "tst r0, #0x4 \n\t"
-        "it eq \n\t"
-        "moveq sp, r1 \n\t"
-        // ah! reserve a frame in case we're calling this
-        // interrupts stack from another stack
-        "sub sp, sp, #8*4 \n\t"
-        // call into c now that we have stack control
-        "bl __box_callsetup \n\t"
-        // update new sp
-        "tst r0, #0x4 \n\t"
-        "itee eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // drop reserved frame?
-        "addne sp, sp, #8*4 \n\t"
-        // return to call
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((used))
-uint64_t __box_retsetup(uint32_t lr, uint32_t *sp,
-        uint32_t op, uint32_t *fp) {
-    // save lr + sp
-    struct __box_state *state = __box_state[__box_active];
-    // drop exception frame and fixup instruction aborts
-    sp = state->sp;
-    state->lr = lr;
-    state->sp = sp;
-
-    __box_active = state->caller;
-    struct __box_state *targetstate = __box_state[__box_active];
-    uint32_t targetlr = targetstate->lr;
-    __BOX_ASSERT(targetlr, -EFAULT); // in call?
-    uint32_t *targetsp = targetstate->sp;
-    struct __box_frame *targetframe = (struct __box_frame*)targetsp;
-    uint32_t *targetfp = targetframe->fp;
-    targetstate->lr = targetframe->lr;
-    targetstate->sp = targetframe->sp;
-    targetstate->caller = targetframe->caller;
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // copy return frame
-    targetfp[0] = fp[0];       // r0 = arg0
-    targetfp[1] = fp[1];       // r1 = arg1
-    targetfp[2] = fp[2];       // r2 = arg2
-    targetfp[3] = fp[3];       // r3 = arg3
-    targetfp[6] = targetfp[5]; // pc = lr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_rethandler(uint32_t lr, uint32_t *sp, uint32_t op) {
-    __asm__ volatile (
-        // keep track of rets
-        "mov r3, r1 \n\t"
-        // call into c new that we have stack control
-        "bl __box_retsetup \n\t"
-        // drop saved state
-        "add r1, r1, #4*4 \n\t"
-        // restore fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vldmiaeq r1!, {s16-s31} \n\t"
-        // restore core registers
-        "ldmia r1!, {r4-r11} \n\t"
-        // update sp
-        "tst r0, #0x4 \n\t"
-        "ite eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // return
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((used))
-uint64_t __box_faultsetup(int32_t err) {
-    // mark box as uninitialized
-    __box_state[__box_active]->initialized = false;
-
-    // invoke user handler, may not return
-    // TODO should we set this up to be called in non-isr context?
-    __box_faults[__box_active](err);
-
-    struct __box_state *state = __box_state[__box_active];
-    struct __box_state *targetstate = __box_state[state->caller];
-    uint32_t targetlr = targetstate->lr;
-    uint32_t *targetsp = targetstate->sp;
-    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
-    uint32_t *targetfp = targetbf->fp;
-    // in call?
-    if (!targetlr) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // check if our return target supports erroring
-    uint32_t op = targetfp[6];
-    if (!(op & 2)) {
-        // halt if not handled
-        while (1) {}
-    }
-
-    // we can return an error
-    __box_active = state->caller;
-    targetstate->lr = targetbf->lr;
-    targetstate->sp = targetbf->sp;
-    targetstate->caller = targetbf->caller;
-
-    // select MPU regions
-    __box_mpu_switch(__box_mpuregions[__box_active]);
-
-    // enable control?
-    uint32_t control;
-    __asm__ volatile ("mrs %0, control" : "=r"(control));
-    control = (~1 & control) | (__box_active != 0 ? 1 : 0);
-    __asm__ volatile ("msr control, %0" :: "r"(control));
-
-    // copy return frame
-    targetfp[0] = err;         // r0 = arg0
-    targetfp[1] = 0;           // r1 = arg1
-    targetfp[2] = 0;           // r2 = arg2
-    targetfp[3] = 0;           // r3 = arg3
-    targetfp[6] = targetfp[5]; // pc = lr
-
-    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
-}
-
-__attribute__((used, naked, noreturn))
-void __box_faulthandler(int32_t err) {
-    __asm__ volatile (
-        // call into c with stack control
-        "bl __box_faultsetup \n\t"
-        // drop saved state
-        "add r1, r1, #4*4 \n\t"
-        // restore fp registers?
-        "tst r0, #0x10 \n\t"
-        "it eq \n\t"
-        "vldmiaeq r1!, {s16-s31} \n\t"
-        // restore core registers
-        "ldmia r1!, {r4-r11} \n\t"
-        // update sp
-        "tst r0, #0x4 \n\t"
-        "ite eq \n\t"
-        "msreq msp, r1 \n\t"
-        "msrne psp, r1 \n\t"
-        // return
-        "bx r0 \n\t"
-    );
-}
-
-__attribute__((alias("__box_mpu_handler")))
-void __box_usagefault_handler(void);
-__attribute__((alias("__box_mpu_handler")))
-void __box_busfault_handler(void);
-__attribute__((alias("__box_mpu_handler")))
-void __box_memmanage_handler(void);
-__attribute__((naked))
-void __box_mpu_handler(void) {
-    __asm__ volatile (
-        // get lr
-        "mov r0, lr \n\t"
-        "tst r0, #0x4 \n\t"
-        // get sp
-        "ite eq \n\t"
-        "mrseq r1, msp \n\t"
-        "mrsne r1, psp \n\t"
-        // get pc
-        "ldr r2, [r1, #6*4] \n\t"
-        // call?
-        "ldr r3, =#0x1e000000 \n\t"
-        "sub r3, r2, r3 \n\t"
-        "lsrs r3, r3, #25-1 \n\t"
-        "beq __box_callhandler \n\t"
-        // ret?
-        "ldr r3, =#0x1f000000 \n\t"
-        "subs r3, r2, r3 \n\t"
-        "beq __box_rethandler \n\t"
-        // fallback to fault handler
-        // explicit fault?
-        "ldr r3, =#0x1f000000 + 1*4 \n\t"
-        "subs r3, r2, r3 \n\t"
-        "ite eq \n\t"
-        "ldreq r0, [r1, #0] \n\t"
-        "ldrne r0, =%0 \n\t"
-        "b __box_faulthandler \n\t"
-        :
-        : "i"(-EFAULT)
-    );
-}
 
 //// __box_abort glue ////
 
@@ -1260,27 +894,72 @@ static int __box_box1_load(void) {
     return 0;
 }
 
-//// box1 init ////
+//// box1 state ////
+struct __box_state __box_box1_state;
+extern uint32_t __box_box1_jumptable[];
 
-int __box_box1_clobber(void) {
-    __box_box1_state.initialized = false;
-    return 0;
-}
+const struct __box_mpuregions __box_box1_mpuregions = {
+    .control = 1,
+    .count = 2,
+    .regions = {
+        {0x000fe000, 0x02000019},
+        {0x2003e000, 0x13000019},
+    },
+};
 
-int __box_box1_init(void) {
-    // do nothing if already initialized
-    if (__box_box1_state.initialized) {
-        return 0;
+//// box1 exports ////
+
+int32_t box1_add2(int32_t a0, int32_t a1) {
+    if (!__box_box1_state.initialized) {
+        int err = __box_box1_init();
+        if (err) {
+            return err;
+        }
     }
 
-    int err;
+    extern int32_t __box_import_box1_add2(int32_t a0, int32_t a1);
+    return __box_import_box1_add2(a0, a1);
+}
 
-    // check that MPU is initialized
+int box1_hello(void) {
+    if (!__box_box1_state.initialized) {
+        int err = __box_box1_init();
+        if (err) {
+            return err;
+        }
+    }
+
+    extern int __box_import_box1_hello(void);
+    return __box_import_box1_hello();
+}
+
+//// box1 imports ////
+
+// redirect __box_box1_write -> __box_write
+#define __box_box1_write __box_write
+
+// redirect __box_box1_flush -> __box_flush
+#define __box_box1_flush __box_flush
+
+const uint32_t __box_box1_sys_jumptable[] = {
+    (uint32_t)__box_box1_write,
+    (uint32_t)__box_box1_flush,
+};
+
+//// box1 init ////
+
+int __box_box1_init(void) {
+    int err;
+    // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
         return err;
     }
 
+    // prepare the box's stack
+    // must use PSP, otherwise boxes could overflow the ISR stack
+    __box_box1_state.lr = 0xfffffffd; // TODO determine fp?
+    __box_box1_state.sp = (void*)__box_box1_jumptable[0];
 
     // load the box if unloaded
     err = __box_box1_load();
@@ -1288,14 +967,9 @@ int __box_box1_init(void) {
         return err;
     }
 
-    // prepare box's stack
-    // must use PSP, otherwise boxes could overflow ISR stack
-    __box_box1_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_box1_state.sp = (uint32_t*)__box_box1_jumptable[0];
-
     // call box's init
-    extern int __box_box1_rawinit(void);
-    err = __box_box1_rawinit();
+    extern int __box_box1_postinit(void);
+    err = __box_box1_postinit();
     if (err) {
         return err;
     }
@@ -1304,28 +978,28 @@ int __box_box1_init(void) {
     return 0;
 }
 
-int32_t box1_add2(int32_t a0, int32_t a1) {
-    if (!__box_box1_state.initialized) {
-        int _err = __box_box1_init();
-        if (_err) {
-            return _err;
-        }
-    }
-
-    extern int32_t __box_box1_raw_box1_add2(int32_t a0, int32_t a1);
-    return __box_box1_raw_box1_add2(a0, a1);
+int __box_box1_clobber(void) {
+    __box_box1_state.initialized = false;
+    return 0;
 }
 
-int box1_hello(void) {
-    if (!__box_box1_state.initialized) {
-        int _err = __box_box1_init();
-        if (_err) {
-            return _err;
-        }
+void *__box_box1_push(size_t size) {
+    size = (size+3)/4;
+    extern uint8_t __box_box1_ram_start;
+    if (__box_box1_state.sp - size < (uint32_t*)&__box_box1_ram_start) {
+        return NULL;
     }
 
-    extern int __box_box1_raw_box1_hello(void);
-    return __box_box1_raw_box1_hello();
+    __box_box1_state.sp -= size;
+    return __box_box1_state.sp;
+}
+
+void __box_box1_pop(size_t size) {
+    size = (size+3)/4;
+    __attribute__((unused))
+    extern uint8_t __box_box1_ram_end;
+    assert(__box_box1_state.sp + size <= (uint32_t*)&__box_box1_ram_end);
+    __box_box1_state.sp += size;
 }
 
 //// box2 loading ////
@@ -1335,27 +1009,72 @@ static int __box_box2_load(void) {
     return 0;
 }
 
-//// box2 init ////
+//// box2 state ////
+struct __box_state __box_box2_state;
+extern uint32_t __box_box2_jumptable[];
 
-int __box_box2_clobber(void) {
-    __box_box2_state.initialized = false;
-    return 0;
-}
+const struct __box_mpuregions __box_box2_mpuregions = {
+    .control = 1,
+    .count = 2,
+    .regions = {
+        {0x000fc000, 0x02000019},
+        {0x2003c000, 0x13000019},
+    },
+};
 
-int __box_box2_init(void) {
-    // do nothing if already initialized
-    if (__box_box2_state.initialized) {
-        return 0;
+//// box2 exports ////
+
+int32_t box2_add2(int32_t a0, int32_t a1) {
+    if (!__box_box2_state.initialized) {
+        int err = __box_box2_init();
+        if (err) {
+            return err;
+        }
     }
 
-    int err;
+    extern int32_t __box_import_box2_add2(int32_t a0, int32_t a1);
+    return __box_import_box2_add2(a0, a1);
+}
 
-    // check that MPU is initialized
+int box2_hello(void) {
+    if (!__box_box2_state.initialized) {
+        int err = __box_box2_init();
+        if (err) {
+            return err;
+        }
+    }
+
+    extern int __box_import_box2_hello(void);
+    return __box_import_box2_hello();
+}
+
+//// box2 imports ////
+
+// redirect __box_box2_write -> __box_write
+#define __box_box2_write __box_write
+
+// redirect __box_box2_flush -> __box_flush
+#define __box_box2_flush __box_flush
+
+const uint32_t __box_box2_sys_jumptable[] = {
+    (uint32_t)__box_box2_write,
+    (uint32_t)__box_box2_flush,
+};
+
+//// box2 init ////
+
+int __box_box2_init(void) {
+    int err;
+    // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
         return err;
     }
 
+    // prepare the box's stack
+    // must use PSP, otherwise boxes could overflow the ISR stack
+    __box_box2_state.lr = 0xfffffffd; // TODO determine fp?
+    __box_box2_state.sp = (void*)__box_box2_jumptable[0];
 
     // load the box if unloaded
     err = __box_box2_load();
@@ -1363,14 +1082,9 @@ int __box_box2_init(void) {
         return err;
     }
 
-    // prepare box's stack
-    // must use PSP, otherwise boxes could overflow ISR stack
-    __box_box2_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_box2_state.sp = (uint32_t*)__box_box2_jumptable[0];
-
     // call box's init
-    extern int __box_box2_rawinit(void);
-    err = __box_box2_rawinit();
+    extern int __box_box2_postinit(void);
+    err = __box_box2_postinit();
     if (err) {
         return err;
     }
@@ -1379,28 +1093,28 @@ int __box_box2_init(void) {
     return 0;
 }
 
-int32_t box2_add2(int32_t a0, int32_t a1) {
-    if (!__box_box2_state.initialized) {
-        int _err = __box_box2_init();
-        if (_err) {
-            return _err;
-        }
-    }
-
-    extern int32_t __box_box2_raw_box2_add2(int32_t a0, int32_t a1);
-    return __box_box2_raw_box2_add2(a0, a1);
+int __box_box2_clobber(void) {
+    __box_box2_state.initialized = false;
+    return 0;
 }
 
-int box2_hello(void) {
-    if (!__box_box2_state.initialized) {
-        int _err = __box_box2_init();
-        if (_err) {
-            return _err;
-        }
+void *__box_box2_push(size_t size) {
+    size = (size+3)/4;
+    extern uint8_t __box_box2_ram_start;
+    if (__box_box2_state.sp - size < (uint32_t*)&__box_box2_ram_start) {
+        return NULL;
     }
 
-    extern int __box_box2_raw_box2_hello(void);
-    return __box_box2_raw_box2_hello();
+    __box_box2_state.sp -= size;
+    return __box_box2_state.sp;
+}
+
+void __box_box2_pop(size_t size) {
+    size = (size+3)/4;
+    __attribute__((unused))
+    extern uint8_t __box_box2_ram_end;
+    assert(__box_box2_state.sp + size <= (uint32_t*)&__box_box2_ram_end);
+    __box_box2_state.sp += size;
 }
 
 //// box3 loading ////
@@ -1410,27 +1124,72 @@ static int __box_box3_load(void) {
     return 0;
 }
 
-//// box3 init ////
+//// box3 state ////
+struct __box_state __box_box3_state;
+extern uint32_t __box_box3_jumptable[];
 
-int __box_box3_clobber(void) {
-    __box_box3_state.initialized = false;
-    return 0;
-}
+const struct __box_mpuregions __box_box3_mpuregions = {
+    .control = 1,
+    .count = 2,
+    .regions = {
+        {0x000fa000, 0x02000019},
+        {0x2003a000, 0x13000019},
+    },
+};
 
-int __box_box3_init(void) {
-    // do nothing if already initialized
-    if (__box_box3_state.initialized) {
-        return 0;
+//// box3 exports ////
+
+int32_t box3_add2(int32_t a0, int32_t a1) {
+    if (!__box_box3_state.initialized) {
+        int err = __box_box3_init();
+        if (err) {
+            return err;
+        }
     }
 
-    int err;
+    extern int32_t __box_import_box3_add2(int32_t a0, int32_t a1);
+    return __box_import_box3_add2(a0, a1);
+}
 
-    // check that MPU is initialized
+int box3_hello(void) {
+    if (!__box_box3_state.initialized) {
+        int err = __box_box3_init();
+        if (err) {
+            return err;
+        }
+    }
+
+    extern int __box_import_box3_hello(void);
+    return __box_import_box3_hello();
+}
+
+//// box3 imports ////
+
+// redirect __box_box3_write -> __box_write
+#define __box_box3_write __box_write
+
+// redirect __box_box3_flush -> __box_flush
+#define __box_box3_flush __box_flush
+
+const uint32_t __box_box3_sys_jumptable[] = {
+    (uint32_t)__box_box3_write,
+    (uint32_t)__box_box3_flush,
+};
+
+//// box3 init ////
+
+int __box_box3_init(void) {
+    int err;
+    // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
         return err;
     }
 
+    // prepare the box's stack
+    // must use PSP, otherwise boxes could overflow the ISR stack
+    __box_box3_state.lr = 0xfffffffd; // TODO determine fp?
+    __box_box3_state.sp = (void*)__box_box3_jumptable[0];
 
     // load the box if unloaded
     err = __box_box3_load();
@@ -1438,14 +1197,9 @@ int __box_box3_init(void) {
         return err;
     }
 
-    // prepare box's stack
-    // must use PSP, otherwise boxes could overflow ISR stack
-    __box_box3_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_box3_state.sp = (uint32_t*)__box_box3_jumptable[0];
-
     // call box's init
-    extern int __box_box3_rawinit(void);
-    err = __box_box3_rawinit();
+    extern int __box_box3_postinit(void);
+    err = __box_box3_postinit();
     if (err) {
         return err;
     }
@@ -1454,27 +1208,347 @@ int __box_box3_init(void) {
     return 0;
 }
 
-int32_t box3_add2(int32_t a0, int32_t a1) {
-    if (!__box_box3_state.initialized) {
-        int _err = __box_box3_init();
-        if (_err) {
-            return _err;
-        }
-    }
-
-    extern int32_t __box_box3_raw_box3_add2(int32_t a0, int32_t a1);
-    return __box_box3_raw_box3_add2(a0, a1);
+int __box_box3_clobber(void) {
+    __box_box3_state.initialized = false;
+    return 0;
 }
 
-int box3_hello(void) {
-    if (!__box_box3_state.initialized) {
-        int _err = __box_box3_init();
-        if (_err) {
-            return _err;
-        }
+void *__box_box3_push(size_t size) {
+    size = (size+3)/4;
+    extern uint8_t __box_box3_ram_start;
+    if (__box_box3_state.sp - size < (uint32_t*)&__box_box3_ram_start) {
+        return NULL;
     }
 
-    extern int __box_box3_raw_box3_hello(void);
-    return __box_box3_raw_box3_hello();
+    __box_box3_state.sp -= size;
+    return __box_box3_state.sp;
+}
+
+void __box_box3_pop(size_t size) {
+    size = (size+3)/4;
+    __attribute__((unused))
+    extern uint8_t __box_box3_ram_end;
+    assert(__box_box3_state.sp + size <= (uint32_t*)&__box_box3_ram_end);
+    __box_box3_state.sp += size;
+}
+
+struct __box_state __box_sys_state;
+
+struct __box_state *const __box_state[__BOX_COUNT+1] = {
+    &__box_sys_state,
+    &__box_box1_state,
+    &__box_box2_state,
+    &__box_box3_state,
+};
+
+void (*const __box_aborts[])(int err) = {
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+};
+
+const struct __box_mpuregions __box_sys_mpuregions = {
+    .control = 0,
+    .count = 0,
+    .regions = {}
+};
+
+const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
+    &__box_sys_mpuregions,
+    &__box_box1_mpuregions,
+    &__box_box2_mpuregions,
+    &__box_box3_mpuregions,
+};
+
+const uint32_t *const __box_jumptables[__BOX_COUNT] = {
+    __box_box1_jumptable,
+    __box_box2_jumptable,
+    __box_box3_jumptable,
+};
+
+const uint32_t *const __box_sys_jumptables[__BOX_COUNT] = {
+    __box_box1_sys_jumptable,
+    __box_box2_sys_jumptable,
+    __box_box3_sys_jumptable,
+};
+
+struct __box_frame {
+    uint32_t *fp;
+    uint32_t lr;
+    uint32_t *sp;
+    uint32_t caller;
+};
+
+// foward declaration of fault wrapper, may be called directly
+// in other handlers, but only in other handlers! (needs isr context)
+uint64_t __box_faultsetup(int32_t err) {
+    // mark box as uninitialized
+    __box_state[__box_active]->initialized = false;
+
+    // invoke user handler, should not return
+    // TODO should we set this up to be called in non-isr context?
+    if (__box_aborts[__box_active]) {
+        __box_aborts[__box_active](err);
+        __builtin_unreachable();
+    }
+
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_state *targetstate = __box_state[state->caller];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetbf = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetbf->fp;
+    // in call?
+    if (!targetlr) {
+        // halt if we can't handle
+        __box_abort(-ELOOP);
+    }
+
+    // check if our return target supports erroring
+    uint32_t op = targetfp[6];
+    if (!(op & 2)) {
+        // halt if we can't handle
+        __box_abort(err);
+    }
+
+    // we can return an error
+    __box_active = state->caller;
+    targetstate->lr = targetbf->lr;
+    targetstate->sp = targetbf->sp;
+    targetstate->caller = targetbf->caller;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // copy return frame
+    targetfp[0] = err;         // r0 = arg0
+    targetfp[1] = 0;           // r1 = arg1
+    targetfp[2] = 0;           // r2 = arg2
+    targetfp[3] = 0;           // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((naked, noreturn))
+void __box_faulthandler(int32_t err) {
+    __asm__ volatile (
+        // call into c with stack control
+        "bl __box_faultsetup \n\t"
+        // drop saved state
+        "add r1, r1, #4*4 \n\t"
+        // restore fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vldmiaeq r1!, {s16-s31} \n\t"
+        // restore core registers
+        "ldmia r1!, {r4-r11} \n\t"
+        // update sp
+        "tst r0, #0x4 \n\t"
+        "ite eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // return
+        "bx r0 \n\t"
+        ::
+        "i"(__box_faultsetup)
+    );
+}
+
+uint64_t __box_callsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    struct __box_state *state = __box_state[__box_active];
+    struct __box_frame *frame = (struct __box_frame*)sp;
+    frame->fp = fp;
+    frame->lr = state->lr;
+    frame->sp = state->sp;
+    frame->caller = state->caller;
+    state->lr = lr;
+    state->sp = sp;
+
+    uint32_t caller = __box_active;
+    __box_active = (caller == 0)
+        ? (((op/4)-2) % __BOX_COUNT) + 1
+        : 0;
+    uint32_t targetpc = (caller == 0)
+        ? __box_jumptables[__box_active-1][((op/4)-2) / __BOX_COUNT + 1]
+        : __box_sys_jumptables[caller-1][((op/4)-2)];
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    uint32_t *targetsp = targetstate->sp;
+    // keep track of caller
+    targetstate->caller = caller;
+    // don't allow returns while executing
+    targetstate->lr = 0;
+    // need sp to fixup instruction aborts
+    targetstate->sp = targetsp;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // setup new call frame
+    targetsp -= 8;
+    targetsp[0] = fp[0];        // r0 = arg0
+    targetsp[1] = fp[1];        // r1 = arg1
+    targetsp[2] = fp[2];        // r2 = arg2
+    targetsp[3] = fp[3];        // r3 = arg3
+    targetsp[4] = fp[4];        // r12 = r12
+    targetsp[5] = (uint32_t)&__box_return; // lr = __box_return
+    targetsp[6] = targetpc;     // pc = targetpc
+    targetsp[7] = fp[7];        // psr = psr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((naked))
+void __box_callhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
+    __asm__ volatile (
+        // keep track of args
+        "mov r3, r1 \n\t"
+        // save core registers
+        "stmdb r1!, {r4-r11} \n\t"
+        // save fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vstmdbeq r1!, {s16-s31} \n\t"
+        // make space to save state
+        "sub r1, r1, #4*4 \n\t"
+        // sp == msp?
+        "tst r0, #0x4 \n\t"
+        "it eq \n\t"
+        "moveq sp, r1 \n\t"
+        // ah! reserve a frame in case we're calling this
+        // interrupts stack from another stack
+        "sub sp, sp, #8*4 \n\t"
+        // call into c now that we have stack control
+        "bl __box_callsetup \n\t"
+        // update new sp
+        "tst r0, #0x4 \n\t"
+        "itee eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // drop reserved frame?
+        "addne sp, sp, #8*4 \n\t"
+        // return to call
+        "bx r0 \n\t"
+        ::
+        "i"(__box_callsetup)
+    );
+}
+
+uint64_t __box_returnsetup(uint32_t lr, uint32_t *sp,
+        uint32_t op, uint32_t *fp) {
+    // save lr + sp
+    struct __box_state *state = __box_state[__box_active];
+    // drop exception frame and fixup instruction aborts
+    sp = state->sp;
+    state->lr = lr;
+    state->sp = sp;
+
+    __box_active = state->caller;
+
+    struct __box_state *targetstate = __box_state[__box_active];
+    uint32_t targetlr = targetstate->lr;
+    // in call?
+    if (!targetlr) {
+        __box_faulthandler(-EFAULT);
+        __builtin_unreachable();
+    }
+    uint32_t *targetsp = targetstate->sp;
+    struct __box_frame *targetframe = (struct __box_frame*)targetsp;
+    uint32_t *targetfp = targetframe->fp;
+    targetstate->lr = targetframe->lr;
+    targetstate->sp = targetframe->sp;
+    targetstate->caller = targetframe->caller;
+
+    // select MPU regions
+    __box_mpu_switch(__box_mpuregions[__box_active]);
+
+    // copy return frame
+    targetfp[0] = fp[0];       // r0 = arg0
+    targetfp[1] = fp[1];       // r1 = arg1
+    targetfp[2] = fp[2];       // r2 = arg2
+    targetfp[3] = fp[3];       // r3 = arg3
+    targetfp[6] = targetfp[5]; // pc = lr
+
+    return ((uint64_t)targetlr) | ((uint64_t)(uint32_t)targetsp << 32);
+}
+
+__attribute__((naked, noreturn))
+void __box_returnhandler(uint32_t lr, uint32_t *sp, uint32_t op) {
+    __asm__ volatile (
+        // keep track of rets
+        "mov r3, r1 \n\t"
+        // call into c new that we have stack control
+        "bl __box_returnsetup \n\t"
+        // drop saved state
+        "add r1, r1, #4*4 \n\t"
+        // restore fp registers?
+        "tst r0, #0x10 \n\t"
+        "it eq \n\t"
+        "vldmiaeq r1!, {s16-s31} \n\t"
+        // restore core registers
+        "ldmia r1!, {r4-r11} \n\t"
+        // update sp
+        "tst r0, #0x4 \n\t"
+        "ite eq \n\t"
+        "msreq msp, r1 \n\t"
+        "msrne psp, r1 \n\t"
+        // return
+        "bx r0 \n\t"
+        ::
+        "i"(__box_returnsetup)
+    );
+}
+
+__attribute__((alias("__box_mpu_handler")))
+void __box_usagefault_handler(void);
+__attribute__((alias("__box_mpu_handler")))
+void __box_busfault_handler(void);
+__attribute__((alias("__box_mpu_handler")))
+void __box_memmanage_handler(void);
+__attribute__((naked))
+void __box_mpu_handler(void) {
+    __asm__ volatile (
+        // get lr
+        "mov r0, lr \n\t"
+        "tst r0, #0x4 \n\t"
+        // get sp
+        "ite eq \n\t"
+        "mrseq r1, msp \n\t"
+        "mrsne r1, psp \n\t"
+        // get pc
+        "ldr r2, [r1, #6*4] \n\t"
+
+        // check type of call
+        // return?
+        "ldr r3, =__box_callregion \n\t"
+        "subs r2, r2, r3 \n\t"
+        "beq __box_returnhandler \n\t"
+
+        // explicit abort?
+        "cmp r2, #4 \n\t"
+        "itt eq \n\t"
+        "ldreq r0, [r1, #0] \n\t"
+        "beq __box_faulthandler \n\t"
+
+        // call?
+        "ldr r3, =1048576 \n\t"
+        "cmp r2, r3 \n\t"
+        "blo __box_callhandler \n\t"
+
+        // if we've reached here this is a true fault
+        "ldr r0, =%[EFAULT] \n\t"
+        "b __box_faulthandler \n\t"
+        "b ."
+        ::
+        "i"(__box_faulthandler),
+        "i"(__box_callhandler),
+        "i"(__box_returnhandler),
+        "i"(&__box_callregion),
+        [EFAULT]"i"(-EFAULT)
+    );
 }
 

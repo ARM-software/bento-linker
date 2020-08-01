@@ -1021,6 +1021,7 @@ int alicebox_recv(const void *buffer, size_t size) {
 
 __attribute__((noreturn))
 void __box_alicebox_abort(int err) {
+    __box_alicebox_initialized = false;
     if (__box_alicebox_jmpbuf) {
         longjmp(*__box_alicebox_jmpbuf, err);
     } else {
@@ -1111,6 +1112,7 @@ int __box_alicebox_clobber(void) {
 }
 
 void *__box_alicebox_push(size_t size) {
+    size = ((size+3)/4)*4;
     extern uint8_t __box_alicebox_ram_start;
     if (__box_alicebox_datasp - size < &__box_alicebox_ram_start) {
         return NULL;
@@ -1121,6 +1123,7 @@ void *__box_alicebox_push(size_t size) {
 }
 
 void __box_alicebox_pop(size_t size) {
+    size = ((size+3)/4)*4;
     __attribute__((unused))
     extern uint8_t __box_alicebox_ram_end;
     assert(__box_alicebox_datasp + size <= &__box_alicebox_ram_end);
@@ -1250,6 +1253,7 @@ int bobbox_recv(const void *buffer, size_t size) {
 
 __attribute__((noreturn))
 void __box_bobbox_abort(int err) {
+    __box_bobbox_initialized = false;
     if (__box_bobbox_jmpbuf) {
         longjmp(*__box_bobbox_jmpbuf, err);
     } else {
@@ -1340,6 +1344,7 @@ int __box_bobbox_clobber(void) {
 }
 
 void *__box_bobbox_push(size_t size) {
+    size = ((size+3)/4)*4;
     extern uint8_t __box_bobbox_ram_start;
     if (__box_bobbox_datasp - size < &__box_bobbox_ram_start) {
         return NULL;
@@ -1350,6 +1355,7 @@ void *__box_bobbox_push(size_t size) {
 }
 
 void __box_bobbox_pop(size_t size) {
+    size = ((size+3)/4)*4;
     __attribute__((unused))
     extern uint8_t __box_bobbox_ram_end;
     assert(__box_bobbox_datasp + size <= &__box_bobbox_ram_end);
@@ -1589,6 +1595,7 @@ int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, 
 
 __attribute__((noreturn))
 void __box_tlsbox_abort(int err) {
+    __box_tlsbox_initialized = false;
     if (__box_tlsbox_jmpbuf) {
         longjmp(*__box_tlsbox_jmpbuf, err);
     } else {
@@ -1638,6 +1645,7 @@ int __box_tlsbox_clobber(void) {
 }
 
 void *__box_tlsbox_push(size_t size) {
+    size = ((size+3)/4)*4;
     extern uint8_t __box_tlsbox_ram_start;
     if (__box_tlsbox_datasp - size < &__box_tlsbox_ram_start) {
         return NULL;
@@ -1648,6 +1656,7 @@ void *__box_tlsbox_push(size_t size) {
 }
 
 void __box_tlsbox_pop(size_t size) {
+    size = ((size+3)/4)*4;
     __attribute__((unused))
     extern uint8_t __box_tlsbox_ram_end;
     assert(__box_tlsbox_datasp + size <= &__box_tlsbox_ram_end);

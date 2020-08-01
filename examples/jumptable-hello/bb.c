@@ -970,6 +970,7 @@ int32_t box1_ping_import(int32_t a0) {
 
 __attribute__((noreturn))
 void __box_box1_abort(int err) {
+    __box_box1_initialized = false;
     if (__box_box1_jmpbuf) {
         longjmp(*__box_box1_jmpbuf, err);
     } else {
@@ -1145,6 +1146,7 @@ int32_t box2_ping_import(int32_t a0) {
 
 __attribute__((noreturn))
 void __box_box2_abort(int err) {
+    __box_box2_initialized = false;
     if (__box_box2_jmpbuf) {
         longjmp(*__box_box2_jmpbuf, err);
     } else {
@@ -1320,6 +1322,7 @@ int32_t box3_ping_import(int32_t a0) {
 
 __attribute__((noreturn))
 void __box_box3_abort(int err) {
+    __box_box3_initialized = false;
     if (__box_box3_jmpbuf) {
         longjmp(*__box_box3_jmpbuf, err);
     } else {

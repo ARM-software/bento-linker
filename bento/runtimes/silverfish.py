@@ -651,7 +651,7 @@ class SilverfishRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
 #    def build_parent_ld(self, output, sys, box):
 #        super().build_parent_ld(output, sys, box)
 #
-#        if output.emit_sections:
+#        if not output.no_sections:
 #            out = output.sections.append(
 #                box_memory=self._jumptable.memory.name,
 #                section='.box.%(box)s.%(box_memory)s',
@@ -685,7 +685,7 @@ class SilverfishRuntime(WriteGlue, AbortGlue, runtimes.Runtime):
 #            out.printf('%(name)-16s = __box_%(box)s_write;',
 #                name='__box_write')
 #
-#        if output.emit_sections:
+#        if not output.no_sections:
 #            out = output.sections.append(
 #                section='.jumptable',
 #                memory=self._jumptable.memory.name)

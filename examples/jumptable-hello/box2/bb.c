@@ -450,6 +450,8 @@ int __box_init(const uint32_t *importjumptable) {
     return 0;
 }
 
+//// imports ////
+
 __attribute__((noreturn))
 void __box_abort(int a0) {
     ((void (*)(int a0))
@@ -471,6 +473,8 @@ int32_t sys_ping(int32_t a0) {
     return ((int32_t (*)(int32_t a0))
             __box_importjumptable[3])(a0);
 }
+
+//// exports ////
 
 // box-side jumptable
 __attribute__((used, section(".jumptable")))
