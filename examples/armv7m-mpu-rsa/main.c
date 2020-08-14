@@ -70,6 +70,23 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     }
 }
 
+// measure cycle counts
+#define DEMCR      ((volatile uint32_t*)0xe000edfc)
+#define DWT_CTRL   ((volatile uint32_t*)0xe0001000)
+#define DWT_CYCCNT ((volatile uint32_t*)0xe0001004)
+int cyccnt_init(void) {
+    // enable DWT
+    *DEMCR |= 0x01000000;
+    // enable CYCCNT
+    *DWT_CTRL |= 0x00000001;
+    return 0;
+}
+
+__attribute__((always_inline))
+static inline uint32_t cyccnt_read(void) {
+    return *DWT_CYCCNT;
+}
+
 // entropy
 ssize_t sys_entropy_poll(void *pbuffer, size_t size) {
     uint8_t *buffer = pbuffer;
@@ -317,6 +334,12 @@ void main(void) {
     int x2 = alicebox_init();
     printf("sys: results: %d %d\n", x1, x2);
 
+    // measuring key generation isn't really useful as it involves
+    // polling for sufficiently large numbers, so we start profiling
+    // here
+    cyccnt_init();
+    uint32_t cyccnt = cyccnt_read();
+
     printf("sys: calling alicebox_main...\n");
     res = alicebox_main();
     printf("sys: result: %d\n", res);
@@ -324,4 +347,24 @@ void main(void) {
     printf("sys: calling bobbox_main...\n");
     res = bobbox_main();
     printf("sys: result: %d\n", res);
+
+    // log cycles
+    cyccnt = cyccnt_read() - cyccnt;
+    printf("sys: %u cycles\n", cyccnt);
+
+    // log ram usage, and then mark it for the next run
+    uint32_t *ram_start = (uint32_t*)0x20000000;
+    uint32_t *ram_end   = (uint32_t*)0x20040000;
+
+    uint32_t ram_usage = 0;
+    for (uint32_t *p = ram_start; p < ram_end; p++) {
+        if (*p != 0xcccccccc) {
+            ram_usage += 4;
+        }
+    }
+    printf("sys: %u bytes ram\n", ram_usage);
+
+    for (uint32_t *p = ram_start; p < ram_end; p++) {
+        *p = 0xcccccccc;
+    }
 }
