@@ -159,7 +159,7 @@ class LDOutput(outputs.Output):
             out.printf('__data_init_start = .;')
 
         # write out ram sections
-        if box.stack:
+        if box.stack.size:
             constants.printf('%(symbol)-16s = DEFINED(%(symbol)s) '
                 '? %(symbol)s : %(value)#010x;',
                 symbol='__stack_min',
@@ -212,7 +212,7 @@ class LDOutput(outputs.Output):
         out.printf('__bss_end = .;')
         out.printf('__bss_end__ = .;')
 
-        if box.heap:
+        if box.heap.size:
             constants.printf('%(symbol)-16s = DEFINED(%(symbol)s) '
                 '? %(symbol)s : %(value)#010x;',
                 symbol='__heap_min',

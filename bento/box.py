@@ -705,6 +705,12 @@ class Fn:
                 assert isinstance(name, str)
                 yield name
 
+    def zippedargs(self):
+        return zip(self.postboundargs, self.argnames(postbound=True))
+
+    def zippedargsandbounds(self):
+        return zip(self.preboundargs, self.argnamesandbounds())
+
     def retnames(self):
         names = set(
             arg.name for arg in it.chain(self.preboundargs, self.rets)

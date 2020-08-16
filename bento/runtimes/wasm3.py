@@ -1,444 +1,891 @@
-from .. import runtimes
+
 import itertools as it
+import math
+from .. import argstuff
+from .. import runtimes
+from ..box import Fn, Section, Region, Import, Export
+from ..glue.error_glue import ErrorGlue
+from ..glue.write_glue import WriteGlue
+from ..glue.abort_glue import AbortGlue
+from ..glue.heap_glue import HeapGlue
+from ..outputs import OutputBlob
 
-WASI_API = '''
-m3ApiRawFunction(__box_hook_wasi_fd_close) {
-    // close not supported
-    assert(false);
+C_COMMON = """
+__attribute__((unused))
+static int __box_wasm3_toerr(M3Result res) {
+    // note we can't use switch/case here because these are pointers
+    if      (res == m3Err_none)                             return 0;
+    // general errors
+    else if (res == m3Err_typeListOverflow)                 return -ENOMEM;
+    else if (res == m3Err_mallocFailed)                     return -ENOMEM;
+    // parse errors
+    else if (res == m3Err_incompatibleWasmVersion)          return -ENOEXEC;
+    else if (res == m3Err_wasmMalformed)                    return -ENOEXEC;
+    else if (res == m3Err_misorderedWasmSection)            return -ENOEXEC;
+    else if (res == m3Err_wasmUnderrun)                     return -ENOEXEC;
+    else if (res == m3Err_wasmOverrun)                      return -ENOEXEC;
+    else if (res == m3Err_wasmMissingInitExpr)              return -ENOEXEC;
+    else if (res == m3Err_lebOverflow)                      return -ENOEXEC;
+    else if (res == m3Err_missingUTF8)                      return -ENOEXEC;
+    else if (res == m3Err_wasmSectionUnderrun)              return -ENOEXEC;
+    else if (res == m3Err_wasmSectionOverrun)               return -ENOEXEC;
+    else if (res == m3Err_invalidTypeId)                    return -ENOEXEC;
+    else if (res == m3Err_tooManyMemorySections)            return -ENOEXEC;
+    // link errors
+    else if (res == m3Err_moduleAlreadyLinked)              return -ENOEXEC;
+    else if (res == m3Err_functionLookupFailed)             return -ENOEXEC;
+    else if (res == m3Err_functionImportMissing)            return -ENOEXEC;
+    else if (res == m3Err_malformedFunctionSignature)       return -ENOEXEC;
+    else if (res == m3Err_funcSignatureMissingReturnType)   return -ENOEXEC;
+    // compilation errors
+    else if (res == m3Err_noCompiler)                       return -ENOEXEC;
+    else if (res == m3Err_unknownOpcode)                    return -ENOEXEC;
+    else if (res == m3Err_functionStackOverflow)            return -EOVERFLOW;
+    else if (res == m3Err_functionStackUnderrun)            return -ENOEXEC;
+    else if (res == m3Err_mallocFailedCodePage)             return -ENOMEM;
+    else if (res == m3Err_settingImmutableGlobal)           return -ENOEXEC;
+    else if (res == m3Err_optimizerFailed)                  return -ENOEXEC;
+    // runtime errors
+    else if (res == m3Err_missingCompiledCode)              return -ENOEXEC;
+    else if (res == m3Err_wasmMemoryOverflow)               return -ENOEXEC;
+    else if (res == m3Err_globalMemoryNotAllocated)         return -ENOEXEC;
+    else if (res == m3Err_globaIndexOutOfBounds)            return -ENOEXEC;
+    else if (res == m3Err_argumentCountMismatch)            return -ENOEXEC;
+    // traps
+    else if (res == m3Err_trapOutOfBoundsMemoryAccess)      return -EFAULT;
+    else if (res == m3Err_trapDivisionByZero)               return -EDOM;
+    else if (res == m3Err_trapIntegerOverflow)              return -ERANGE;
+    else if (res == m3Err_trapIntegerConversion)            return -ERANGE;
+    else if (res == m3Err_trapIndirectCallTypeMismatch)     return -ENOEXEC;
+    else if (res == m3Err_trapTableIndexOutOfRange)         return -EFAULT;
+    else if (res == m3Err_trapTableElementIsNull)           return -EFAULT;
+    else if (res == m3Err_trapExit)                         return -ECANCELED;
+    else if (res == m3Err_trapAbort)                        return -ECANCELED;
+    else if (res == m3Err_trapUnreachable)                  return -EFAULT;
+    else if (res == m3Err_trapStackOverflow)                return -EOVERFLOW;
+    // fallback to general error?
+    else                                                    return -EGENERAL;
 }
 
-m3ApiRawFunction(__box_hook_wasi_fd_seek) {
-    // seek not supported
-    assert(false);
+__attribute__((unused))
+static uint32_t __box_wasm3_fromptr(IM3Runtime runtime, const void *ptr) {
+    return (uint32_t)((const uint8_t*)ptr
+        - m3MemData(runtime->memory.mallocated));
 }
 
-m3ApiRawFunction(__box_hook_wasi_fd_fdstat_get) {
-    struct fdstat {
-        uint8_t  filetype;
-        uint16_t flags;
-        uint64_t rights_base;
-        uint64_t rights_inheriting;
-    };
-
-    m3ApiGetArg(uint32_t, fd);
-    (void)fd;
-    m3ApiGetArgMem(struct fdstat*, fdstat);
-
-    fdstat->filetype = 2; // filetype = character device
-    fdstat->flags = 0;
-    fdstat->rights_base = 0;
-    fdstat->rights_inheriting = 0;
-
-    m3ApiReturnType(int32_t);
-    m3ApiReturn(0);
+__attribute__((unused))
+static void *__box_wasm3_toptr(IM3Runtime runtime, uint32_t ptr) {
+    return m3MemData(runtime->memory.mallocated) + ptr;
 }
+"""
 
-m3ApiRawFunction(__box_hook_wasi_fd_write) {
-    struct iov {
-        uint32_t base_ptr;
-        uint32_t size;
-    };
-
-    m3ApiGetArg(uint32_t, fd);
-    m3ApiGetArgMem(struct iov*, iovs);
-    m3ApiGetArg(uint32_t, iovs_len);
-    m3ApiGetArgMem(uint32_t*, nwritten);
-
-    // only stdout or stderr
-    assert(fd == 1 || fd == 2);
-    uint32_t total = 0;
-    for (int i = 0; i < iovs_len; i++) {
-        for (int j = 0; j < iovs[i].size; j++) {
-            uint8_t c = *(char*)m3ApiOffsetToPtr(iovs[i].base_ptr + j);
-            //printf("%c", c);
-            putchar(c);
-            if (c == '\\n') {
-                fflush(stdout);
-            }
-        }
-    }
-
-    *nwritten = total;
-    m3ApiReturnType(int32_t);
-    m3ApiReturn(0);
+ABORT_HOOK = """
+m3ApiRawFunction(__box_%(box)s_import___box_%(box)s_abort) {
+    m3ApiGetArg(int, err);
+    __box_%(box)s_runtime->exit_code = err;
+    m3ApiTrap(m3Err_trapExit);
 }
-'''
-
+"""
 
 @runtimes.runtime
-class Wasm3Runtime(runtimes.Runtime):
+class Wasm3Runtime(
+        ErrorGlue,
+        WriteGlue,
+        AbortGlue,
+        HeapGlue,
+        runtimes.Runtime):
     """
     A bento-box runtime using wasm3, a wasm interpreter
     """
     __argname__ = "wasm3"
     __arghelp__ = __doc__
+    @classmethod
+    def __argparse__(cls, parser, **kwargs):
+        pass
+#        parser.add_nestedparser('--jumptable', Section)
+#        parser.add_argument('--no_longjmp', type=bool,
+#            help="Do not use longjmp for error recovery. longjmp adds a small "
+#                "cost to every box entry point. --no_longjmp disables longjmp "
+#                "and forces any unhandled aborts to halt. Note this has no "
+#                "if an explicit __box_<box>_abort hook is provided.")
 
-    def build_common_header(self, sys, box, output):
-        output.append_include("<sys/types.h>")
+    def __init__(self):
+        super().__init__()
+        #self._jumptable = Section('jumptable', **jumptable.__dict__)
+        #self._no_longjmp = no_longjmp or False
 
-        # TODO error if import not found?
-        output.append_decl('// exports from box %s' % box.name)
-        for export in box.exports.values():
-            assert len(export.rets) <= 1
-            output.append_decl('extern %(ret)s %(name)s(%(args)s);' % dict(
-                name=export.name,
-                args='void' if not export.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        export.args, util.arbitrary())),
-                ret='void' if not export.rets else export.rets[0]))
-        output.append_decl('')
+    def box_parent(self, parent, box):
+        self._load_hook = parent.addimport(
+            '__box_%s_load' % box.name, 'fn() -> err',
+            scope=parent.name, source=self.__argname__,
+            doc="Called to load the box during init. Normally provided "
+                "by the loader but can be overriden.")
+        self._abort_hook = parent.addimport(
+            '__box_%s_abort' % box.name, 'fn(err err) -> noreturn',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Called when this box aborts, either due to an illegal "
+                "memory access or other failure. the error code is "
+                "provided as an argument.")
+        self._write_hook = parent.addimport(
+            '__box_%s_write' % box.name,
+            'fn(i32, const u8[size], usize size) -> errsize',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Override __box_write for this specific box.")
+        self._flush_hook = parent.addimport(
+            '__box_%s_flush' % box.name,
+            'fn(i32) -> err',
+            scope=parent.name, source=self.__argname__, weak=True,
+            doc="Override __box_flush for this specific box.")
+        super().box_parent(parent, box)
 
-        # TODO error if import not found?
-        output.append_decl('// imports from box %s' % box.name)
-        for import_ in box.imports.values():
-            assert len(import_.rets) <= 1
-            output.append_decl('extern %(ret)s %(name)s(%(args)s);' % dict(
-                name=import_.name,
-                args='void' if not import_.args else ', '.join(
-                    '%s %s' % arg for arg in zip(
-                        import_.args, util.arbitrary())),
-                ret='void' if not import_.rets else import_.rets[0]))
-        output.append_decl('')
+    def box(self, box):
+        super().box(box)
+        #self._jumptable.alloc(box, 'rp')
+        # plugs
+        self._abort_plug = box.addexport(
+            '__box_abort', 'fn(err) -> noreturn',
+            scope=box.name, source=self.__argname__, weak=True)
+        self._write_plug = box.addexport(
+            '__box_write', 'fn(i32, const u8[size], usize size) -> errsize',
+            scope=box.name, source=self.__argname__, weak=True)
+        self._flush_plug = box.addexport(
+            '__box_flush', 'fn(i32) -> err',
+            scope=box.name, source=self.__argname__, weak=True)
 
-    def build_sys_header(self, sys, box, output):
-        """Build system header"""
-        outf = output.append_decl()
-        outf.write('// jumptable initialization\n')
-        outf.write('void __box_%s_init(void);\n' % box.name)
+    @staticmethod
+    def _repr_argstringarg(arg):
+        if arg.isptr():
+            return '*'
+        elif arg.prim() == 'f64':
+            return 'F'
+        elif arg.prim() == 'f32':
+            return 'f'
+        elif arg.primwidth() == 64:
+            return 'I'
+        else:
+            return 'i'
 
-        self.build_common_header(sys, box, output)
+    @staticmethod
+    def _repr_argstring(fn):
+        return ''.join(it.chain([
+            Wasm3Runtime._repr_argstringarg(fn.rets[0]) if fn.rets else 'v',
+            '(',
+            ], (Wasm3Runtime._repr_argstringarg(arg) for arg in fn.args), [
+            ')']))
 
-    def build_sys_jumptable_prologue(self, sys, output):
-        output.append_include("<wasm3/wasm3.h>")
-        output.append_include("<wasm3/m3_api_defs.h>")
-        output.append_include("<wasm3/m3_env.h>")
+    def _parentimports(self, parent, box):
+        """
+        Get imports that need linking.
+        Yields import, needsinit.
+        """
+        # imports that need linking
+        for import_ in parent.imports:
+            if import_.link and import_.link.export.box == box:
+                yield import_.postbound()
 
-        outf = output.append_decl()
-        outf.write('// GCC stdlib hook\n')
-        outf.write('extern int _write(int handle, char *buffer, int size);\n')
+    def _parentexports(self, parent, box):
+        """
+        Get exports that need linking
+        Yields export, needswrapper.
+        """
+        # implicit exports
+        yield Export(
+            '__box_abort',
+            'fn(err) -> noreturn',
+            alias='__box_%s_abort' % box.name,
+            source=self.__argname__)
+        yield Export(
+            '__box_write',
+            'fn(i32, const u8*, usize) -> errsize',
+            alias='__box_%s_write' % box.name,
+            source=self.__argname__)
+        yield Export(
+            '__box_flush',
+            'fn(i32) -> err',
+            alias='__box_%s_flush' % box.name,
+            source=self.__argname__)
 
-    def build_sys_jumptable(self, sys, box, output):
-        self.build_common_header(sys, box, output)
+        # exports that need linking
+        for export in parent.exports:
+            if any(link.import_.box == box for link in export.links):
+                yield export.prebound()
 
-        output.append_decl('IM3Runtime __box_%s_runtime;' % box.name)
-        output.append_decl('IM3Module __box_%s_module;' % box.name)
-        output.append_decl()
+#    def _imports(self, box):
+#        """
+#        Get imports that need linking.
+#        Yields import.
+#        """
+#        # implicit imports
+#        yield Import(
+#            '__box_abort',
+#            'fn(err) -> noreturn',
+#            source=self.__argname__)
+#        yield Import(
+#            '__box_write',
+#            'fn(i32, const u8[size], usize size) -> errsize',
+#            source=self.__argname__)
+#        yield Export(
+#            '__box_flush',
+#            'fn(i32) -> err',
+#            source=self.__argname__)
+#
+#        # imports that need linking
+#        for import_ in box.imports:
+#            if import_.link and import_.link.export.box != box:
+#                yield import_.postbound()
+#
+#    def _exports(self, box):
+#        """
+#        Get exports that need linking.
+#        Yields export, needswrapper.
+#        """
+#        # implicit exports
+#        yield Export(
+#            '__box_init', 'fn() -> err32',
+#            source=self.__argname__), False
+#
+#        # exports that need linking
+#        for export in box.exports:
+#            if export.scope != box:
+#                yield export.prebound(), len(export.boundargs) > 0
 
-        # TODO configure me
-        output.append_decl('#define __BOX_%s_STACK %d' % (
-            box.name.upper(), box.sections['stack'].size))
-        output.append_decl()
+    def build_mk(self, output, box):
+        # TODO error on needs wasmcc?
+        assert not output.no_wasm, ("The runtime `%s` requires a WebAssembly "
+            "compiler, please provide either --output.mk.wasi_sdk or "
+            "--output.mk.wasm_cc" % self.__argname__)
 
-        output.append_decl('// wasm3 import hooks')
-        output.append_decl(WASI_API.lstrip())
+        # target rule
+        output.decls.insert(0, '%(name)-16s ?= %(target)s',
+            name='TARGET', target=output.get('target', '%(box)s.wasm'))
 
-        for import_ in box.imports.values():
-            outf = output.append_decl()
-            outf.write('m3ApiRawFunction(__box_hook_%s) {\n' % import_.name)
-            for i, type in enumerate(import_.args):
-                assert type.count('*') in {0, 1}
-                if '*' in type:
-                    outf.write(4*' '+'m3ApiGetArgMem(%s, %s);\n' % (
-                        type, 'a%d' % i))
+        out = output.rules.append(doc='target rule')
+        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES) $(WASMARCHIVES)')
+        with out.indent():
+            out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
+
+        out = output.rules.append()
+        out.printf('%%.elf: %%.wasm.prefixed')
+        with out.indent():
+            out.writef('$(strip $(OBJCOPY) $< $@')
+            with out.indent():
+                out.writef(' \\\n-I binary')
+                out.writef(' \\\n-O elf32-littlearm')
+                out.writef(' \\\n-B arm')
+                out.writef(' \\\n--rename-section .data=.text,'
+                    'contents,alloc,load,readonly,data')
+                out.printf(')')
+
+        super().build_mk(output, box)
+
+    def build_h(self, output, box):
+        super().build_h(output, box)
+
+#        # TODO move to C?
+#        for i, export in enumerate(
+#                export.prebound() for export in box.exports
+#                if export.source == box):
+#            if i == 0:
+#                output.decls.append('//// box export redeclared with '
+#                    'correct linkage ////')
+#            output.decls.append('%(fn)s;',
+#                fn=output.repr_fn(export,
+#                    attrs=['__attribute__((used))', 'extern']),
+#                doc=export.doc)
+
+    def build_parent_c_prologue(self, output, parent):
+        super().build_parent_c_prologue(output, parent)
+        output.decls.append(C_COMMON)
+
+    def build_parent_c(self, output, parent, box):
+        super().build_parent_c(output, parent, box)
+
+        output.includes.append('<wasm3.h>')
+        output.includes.append('<m3_api_defs.h>')
+        output.includes.append('<m3_env.h>')
+
+        out = output.decls.append()
+        out.printf('//// %(box)s state ////')
+        out.printf('bool __box_%(box)s_initialized = false;')
+        out.printf('IM3Environment __box_%(box)s_environment;')
+        out.printf('IM3Runtime __box_%(box)s_runtime;')
+        out.printf('IM3Module __box_%(box)s_module;')
+
+        # redirect hooks if necessary
+        if not self._abort_hook.link:
+            output.decls.append(ABORT_HOOK)
+
+        if not self._write_hook.link:
+            out = output.decls.append(
+                write_hook=self._write_hook.name,
+                doc='redirect %(write_hook)s -> __box_write')
+            out.printf('#define %(write_hook)s __box_write')
+
+        if not self._flush_hook.link:
+            out = output.decls.append(
+                flush_hook=self._flush_hook.name,
+                doc='redirect %(flush_hook)s -> __box_flush')
+            out.printf('#define %(flush_hook)s __box_flush')
+
+        # box imports, wasm3 makes this easy
+        output.decls.append('//// %(box)s imports ////')
+        for export in self._parentexports(parent, box):
+            if export.name == '__box_abort' and not self._abort_hook.link:
+                continue
+            out = output.decls.append(
+                name='__box_%(box)s_import_%(alias)s',
+                alias=export.alias)
+            out.printf('m3ApiRawFunction(%(name)s) {')
+            with out.indent():
+                if export.rets:
+                    out.printf('m3ApiReturnType(%(ret)s);',
+                        ret=output.repr_arg(export.rets[0]))
+                for arg, name in export.zippedargs():
+                    if arg.isptr():
+                        out.printf('m3ApiGetArgMem(%(arg)s, %(name)s);',
+                            arg=output.repr_arg(arg),
+                            name=name)
+                    else:
+                        out.printf('m3ApiGetArg(%(arg)s, %(name)s);',
+                            arg=output.repr_arg(arg),
+                            name=name)
+                out.printf('%(rets)s%(alias)s(%(args)s);',
+                    args=', '.join(map(str, export.argnamesandbounds())),
+                    rets='%s = ' % output.repr_arg(
+                            export.rets[0],
+                            name=export.retname())
+                        if export.rets else '')
+                if export.rets:
+                    out.printf('m3ApiReturn(%(name)s);',
+                        name=export.retname())
+                elif not export.isnoreturn():
+                    out.printf('m3ApiSuccess();')
+            out.printf('}')
+
+
+        # box exports, wasm3 doesn't have a great link layer here so
+        # this is a bit hacky
+        output.decls.append('//// %(box)s exports ////')
+        for import_ in self._parentimports(parent, box):
+            out = output.decls.append(
+                fn=output.repr_fn(import_),
+                # TODO handle aliases wasm side?
+                linkname=import_.link.export.name,
+                linkargs=len(import_.preboundargs))
+            out.printf('%(fn)s {')
+            with out.indent():
+                # inject lazy-init?
+                if box.init == 'lazy':
+                    out.printf('if (!__box_%(box)s_initialized) {')
+                    with out.indent():
+                        out.printf('int err = __box_%(box)s_init();')
+                        out.printf('if (err) {')
+                        with out.indent():
+                            if import_.isfalible():
+                                out.printf('return err;')
+                            else:
+                                out.printf('__box_abort(err);')
+                        out.printf('}')
+                    out.printf('}')
+                    out.printf()
+                # TODO uniquify?
+                out.printf('M3Result _res;')
+                out.printf('IM3Function _f;')
+                out.printf('_res = m3_FindFunction(&_f,\n'
+                    '        __box_%(box)s_runtime,\n'
+                    '        "%(linkname)s");')
+                if import_.isfalible():
+                    out.printf('if (_res || !_f->compiled) '
+                        'return -ENOEXEC;')
                 else:
-                    outf.write(4*' '+'m3ApiGetArg(%s, %s);\n' % (
-                        type, 'a%d' % i))
-            outf.write(4*' '+'%(retassign)s%(name)s(%(args)s);\n' % dict(
-                retassign = '%s r0 = ' % import_.rets[0]
-                    if import_.rets else '',
-                name=import_.name,
-                args=', '.join('a%d' % i for i in range(len(import_.args)))))
-            if import_.rets:
-                assert len(import_.rets) == 1
-                outf.write(4*' '+'m3ApiReturnType(%s);\n' % import_.rets[0])
-                outf.write(4*' '+'m3ApiReturn(r0);\n')
-            else:
-                outf.write(4*' '+'m3ApiSuccess();\n')
-            outf.write('}\n')
-
-        output.append_decl('// wasm3 export hooks')
-        for export in box.exports.values():
-            outf = output.append_decl()
-            outf.write('extern %(ret)s %(name)s(%(args)s) {\n' % dict(
-                name=export.name,
-                args='void' if not export.args else ', '.join(
-                    '%s a%d' % arg for arg in zip(
-                        export.args, it.count())),
-                ret='void' if not export.rets else export.rets[0]))
-            outf.write(4*' '+'M3Result err;\n')
-            outf.write(4*' '+'IM3Function f;\n')
-            outf.write(4*' '+'err = m3_FindFunction('
-                '&f, __box_%s_runtime, "%s");\n' %
-                (box.name, export.name))
-            outf.write(4*' '+'assert(!err);\n')
-            # NOTE these are internal APIs, otherwise wasm3 requires
-            # string parsing
-            outf.write(4*' '+'assert(f->compiled);\n')
-            outf.write(4*' '+'IM3FuncType ftype = f->funcType;\n')
-            outf.write(4*' '+'assert(ftype->numArgs == %d);\n' %
-                len(export.args))
-            outf.write(4*' '+'void *stack = __box_%s_runtime->stack;\n' %
-                box.name)
-            # TODO assert on type, one of c_m3Type_i32,i64,f32,f64
-            for i, type in enumerate(export.args):
-                assert type.count('*') in {0, 1}
-                if '*' in type:
-                    # TODO WTF IS _mem
-                    outf.write(4*' '+'*(%(type)s*)&((uint64_t*)'
-                        'stack)[%(i)s] = (uint8_t*)%(name)s - m3MemData(__box_%(box)s_runtime->memory.mallocated);\n' % dict(
-                        box=box.name,
-                        type=type,
-                        i=i,
-                        name='a%d' % i))
+                    out.printf('assert(!_res && _f->compiled);')
+                out.printf('IM3FuncType _type = _f->funcType;')
+                if import_.isfalible():
+                    out.printf('if (_type->numArgs != %(linkargs)d) '
+                        'return -ENOEXEC;')
                 else:
-                    outf.write(4*' '+'*(%(type)s*)&((uint64_t*)'
-                        'stack)[%(i)s] = %(name)s;\n' % dict(
-                        type=type,
-                        i=i,
-                        name='a%d' % i))
-            outf.write(4*' '+'m3StackCheckInit();\n')
-            outf.write(4*' '+'''err = (M3Result)Call(
-                f->compiled,
-                (m3stack_t)stack,
-                __box_%s_runtime->memory.mallocated,
-                d_m3OpDefaultArgs);\n''' % box.name)
-            outf.write(4*' '+'assert(!err);\n')
-            if export.rets:
-                assert len(export.rets) == 1
-                outf.write(4*' '+'return *(%s*)stack;\n' % export.rets[0])
-            outf.write('}\n')
+                    out.printf('assert(_type->numArgs == %(linkargs)d);')
+                out.printf('uint64_t *stack = __box_%(box)s_runtime->stack;')
+                for i, (arg, name) in enumerate(import_.zippedargsandbounds()):
+                    if arg.isptr():
+                        out.printf('*(uint32_t*)&stack[%(i)d] = '
+                            '__box_wasm3_fromptr(%(name)s);',
+                            name=name,
+                            i=i)
+                    else:
+                        out.printf('*(%(arg)s*)&stack[%(i)d] = %(name)s;',
+                            arg=output.repr_arg(arg),
+                            name=name,
+                            i=i)
+                out.printf('m3StackCheckInit();')
+                out.printf('_res = (M3Result)Call(\n'
+                    '        _f->compiled,\n'
+                    '        (m3stack_t)stack,\n'
+                    '        __box_%(box)s_runtime->memory.mallocated,\n'
+                    '        d_m3OpDefaultArgs);')
+                if import_.isfalible():
+                    out.printf('if (_res) {')
+                    with out.indent():
+                        out.printf('if (_res == m3Err_trapExit) {')
+                        with out.indent():
+                            out.printf('return __box_%(box)s_runtime'
+                                '->exit_code;')
+                        out.printf('}')
+                        out.printf('return __box_wasm3_toerr(_res);')
+                    out.printf('}')
+                else:
+                    out.printf('assert(!_res);')
+                for ret in import_.rets:
+                    if ret.isptr():
+                        out.printf('return __box_wasm3_toptr('
+                            '*(uint32_t*)&stack[0]);')
+                    else:
+                        out.printf('return *(%(ret)s*)&stack[0];',
+                            ret=output.repr_arg(ret))
+                if import_.isnoreturn():
+                    # kinda wish we could apply noreturn to C types...
+                    out.printf('__builtin_unreachable();')
+            out.printf('}')
+
+        # init
+        output.decls.append('//// %(box)s init ////')
+        out = output.decls.append()
+        out.printf('int __box_%(box)s_init(void) {')
+        with out.indent():
+            out.printf('int err;')
+            if box.roommates:
+                out.printf('// bring down any overlapping boxes')
+            for i, roommate in enumerate(box.roommates):
+                with out.pushattrs(roommate=roommate.name):
+                    out.printf('extern int __box_%(roommate)s_clobber(void);')
+                    out.printf('err = __box_%(roommate)s_clobber();')
+                    out.printf('if (err) {')
+                    with out.indent():
+                        out.printf('return err;')
+                    out.printf('}')
+                    out.printf()
+            out.printf('// load the box if unloaded')
+            out.printf('err = __box_%(box)s_load();')
+            out.printf('if (err) {')
+            with out.indent():
+                out.printf('return err;')
+            out.printf('}')
+            out.printf()
+            # initialize runtime
+            out.printf('// initialized wasm3 runtime')
+            out.printf('M3Result res;')
+            out.printf('__box_%(box)s_environment = m3_NewEnvironment();')
+            out.printf('if (!__box_%(box)s_environment) return -ENOMEM;')
+            out.printf('__box_%(box)s_runtime = m3_NewRuntime(\n'
+                '        __box_%(box)s_environment,\n'
+                '        %(stack)d,\n'
+                '        NULL);',
+                stack=box.stack.size)
+            # TODO use this pointer for initialized state?
+            out.printf('if (!__box_%(box)s_runtime) return -ENOMEM;')
+            out.printf('extern uint32_t __box_%(box)s_image;')
+            out.printf('res = m3_ParseModule(\n'
+                '        __box_%(box)s_environment,\n'
+                '        &__box_%(box)s_module,\n'
+                '        (uint8_t*)(&__box_%(box)s_image + 1),\n'
+                '        __box_%(box)s_image);')
+            out.printf('if (res) return __box_wasm3_toerr(res);')
+            out.printf()
+            out.printf('res = m3_LoadModule(__box_%(box)s_runtime, '
+                '__box_%(box)s_module);')
+            out.printf('if (res) return __box_wasm3_toerr(res);')
+            out.printf()
+            if list(self._parentexports(parent, box)):
+                # link imports
+                out.printf('// link imports')
+                for export in self._parentexports(parent, box):
+                    out.printf('res = m3_LinkRawFunction(\n'
+                        '        __box_%(box)s_module,\n'
+                        '        "*",\n'
+                        '        "%(name)s",\n'
+                        '        "%(argstring)s",\n'
+                        '        %(link)s);',
+                        link='__box_%(box)s_import_%(alias)s',
+                        name=export.name,
+                        alias=export.alias,
+                        argstring=self._repr_argstring(export))
+                    out.printf('if (res && '
+                        'res != m3Err_functionLookupFailed) {')
+                    with out.indent():
+                        out.printf('return __box_wasm3_toerr(res);')
+                    out.printf('}')
+                out.printf()
+            out.printf('__box_%(box)s_initialized = true;')
+            out.printf('return 0;')
+        out.printf('}')
+
+        out = output.decls.append()
+        out.printf('int __box_%(box)s_clobber(void) {')
+        with out.indent():
+            out.printf('__box_%(box)s_initialized = false;')
+            out.printf('return 0;')
+        out.printf('}')
+        
 
 
-        # TODO move this to init
-        output.append_decl('// wasm3 init')
-        outf = output.append_decl()
-        outf.write('void __box_%s_init(void) {\n' % box.name)
-        outf.write(4*' '+'M3Result err;\n')
-        outf.write(4*' '+'IM3Environment env = m3_NewEnvironment();\n')
-        outf.write(4*' '+'assert(env);\n')
-        outf.write(4*' '+'__box_%s_runtime = m3_NewRuntime('
-            'env, __BOX_%s_STACK, NULL);\n' % (box.name, box.name.upper()))
-        outf.write(4*' '+'assert(__box_%s_runtime);\n' % box.name)
-#TODO
-##ifdef WASM_MEMORY_LIMIT
-#    runtime->memoryLimit = WASM_MEMORY_LIMIT;
-##endif
-        outf.write(4*' '+'extern uint8_t __box_%s_image;\n' % box.name)
-        outf.write(4*' '+'extern uint8_t __box_%s_image_end;\n' % box.name)
-        outf.write(4*' '+'err = m3_ParseModule('
-            'env, &__box_%(box)s_module, '
-            '&__box_%(box)s_image, '
-            '&__box_%(box)s_image_end - &__box_%(box)s_image);\n' % dict(
-            box=box.name))
-        outf.write(4*' '+'assert(!err);\n')
-        outf.write(4*' '+'err = m3_LoadModule('
-            '__box_%(box)s_runtime, __box_%(box)s_module);\n' % dict(
-            box=box.name))
-        outf.write(4*' '+'assert(!err);\n')
-        outf.write('\n')
-
-        # WASI imports (only for printf)
-        for name, type in [
-                ('fd_close',        'i(i)'),
-                ('fd_seek',         'i(iIi*)'),
-                ('fd_fdstat_get',   'i(i*)'),
-                ('fd_write',        'i(i*i*)')]:
-            # TODO need SuppressLookupFailure?
-            outf.write(4*' '+'err = m3_LinkRawFunction('
-                '__box_%(box)s_module, "%(module)s", '
-                '"%(name)s", "%(type)s", '
-                '&__box_hook_wasi_%(name)s);\n' % dict(
-                box=box.name,
-                module='wasi_snapshot_preview1', # TODO fix this
-                name=name,
-                type=type))
-
-        # other imports
-        for import_ in box.imports.values():
-            outf.write(4*' '+'err = m3_LinkRawFunction('
-                '__box_%s_module, "*", "%s", "%s(%s)", &__box_hook_%s);\n' % (
-                box.name,
-                import_.name,
-                'i' if import_.rets else 'v',
-                'i'*len(import_.args), # TODO type me
-                import_.name))
-            outf.write(4*' '+'assert(!err);\n')
-        outf.write('}\n')
-
-    def build_header(self, sys, box, output):
-        self.build_common_header(sys, box, output)
-
-#    def build_jumptable(self, sys, box, output):
-#        self.build_common_header(sys, box, output)
+#        out = output.decls.append()
+#        out.printf('//// %(box)s state ////')
+#        out.printf('bool __box_%(box)s_initialized = false;')
+##        if not self._abort_hook.link and not self._no_longjmp:
+##            out.printf('jmp_buf *__box_%(box)s_jmpbuf = NULL;')
+#        if box.stack.size > 0:
+#            out.printf('uint8_t *__box_%(box)s_datasp = NULL;')
+#        out.printf('extern uint32_t __box_%(box)s_jumptable[];')
+#        out.printf('#define __box_%(box)s_exportjumptable '
+#            '__box_%(box)s_jumptable')
 #
-##        output.append_decl(BOX_INIT.lstrip() % dict(name=box.name))
-##        output.append_decl(BOX_WRITE.lstrip() % dict(name=box.name))
+#        output.decls.append('//// %(box)s exports ////')
 #
-#        output.append_decl('extern uint32_t __stack_end;')
-#        outf = output.append_decl()
-#        outf.write('__attribute__((section(".jumptable")))\n')
-#        outf.write('__attribute__((used))\n')
-#        outf.write('const struct %(name)s_exportjumptable '
-#            '__%(name)s_exportjumptable = {\n' % dict(name=box.name))
-#        # special entries for the sp and __box_init
-#        outf.write('    &__stack_end,\n')
-#        outf.write('    __box_%s_init,\n' % box.name)
-#        for export in box.exports.values():
-#            outf.write('    %s,\n' % export.name)
-#        outf.write('};\n')
-
-    def build_sys_partiallinkerscript(self, sys, box, output):
-        # TODO don't use RAM?
-        # create memories
-        for memory in box.memories.values():
-            output.append_memory('%(name)-16s (%(mode)s) : '
-                'ORIGIN = %(origin)#010x, '
-                'LENGTH = %(length)#010x' % dict(
-                    name='BOX_%s_%s' % (box.name.upper(), memory.name.upper()),
-                    mode=''.join(c.upper() for c in sorted(memory.mode)),
-                    origin=memory.start or 0,
-                    length=memory.size))
-
-        # create image section
-        bestmemory = (sorted(
-            [m for m in box.memories.values()
-            if set('rx').issubset(m.mode)],
-            key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
-                +[None])[0]
-        #align = 4
-
-        outf = output.append_section()
-        outf.write('.box.%s.image : {\n' % box.name)
-        #outf.write(4*' '+'. = ALIGN(%d);\n' % align)
-        outf.write(4*' '+'__box_%s_image = .;\n' % box.name)
-        outf.write(4*' '+'KEEP(*(.box.%s.image*))\n' % box.name)
-        #outf.write(4*' '+'. = ALIGN(%d);\n' % align)
-        outf.write(4*' '+'__box_%s_image_end = .;\n' % box.name)
-        outf.write('} > BOX_%s_%s\n' % (box.name.upper(),
-            bestmemory.name.upper() if bestmemory else '?'))
-
-#    def build_partiallinkerscript(self, sys, box, output):
-#        # create box calls for imports
-#        output.append_decl('/* box calls */')
-#        for i, import_ in enumerate(it.chain(
-#                ['__box_fault', '__box_write'], box.imports)):
-#            output.append_decl('%-16s = 0x0fffc000 + %d*2;' % (
-#                import_, i))
-
-#    def build_linkerscript(self, sys, box, output):
-#        # extra decls?
-#        for section in box.sections.values():
-#            if section.size is not None:
-#                output.append_decl('%-16s = %#010x;' % (
-#                    '__%s_min' % section.name, section.size))
+#        for i, (import_, needsinit) in enumerate(
+#                self._parentimports(parent, box)):
+#            out = output.decls.append(
+#                fn=output.repr_fn(import_),
+#                fnptr=output.repr_fnptr(import_.prebound(), ''),
+#                i=i+1 if box.stack.size > 0 else i)
+#            out.printf('%(fn)s {')
+#            with out.indent():
+#                # inject lazy-init?
+#                if needsinit:
+#                    out.printf('if (!__box_%(box)s_initialized) {')
+#                    with out.indent():
+#                        out.printf('int err = __box_%(box)s_init();')
+#                        out.printf('if (err) {')
+#                        with out.indent():
+#                            if import_.isfalible():
+#                                out.printf('return err;')
+#                            else:
+#                                out.printf('__box_abort(err);')
+#                        out.printf('}')
+#                    out.printf('}')
+#                    out.printf()
+#                # use longjmp?
+##                if (import_.isfalible() and
+##                        not self._abort_hook.link and
+##                        not self._no_longjmp):
+##                    with out.pushattrs(
+##                            pjmpbuf=import_.uniquename('pjmpbuf'),
+##                            jmpbuf=import_.uniquename('jmpbuf'),
+##                            err=import_.uniquename('err')):
+##                        out.printf('jmp_buf *%(pjmpbuf)s = '
+##                            '__box_%(box)s_jmpbuf;')
+##                        out.printf('jmp_buf %(jmpbuf)s;')
+##                        out.printf('__box_%(box)s_jmpbuf = &%(jmpbuf)s;')
+##                        out.printf('int %(err)s = setjmp(%(jmpbuf)s);')
+##                        out.printf('if (%(err)s) {')
+##                        with out.indent():
+##                            out.printf('__box_%(box)s_jmpbuf = %(pjmpbuf)s;')
+##                            out.printf('return %(err)s;')
+##                        out.printf('}')
+#                # jump to jumptable entry
+##                out.printf('%(return_)s((%(fnptr)s)\n'
+##                    '        __box_%(box)s_exportjumptable[%(i)d])(%(args)s);',
+##                    return_=('return ' if import_.rets else '')
+##                        if not (import_.isfalible() and
+##                            not self._abort_hook.link and
+##                            not self._no_longjmp) else
+##                        ('%s = ' % output.repr_arg(import_.rets[0],
+##                                import_.retname())
+##                            if import_.rets else ''),
+##                    args=', '.join(map(str, import_.argnamesandbounds())))
+#                if import_.isnoreturn():
+#                    # kinda wish we could apply noreturn to C types...
+#                    out.printf('__builtin_unreachable();')
+#                # use longjmp?
+#                if (import_.isfalible() and
+#                        not self._abort_hook.link and
+#                        not self._no_longjmp):
+#                    with out.pushattrs(
+#                            pjmpbuf=import_.uniquename('pjmpbuf')):
+#                        out.printf('__box_%(box)s_jmpbuf = %(pjmpbuf)s;')
+#                        if import_.rets:
+#                            out.printf('return %(ret)s;',
+#                                ret=import_.retname())
+#            out.printf('}')
+#            
+#        output.decls.append('//// %(box)s imports ////')
 #
-#        output.append_decl()
-#        self.build_partiallinkerscript(sys, box, output)
-#
-#        # create memories
-#        for memory in box.memories.values():
-#            output.append_memory('%(name)-16s (%(mode)s) : '
-#                'ORIGIN = %(origin)#010x, '
-#                'LENGTH = %(length)#010x' % dict(
-#                    name=memory.name.upper(),
-#                    mode=''.join(c.upper() for c in sorted(memory.mode)),
-#                    origin=memory.start or 0,
-#                    length=memory.size))
-#
-#        # create sections
-#        for name in ['text', 'data', 'bss'] + sorted(
-#                name for name in box.sections
-#                if name not in {'text', 'bss', 'data', 'heap', 'stack'}):
-#            section = box.sections.get(name)
-#            align = (section.align if section else 4) or 4
-#            bestmemory = None
-#            for memory in box.memories.values():
-#                if memory.sections is not None and name in memory.sections:
-#                    bestmemory = memory
-#                    break
+#        # redirect hooks if necessary
+#        if not self._abort_hook.link:
+#            if not self._no_longjmp:
+#                # use longjmp to recover from explicit aborts
+#                output.includes.append('<setjmp.h>')
+#                out = output.decls.append(
+#                    fn=output.repr_fn(self._abort_hook,
+#                        self._abort_hook.name))
+#                out.printf('%(fn)s {')
+#                with out.indent():
+#                    out.printf('__box_%(box)s_initialized = false;')
+#                    out.printf('if (__box_%(box)s_jmpbuf) {')
+#                    with out.indent():
+#                        out.printf('longjmp(*__box_%(box)s_jmpbuf, err);')
+#                    out.printf('} else {')
+#                    with out.indent():
+#                        out.printf('__box_abort(err);')
+#                    out.printf('}')
+#                out.printf('}')
 #            else:
-#                if name in {'text'}:
-#                    bestmemory = (sorted(
-#                        [m for m in box.memories.values()
-#                        if set('rx').issubset(m.mode)],
-#                        key=lambda m: ('w' in m.mode)*(2<<32) - m.size)
-#                            +[None])[0]
-#                elif name in {'data', 'bss'}:
-#                    bestmemory = (sorted(
-#                        [m for m in box.memories.values()
-#                        if set('rw').issubset(m.mode)],
-#                        key=lambda m: -m.size)
-#                            +[None])[0]
+#                # just redirect to parent's __box_abort
+#                out = output.decls.append(
+#                    abort_hook=self._abort_hook.name,
+#                    doc='redirect %(abort_hook)s -> __box_abort')
+#                out.printf('#define %(abort_hook)s __box_abort')
 #
-#            outf = output.append_section()
-#            outf.write('.%(name)s%(type)s :%(at)s {\n' % dict(
-#                name=name,
-#                type=' (NOLOAD)' if name == 'bss' else '',
-#                at=' AT(__data_init)' if name == 'data' else ''))
-#            outf.write(4*' '+'. = ALIGN(%d);\n' % align)
-#            outf.write(4*' '+'__%s = .;\n' % name)
-#            if name == 'text':
-#                outf.write(4*' '+'__jumptable = .;\n')
-#                outf.write(4*' '+'KEEP(*(.jumptable))\n')
-#            outf.write(4*' '+'*(.%s*)\n' % name)
-#            if name == 'text':
-#                outf.write(4*' '+'*(.rodata*)\n')
-#                outf.write(4*' '+'KEEP(*(.init))\n') # TODO can these be wildcarded?
-#                outf.write(4*' '+'KEEP(*(.fini))\n')
-#            elif name == 'bss':
-#                outf.write(4*' '+'*(COMMON)\n') # TODO need this?
-#            outf.write(4*' '+'. = ALIGN(%d);\n' % align)
-#            outf.write(4*' '+'__%s_end = .;\n' % name)
-#            if name == 'text':
-#                outf.write(4*' '+'__data_init = .;\n')
-#            outf.write('} > %s\n' % (
-#                bestmemory.name.upper() if bestmemory else '?'))
+#        if not self._write_hook.link:
+#            out = output.decls.append(
+#                write_hook=self._write_hook.name,
+#                doc='redirect %(write_hook)s -> __box_write')
+#            out.printf('#define %(write_hook)s __box_write')
 #
-#        # here we handle heap/stack separately, they're a bit special since
-#        # the heap/stack can "share" memory
-#        heapsection = box.sections.get('heap')
-#        heapalign = (heapsection.align if heapsection else 8) or 8
-#        heapsize = heapsection.size
-#        stacksection = box.sections.get('stack')
-#        stackalign = (stacksection.align if stacksection else 8) or 8
-#        stacksize = stacksection.size
-#        bestmemory = None
-#        for memory in box.memories.values():
-#            if memory.sections is not None and 'heap' in memory.sections:
-#                bestmemory = memory
-#        else:
-#            bestmemory = (sorted(
-#                [m for m in box.memories.values()
-#                if set('rw').issubset(m.mode)],
-#                key=lambda m: -m.size)
-#                    +[None])[0]
+#        if not self._flush_hook.link:
+#            out = output.decls.append(
+#                flush_hook=self._flush_hook.name,
+#                doc='redirect %(flush_hook)s -> __box_flush')
+#            out.printf('#define %(flush_hook)s __box_flush')
 #
-#        outf = output.append_section()
-#        outf.write('.heap (NOLOAD) : {\n')
-#        outf.write(4*' '+'. = ALIGN(%d);\n' % heapalign)
-#        outf.write(4*' '+'__heap = .;\n')
-#        outf.write(4*' '+'__stack = .;\n')
-#        # TODO do we need _all_ of these?
-#        outf.write(4*' '+'__end__ = .;\n') 
-#        outf.write(4*' '+'PROVIDE(end = .);\n') 
-#        outf.write(4*' '+'__HeapBase = .;\n')
-#        outf.write(4*' '+'__HeapLimit = ('
-#            'ORIGIN(%(MEM)s) + LENGTH(%(MEM)s));\n' % dict(
-#                MEM=bestmemory.name.upper() if bestmemory else '?'))
-#        outf.write(4*' '+'__heap_limit = ('
-#            'ORIGIN(%(MEM)s) + LENGTH(%(MEM)s));\n' % dict(
-#                MEM=bestmemory.name.upper() if bestmemory else '?'))
-#        outf.write(4*' '+'__heap_end = ('
-#            'ORIGIN(%(MEM)s) + LENGTH(%(MEM)s));\n' % dict(
-#                MEM=bestmemory.name.upper() if bestmemory else '?'))
-#        outf.write(4*' '+'__stack_end = ('
-#            'ORIGIN(%(MEM)s) + LENGTH(%(MEM)s));\n' % dict(
-#                MEM=bestmemory.name.upper() if bestmemory else '?'))
-#        outf.write('} > %s' % (bestmemory.name.upper() if bestmemory else '?'))
-#        if heapsize or stacksize:
-#            outf.write('\n\n')
-#            outf.write('ASSERT(__HeapLimit - __HeapBase > %s,\n' %
-#                '__heap_min + __stack_min' if heapsize and stacksize else
-#                '__heap_min' if heapsize else
-#                '__stack_min')
-#            outf.write(4*' '+'"Not enough memory remains for heap and stack")')
+#        # wrappers?
+#        for export in (export
+#                for export, needswrapper in self._parentexports(parent, box)
+#                if needswrapper):
+#            out = output.decls.append(
+#                fn=output.repr_fn(
+#                    export.postbound(),
+#                    name='__box_%(box)s_export_%(alias)s'),
+#                alias=export.alias)
+#            out.printf('%(fn)s {')
+#            with out.indent():
+#                out.printf('%(return_)s%(alias)s(%(args)s);',
+#                    return_='return ' if import_.rets else '',
+#                    args=', '.join(map(str, export.argnamesandbounds())))
+#            out.printf('}')
+#
+#        # import jumptable
+#        out = output.decls.append()
+#        out.printf('const uint32_t __box_%(box)s_importjumptable[] = {')
+#        with out.indent():
+#            for export, needswrapper in self._parentexports(parent, box):
+#                out.printf('(uint32_t)%(prefix)s%(alias)s,',
+#                    prefix='__box_%(box)s_export_' if needswrapper else '',
+#                    alias=export.alias)
+#        out.printf('};')
+#
+#        # init
+#        output.decls.append('//// %(box)s init ////')
+#        out = output.decls.append()
+#        out.printf('int __box_%(box)s_init(void) {')
+#        with out.indent():
+#            out.printf('int err;')
+#            if box.roommates:
+#                out.printf('// bring down any overlapping boxes')
+#            for i, roommate in enumerate(box.roommates):
+#                with out.pushattrs(roommate=roommate.name):
+#                    out.printf('extern int __box_%(roommate)s_clobber(void);')
+#                    out.printf('err = __box_%(roommate)s_clobber();')
+#                    out.printf('if (err) {')
+#                    with out.indent():
+#                        out.printf('return err;')
+#                    out.printf('}')
+#                    out.printf()
+#            if box.stack.size > 0:
+#                out.printf('// prepare data stack')
+#                out.printf('__box_%(box)s_datasp = '
+#                    '(void*)__box_%(box)s_exportjumptable[0];')
+#                out.printf()
+#            out.printf('// load the box if unloaded')
+#            out.printf('err = __box_%(box)s_load();')
+#            out.printf('if (err) {')
+#            with out.indent():
+#                out.printf('return err;')
+#            out.printf('}')
+#            out.printf()
+#            out.printf('// call box\'s init')
+#            out.printf('err = __box_%(box)s_postinit('
+#                '__box_%(box)s_importjumptable);')
+#            out.printf('if (err) {')
+#            with out.indent():
+#                out.printf('return err;')
+#            out.printf('}')
+#            out.printf()
+#            out.printf('__box_%(box)s_initialized = true;')
+#            out.printf('return 0;')
+#        out.printf('}')
+#
+#        out = output.decls.append()
+#        out.printf('int __box_%(box)s_clobber(void) {')
+#        with out.indent():
+#            out.printf('__box_%(box)s_initialized = false;')
+#            out.printf('return 0;')
+#        out.printf('}')
+#
+#        # stack manipulation
+#        output.includes.append('<assert.h>')
+#        out = output.decls.append(
+#            memory=box.stack.memory.name)
+#        out.printf('void *__box_%(box)s_push(size_t size) {')
+#        with out.indent():
+#            if box.stack.size > 0:
+#                out.printf('size = ((size+3)/4)*4;')
+#                out.printf('extern uint8_t __box_%(box)s_%(memory)s_start;')
+#                out.printf('if (__box_%(box)s_datasp - size '
+#                        '< &__box_%(box)s_%(memory)s_start) {')
+#                with out.indent():
+#                    out.printf('return NULL;')
+#                out.printf('}')
+#                out.printf()
+#                out.printf('__box_%(box)s_datasp -= size;')
+#                out.printf('return __box_%(box)s_datasp;')
+#            else:
+#                out.printf('return NULL;')
+#        out.printf('}')
+#
+#        out = output.decls.append(
+#            memory=box.stack.memory.name)
+#        out.printf('void __box_%(box)s_pop(size_t size) {')
+#        with out.indent():
+#            if box.stack.size > 0:
+#                out.printf('size = ((size+3)/4)*4;')
+#                out.printf('__attribute__((unused))')
+#                out.printf('extern uint8_t __box_%(box)s_%(memory)s_end;')
+#                out.printf('assert(__box_%(box)s_datasp + size '
+#                    '<= &__box_%(box)s_%(memory)s_end);')
+#                out.printf('__box_%(box)s_datasp += size;')
+#            else:
+#                out.printf('assert(false);')
+#        out.printf('}')
+
+    def build_parent_ld(self, output, parent, box):
+        super().build_parent_ld(output, parent, box)
+
+        if not output.no_sections:
+            out = output.sections.append(
+                box_memory=box.text.memory.name,
+                section='.box.%(box)s.%(box_memory)s',
+                memory='box_%(box)s_%(box_memory)s')
+            out.printf('__box_%(box)s_image = __%(memory)s_start;')
+
+#
+#        if not output.no_sections:
+#            out = output.sections.append(
+#                box_memory=self._jumptable.memory.name,
+#                section='.box.%(box)s.%(box_memory)s',
+#                memory='box_%(box)s_%(box_memory)s')
+#            out.printf('__box_%(box)s_jumptable = __%(memory)s_start;')
+
+    def build_c(self, output, box):
+        super().build_c(output, box)
+
+#        out = output.decls.append()
+#        out.printf('//// jumptable implementation ////')
+#        out.printf('const uint32_t *__box_importjumptable;')
+#
+#        out = output.decls.append()
+#        out.printf('int __box_init(const uint32_t *importjumptable) {')
+#        with out.indent():
+#            if self.data_init_hook.link:
+#                out.printf('// data inited by %(hook)s',
+#                    hook=self.data_init_hook.link.export.source)
+#                out.printf()
+#            else:
+#                out.printf('// load data')
+#                out.printf('extern uint32_t __data_init_start;')
+#                out.printf('extern uint32_t __data_start;')
+#                out.printf('extern uint32_t __data_end;')
+#                out.printf('const uint32_t *s = &__data_init_start;')
+#                out.printf('for (uint32_t *d = &__data_start; '
+#                    'd < &__data_end; d++) {')
+#                with out.indent():
+#                    out.printf('*d = *s++;')
+#                out.printf('}')
+#                out.printf()
+#            if self.bss_init_hook.link:
+#                out.printf('// bss inited by %(hook)s',
+#                    hook=self.bss_init_hook.link.export.source)
+#                out.printf()
+#            else:
+#                out.printf('// zero bss')
+#                out.printf('extern uint32_t __bss_start;')
+#                out.printf('extern uint32_t __bss_end;')
+#                out.printf('for (uint32_t *d = &__bss_start; '
+#                    'd < &__bss_end; d++) {')
+#                with out.indent():
+#                    out.printf('*d = 0;')
+#                out.printf('}')
+#                out.printf()
+#            out.printf('// set import jumptable')
+#            out.printf('__box_importjumptable = importjumptable;')
+#            out.printf()
+#            out.printf('// init libc')
+#            out.printf('extern void __libc_init_array(void);')
+#            out.printf('__libc_init_array();')
+#            out.printf()
+#            out.printf('return 0;')
+#        out.printf('}')
+#
+#        output.decls.append('//// imports ////')
+#        for i, import_ in enumerate(self._imports(box)):
+#            out = output.decls.append(
+#                fn=output.repr_fn(import_),
+#                fnptr=output.repr_fnptr(import_, ''),
+#                i=i)
+#            out.printf('%(fn)s {')
+#            with out.indent():
+#                out.printf('%(return_)s((%(fnptr)s)\n'
+#                    '        __box_importjumptable[%(i)d])(%(args)s);',
+#                    return_='return ' if import_.rets else '',
+#                    args=', '.join(map(str, import_.argnamesandbounds())))
+#                if import_.isnoreturn():
+#                    # kinda wish we could apply noreturn to C types...
+#                    out.printf('__builtin_unreachable();')
+#            out.printf('}')
+#
+#        output.decls.append('//// exports ////')
+#        for export in (export
+#                for export, needswrapper in self._exports(box)
+#                if needswrapper):
+#            out = output.decls.append(
+#                fn=output.repr_fn(
+#                    export.postbound(),
+#                    name='__box_export_%(alias)s'),
+#                alias=export.alias)
+#            out.printf('%(fn)s {')
+#            with out.indent():
+#                out.printf('%(return_)s%(alias)s(%(args)s);',
+#                    return_='return ' if import_.rets else '',
+#                    args=', '.join(map(str, export.argnamesandbounds())))
+#            out.printf('}')
+#
+#        out = output.decls.append(doc='box-side jumptable')
+#        if box.stack.size > 0:
+#            out.printf('extern uint8_t __stack_end;')
+#        out.printf('__attribute__((used, section(".jumptable")))')
+#        out.printf('const uint32_t __box_exportjumptable[] = {')
+#        with out.pushindent():
+#            if box.stack.size > 0:
+#                out.printf('(uint32_t)&__stack_end,')
+#            for export, needswrapper in self._exports(box):
+#                out.printf('(uint32_t)%(prefix)s%(alias)s,',
+#                    prefix='__box_export_' if needswrapper else '',
+#                    alias=export.alias)
+#        out.printf('};')
+
+#    def build_ld(self, output, box):
+#        if not output.no_sections:
+#            out = output.sections.append(
+#                section='.jumptable',
+#                memory=self._jumptable.memory.name)
+#            out.printf('. = ALIGN(%(align)d);')
+#            out.printf('__jumptable_start = .;')
+#            out.printf('%(section)s . : {')
+#            with out.pushindent():
+#                out.printf('__jumptable = .;')
+#                out.printf('KEEP(*(.jumptable))')
+#            out.printf('} > %(MEMORY)s')
+#            out.printf('. = ALIGN(%(align)d);')
+#            out.printf('__jumptable_end = .;')
+#
+#        super().build_ld(output, box)
+

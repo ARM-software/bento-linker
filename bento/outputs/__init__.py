@@ -210,11 +210,11 @@ class Output(Inherit(
 
 # Output class imports
 # These must be imported here, since they depend on the above utilities
-from .h import HOutput
-from .c import COutput
+from .c import HOutput, COutput
 from .ld import LDOutput
 from .mk import MKOutput
 from .rs import RustOutput
+from .wasm import WasmHOutput, WasmCOutput
 
 # output glue for connecting default runtime generation
 import importlib

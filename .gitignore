@@ -1,2 +1,6 @@
 __pycache__
 .cache/
+extra/wasi-sdk*
+!extra/wasi-sdk-source
+extra/wabt*
+!extra/wabt-source

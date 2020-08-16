@@ -1,12 +1,20 @@
 from .. import glue
 
-BOX_STDLIB_HOOKS = """
-__attribute__((used, noreturn))
+C_HOOKS = """
+%(visibility)s
+__attribute__((noreturn))
 void __wrap_abort(void) {
     __box_abort(-1);
 }
 
-#ifdef __GNUC__
+%(visibility)s
+void __wrap_exit(int code) {
+    __box_abort(code > 0 ? -code : code);
+}
+"""
+
+GCC_HOOKS = """
+#if defined(__GNUC__)
 __attribute__((noreturn))
 void __assert_func(const char *file, int line,
         const char *func, const char *expr) {
@@ -15,17 +23,28 @@ void __assert_func(const char *file, int line,
 }
 
 __attribute__((noreturn))
-void _exit(int returncode) {
-    if (returncode > 0) {
-        returncode = -returncode;
-    }
-
-    __box_abort(returncode);
+void _exit(int code) {
+    __box_abort(code > 0 ? -code : code);
 }
 #endif
 """
 
-BOX_RUST_HOOKS = '''
+WASM_HOOKS = """
+// these actually should not get called, but seem to get linked in anyways
+off_t __stdio_seek(FILE *f, off_t off, int whence) {
+    return -ENOSYS;
+}
+
+size_t __stdout_write(FILE *f, const uint8_t *buffer, size_t len) {
+    return -ENOSYS;
+}
+
+int __stdio_close(FILE *f) {
+    return -ENOSYS;
+}
+"""
+
+RUST_HOOKS = '''
 /// abort implementation
 pub fn abort(err: Error) -> ! {
     extern "C" {
@@ -80,9 +99,15 @@ class AbortGlue(glue.Glue):
         super().build_c_prologue(output, box)
         self.__build_common_prologue(output, box)
 
-    def build_c(self, output, box):
-        super().build_c(output, box)
+    def build_wasm_h_prologue(self, output, box):
+        super().build_h_prologue(output, box)
+        self.__build_common_prologue(output, box)
 
+    def build_wasm_c_prologue(self, output, box):
+        super().build_c_prologue(output, box)
+        self.__build_common_prologue(output, box)
+
+    def __build_common_c(self, output, box):
         output.decls.append('//// __box_abort glue ////')
         if not self.__abort_hook.link:
             # defaults to just halting
@@ -105,19 +130,45 @@ class AbortGlue(glue.Glue):
 
         if not output.no_stdlib_hooks:
             output.includes.append('<stdio.h>')
-            output.decls.append(BOX_STDLIB_HOOKS)
+            output.decls.append(C_HOOKS)
+
+    def build_c(self, output, box):
+        super().build_c(output, box)
+
+        with output.pushattrs(
+                visibility='__attribute__((used))'):
+            self.__build_common_c(output, box)
+
+            if not output.no_stdlib_hooks:
+                output.decls.append(GCC_HOOKS)
+
+    def build_wasm_c(self, output, box):
+        super().build_wasm_c(output, box)
+
+        with output.pushattrs(
+                visibility='__attribute__((visibility("hidden")))'):
+            self.__build_common_c(output, box)
+
+            if not output.no_stdlib_hooks:
+                output.decls.append(WASM_HOOKS)
 
     def build_mk(self, output, box):
         super().build_mk(output, box)
 
+        out = output.decls.append()
+        out.printf('### __box_abort glue ###')
         if ('c' in box.outputs and
                 not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
-            out = output.decls.append()
-            out.printf('### __box_abort glue ###')
             out.printf('override LDFLAGS += -Wl,--wrap,abort')
+            out.printf('override LDFLAGS += -Wl,--wrap,exit')
+        if (not output.no_wasm and
+                'wasm_c' in box.outputs and
+                not box.outputs[box.outputs.index('wasm_c')].no_stdlib_hooks):
+            out.printf('override WASMLDFLAGS += -Wl,--wrap,abort')
+            out.printf('override WASMLDFLAGS += -Wl,--wrap,exit')
 
     def build_rs(self, output, box):
         super().build_rs(output, box)
         # TODO doc
         output.uses.append('core::panic')
-        output.decls.append(BOX_RUST_HOOKS)
+        output.decls.append(RUST_HOOKS)

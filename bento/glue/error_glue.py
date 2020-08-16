@@ -205,6 +205,14 @@ class ErrorGlue(glue.Glue):
         super().build_c_prologue(output, box)
         self.__build_common_prologue(output, box)
 
+    def build_wasm_h_prologue(self, output, box):
+        super().build_wasm_h_prologue(output, box)
+        self.__build_common_prologue(output, box)
+
+    def build_wasm_c_prologue(self, output, box):
+        super().build_wasm_c_prologue(output, box)
+        self.__build_common_prologue(output, box)
+
     def build_rs_prologue(self, output, box):
         super().build_rs_prologue(output, box)
 

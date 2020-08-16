@@ -19,12 +19,6 @@ class NoOpLoader(loaders.Loader):
             scope=parent.name, source=self.__argname__, weak=True)
 
     def build_mk(self, output, box):
-        # target rule
-        out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(OBJ) $(ARCHIVES) $(BOXES) $(LDSCRIPT)')
-        with out.indent():
-            out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
-
         # create boxing rule, to be invoked if embedding an elf is needed
         data_init = None
         if any(section.name == 'data'

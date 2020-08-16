@@ -230,12 +230,12 @@ static ssize_t __box_vprintf_write(void *ctx, const void *buf, size_t size) {
     return __box_write((int32_t)ctx, buf, size);
 }
 
-__attribute__((used))
+%(visibility)s
 ssize_t __wrap_vprintf(const char *format, va_list args) {
     return __box_cbprintf(__box_vprintf_write, (void*)1, format, args);
 }
 
-__attribute__((used))
+%(visibility)s
 ssize_t __wrap_printf(const char *format, ...) {
     va_list args;
     va_start(args, format);
@@ -244,13 +244,13 @@ ssize_t __wrap_printf(const char *format, ...) {
     return res;
 }
 
-__attribute__((used))
+%(visibility)s
 ssize_t __wrap_vfprintf(FILE *f, const char *format, va_list args) {
     int32_t fd = (f == stdout) ? 1 : 2;
     return __box_cbprintf(__box_vprintf_write, (void*)fd, format, args);
 }
 
-__attribute__((used))
+%(visibility)s
 ssize_t __wrap_fprintf(FILE *f, const char *format, ...) {
     va_list args;
     va_start(args, format);
@@ -258,16 +258,18 @@ ssize_t __wrap_fprintf(FILE *f, const char *format, ...) {
     va_end(args);
     return res;
 }
+"""
 
-__attribute__((used))
+C_HOOKS = """
+%(visibility)s
 int __wrap_fflush(FILE *f) {
     int32_t fd = (f == stdout) ? 1 : 2;
     return __box_flush(fd);
 }
 """
 
-C_STDLIB_HOOKS = """
-#ifdef __GNUC__
+GCC_HOOKS = """
+#if defined(__GNUC__)
 int _write(int handle, const char *buffer, int size) {
     return __box_write(handle, (const uint8_t*)buffer, size);
 }
@@ -388,9 +390,15 @@ class WriteGlue(glue.Glue):
         super().build_c_prologue(output, box)
         self.__build_common_prologue(output, box)
 
-    def build_c(self, output, box):
-        super().build_c(output, box)
+    def build_wasm_h_prologue(self, output, box):
+        super().build_wasm_h_prologue(output, box)
+        self.__build_common_prologue(output, box)
 
+    def build_wasm_c_prologue(self, output, box):
+        super().build_wasm_c_prologue(output, box)
+        self.__build_common_prologue(output, box)
+
+    def __build_common_c(self, output, box):
         output.decls.append('//// __box_write glue ////')
         if not self.__write_hook.link:
             # defaults to noop
@@ -433,20 +441,48 @@ class WriteGlue(glue.Glue):
             out.printf(C_MINIMAL_PRINTF)
 
         if not output.no_stdlib_hooks:
-            output.decls.append(C_STDLIB_HOOKS)
+            output.decls.append(C_HOOKS)
+
+    def build_c(self, output, box):
+        super().build_c(output, box)
+
+        with output.pushattrs(
+                visibility='__attribute__((used))'):
+            self.__build_common_c(output, box)
+
+            if not output.no_stdlib_hooks:
+                output.decls.append(GCC_HOOKS)
+
+    def build_wasm_c(self, output, box):
+        super().build_wasm_c(output, box)
+
+        with output.pushattrs(
+                visibility='__attribute__((visibility("hidden")))'):
+            self.__build_common_c(output, box)
 
     def build_mk(self, output, box):
         super().build_mk(output, box)
 
+        out = output.decls.append()
+        out.printf('### __box_write glue ###')
         if ('c' in box.outputs and
                 not box.outputs[box.outputs.index('c')].no_stdlib_hooks):
-            out = output.decls.append()
-            out.printf('### __box_write glue ###')
-            out.printf('override LDFLAGS += -Wl,--wrap,printf')
-            out.printf('override LDFLAGS += -Wl,--wrap,vprintf')
-            out.printf('override LDFLAGS += -Wl,--wrap,fprintf')
-            out.printf('override LDFLAGS += -Wl,--wrap,vfprintf')
+            if (box.outputs[box.outputs.index('c')]
+                    .printf_impl == 'minimal'):
+                out.printf('override LDFLAGS += -Wl,--wrap,printf')
+                out.printf('override LDFLAGS += -Wl,--wrap,vprintf')
+                out.printf('override LDFLAGS += -Wl,--wrap,fprintf')
+                out.printf('override LDFLAGS += -Wl,--wrap,vfprintf')
             out.printf('override LDFLAGS += -Wl,--wrap,fflush')
+        if ('wasm_c' in box.outputs and
+                not box.outputs[box.outputs.index('wasm_c')].no_stdlib_hooks):
+            if (box.outputs[box.outputs.index('wasm_c')]
+                    .printf_impl == 'minimal'):
+                out.printf('override WASMLDFLAGS += -Wl,--wrap,printf')
+                out.printf('override WASMLDFLAGS += -Wl,--wrap,vprintf')
+                out.printf('override WASMLDFLAGS += -Wl,--wrap,fprintf')
+                out.printf('override WASMLDFLAGS += -Wl,--wrap,vfprintf')
+            out.printf('override WASMLDFLAGS += -Wl,--wrap,fflush')
 
     def build_rs(self, output, box):
         super().build_rs(output, box)

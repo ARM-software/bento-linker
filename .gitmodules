@@ -4,3 +4,12 @@
 [submodule "extra/mbedtls"]
 	path = extra/mbedtls
 	url = git@github.com:armmbed/mbedtls
+[submodule "extra/wasm3"]
+	path = extra/wasm3
+	url = https://github.com/wasm3/wasm3
+[submodule "extra/wasi-sdk-source"]
+	path = extra/wasi-sdk-source
+	url = https://github.com/WebAssembly/wasi-sdk
+[submodule "extra/wabt-source"]
+	path = extra/wabt-source
+	url = https://github.com/WebAssembly/wabt

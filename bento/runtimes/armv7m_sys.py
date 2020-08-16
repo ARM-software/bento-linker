@@ -6,6 +6,7 @@ from ..box import Section
 from ..glue.error_glue import ErrorGlue
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
+from ..glue.heap_glue import HeapGlue
 
 
 DEFAULT_HANDLER = """
@@ -16,7 +17,12 @@ void %(name)s(void) {
 """
 
 @runtimes.runtime
-class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
+class ARMv7MSysRuntime(
+        ErrorGlue,
+        WriteGlue,
+        AbortGlue,
+        HeapGlue,
+        runtimes.Runtime):
     """
     A bento-box runtime that runs in privledge mode on the system.
     Usually required at the root of the project.
@@ -88,6 +94,18 @@ class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                 self._isr_hooks.append(box.addimport(
                     '__box_irq%d_handler' % i, 'fn() -> void',
                     scope=box.name, source=self.__argname__, weak=True))
+
+    def build_mk(self, output, box):
+        # target rule
+        output.decls.insert(0, '%(name)-16s ?= %(target)s',
+            name='TARGET', target=output.get('target', '%(box)s.elf'))
+
+        out = output.rules.append(doc='target rule')
+        out.printf('$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)')
+        with out.indent():
+            out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
+
+        super().build_mk(output, box)
 
     def build_ld(self, output, box):
         # reset handler
@@ -217,3 +235,5 @@ class ARMv7MSysRuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
                         if not isr.link else
                         isr.alias)
             out.printf('};')
+
+

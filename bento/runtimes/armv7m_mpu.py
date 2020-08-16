@@ -7,6 +7,7 @@ from ..box import Fn, Section, Region, Import, Export
 from ..glue.error_glue import ErrorGlue
 from ..glue.write_glue import WriteGlue
 from ..glue.abort_glue import AbortGlue
+from ..glue.heap_glue import HeapGlue
 from ..outputs import OutputBlob
 
 MPU_STATE = """
@@ -361,7 +362,12 @@ void __box_mpu_handler(void) {
 
 
 @runtimes.runtime
-class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
+class ARMv7MMPURuntime(
+        ErrorGlue,
+        WriteGlue,
+        AbortGlue,
+        HeapGlue,
+        runtimes.Runtime):
     """
     A bento-box runtime that uses an Arm v7 MPU to provide memory isolation
     between boxes.
@@ -629,6 +635,18 @@ class ARMv7MMPURuntime(ErrorGlue, WriteGlue, AbortGlue, runtimes.Runtime):
         for export in box.exports:
             if export.scope != box:
                 yield export.prebound(), len(export.boundargs) > 0
+
+    def build_mk(self, output, box):
+        # target rule
+        output.decls.insert(0, '%(name)-16s ?= %(target)s',
+            name='TARGET', target=output.get('target', '%(box)s.elf'))
+
+        out = output.rules.append(doc='target rule')
+        out.printf('$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)')
+        with out.indent():
+            out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
+
+        super().build_mk(output, box)
 
     def build_parent_c_prologue(self, output, parent):
         super().build_parent_c_prologue(output, parent)
