@@ -441,10 +441,6 @@ class MKOutput(outputs.Output):
             out.printf('override WASMLDFLAGS += -Wl,--allow-undefined')
             out.printf('override WASMLDFLAGS += -Wl,--export-dynamic')
             out.printf('override WASMLDFLAGS += -Wl,--stack-first')
-            # arbitrary default, quarter of a page
-            out.printf('override WASMLDFLAGS += -Wl,-z,stack-size=%(stack)d',
-                stack=box.stack.size or (64*1024)//4)
-                
 
         # default rule
         self.rules.append('### rules ###')
@@ -609,14 +605,6 @@ class MKOutput(outputs.Output):
             with out.indent():
                 out.printf('cp $< $@')
                 out.printf('$(WASMSTRIP) $@')
-
-            out = self.rules.append()
-            out.printf('%%.wasm.prefixed: %%.wasm.strip')
-            with out.indent():
-                out.printf('$(strip python3 -c \'import sys, struct; \\\n'
-                    '    d=open(sys.argv[1], "rb").read(); \\\n'
-                    '    sys.stdout.buffer.write(struct.pack("<I", len(d))); \\\n'
-                    '    sys.stdout.buffer.write(d);\' $< > $@)')
 
         out = self.rules.append(phony=True)
         out.printf('clean:')
