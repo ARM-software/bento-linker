@@ -78,7 +78,7 @@ class Section:
             reverse=reverse)
 
         # if not required we can fail to alloc
-        if memory is None and not required:
+        if memory is None and not required and self.size == 0:
             return None
 
         # if required we must find memory

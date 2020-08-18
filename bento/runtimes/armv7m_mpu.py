@@ -433,13 +433,13 @@ class ARMv7MMPURuntime(
     def _check_mpu_region(self, memory):
         assert math.log2(memory.size) % 1 == 0, (
             "%s: Memory region `%s` not aligned to a power-of-two `%s`"
-                % (box.name, memory.name, memory))
+                % (self.name, memory.name, memory))
         assert memory.addr % memory.size == 0, (
             "%s: Memory region `%s` not aligned to its size `%s`"
-                % (box.name, memory.name, memory))
+                % (self.name, memory.name, memory))
         assert memory.size >= 32, (
             "%s: Memory region `%s` too small (< 32 bytes) `%s`"
-                % (box.name, memory.name, memory))
+                % (self.name, memory.name, memory))
 
     # overridable
     def _build_mpu_impl(self, output, parent):

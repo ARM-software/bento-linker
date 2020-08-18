@@ -1002,7 +1002,7 @@ bool __box_alicebox_initialized = false;
 IM3Environment __box_alicebox_environment;
 IM3Runtime __box_alicebox_runtime;
 IM3Module __box_alicebox_module;
-uint8_t *__box_alicebox_datasp;
+uint32_t __box_alicebox_datasp;
 
 __attribute__((unused))
 static uint32_t __box_alicebox_fromptr(const void *ptr) {
@@ -1018,17 +1018,17 @@ static void *__box_alicebox_toptr(uint32_t ptr) {
 void *__box_alicebox_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
-    uint8_t *psp = __box_alicebox_datasp;
-    if (psp + size > (uint8_t*)__box_alicebox_toptr(16384)) {
+    uint32_t psp = __box_alicebox_datasp;
+    if (psp + size > 16384) {
         return NULL;
     }
 
     __box_alicebox_datasp = psp + size;
-    return psp;
+    return __box_alicebox_toptr(psp);
 }
 
 void __box_alicebox_pop(size_t size) {
-    assert(__box_alicebox_datasp - size >= (uint8_t*)__box_alicebox_toptr(0));
+    assert(__box_alicebox_datasp - size >= 0);
     __box_alicebox_datasp -= size;
 }
 
@@ -1281,6 +1281,9 @@ int alicebox_recv(const void *buffer, size_t size) {
 
 int __box_alicebox_init(void) {
     int err;
+    if (__box_alicebox_initialized) {
+        return 0;
+    }
     // load the box if unloaded
     err = __box_alicebox_load();
     if (err) {
@@ -1427,7 +1430,7 @@ int __box_alicebox_init(void) {
     }
 
     // setup data stack
-    __box_alicebox_datasp = __box_alicebox_toptr(0);
+    __box_alicebox_datasp = 0;
 
     __box_alicebox_initialized = true;
     return 0;
@@ -1450,7 +1453,7 @@ bool __box_bobbox_initialized = false;
 IM3Environment __box_bobbox_environment;
 IM3Runtime __box_bobbox_runtime;
 IM3Module __box_bobbox_module;
-uint8_t *__box_bobbox_datasp;
+uint32_t __box_bobbox_datasp;
 
 __attribute__((unused))
 static uint32_t __box_bobbox_fromptr(const void *ptr) {
@@ -1466,17 +1469,17 @@ static void *__box_bobbox_toptr(uint32_t ptr) {
 void *__box_bobbox_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
-    uint8_t *psp = __box_bobbox_datasp;
-    if (psp + size > (uint8_t*)__box_bobbox_toptr(16384)) {
+    uint32_t psp = __box_bobbox_datasp;
+    if (psp + size > 16384) {
         return NULL;
     }
 
     __box_bobbox_datasp = psp + size;
-    return psp;
+    return __box_bobbox_toptr(psp);
 }
 
 void __box_bobbox_pop(size_t size) {
-    assert(__box_bobbox_datasp - size >= (uint8_t*)__box_bobbox_toptr(0));
+    assert(__box_bobbox_datasp - size >= 0);
     __box_bobbox_datasp -= size;
 }
 
@@ -1729,6 +1732,9 @@ int bobbox_recv(const void *buffer, size_t size) {
 
 int __box_bobbox_init(void) {
     int err;
+    if (__box_bobbox_initialized) {
+        return 0;
+    }
     // load the box if unloaded
     err = __box_bobbox_load();
     if (err) {
@@ -1875,7 +1881,7 @@ int __box_bobbox_init(void) {
     }
 
     // setup data stack
-    __box_bobbox_datasp = __box_bobbox_toptr(0);
+    __box_bobbox_datasp = 0;
 
     __box_bobbox_initialized = true;
     return 0;
@@ -1898,7 +1904,7 @@ bool __box_tlsbox_initialized = false;
 IM3Environment __box_tlsbox_environment;
 IM3Runtime __box_tlsbox_runtime;
 IM3Module __box_tlsbox_module;
-uint8_t *__box_tlsbox_datasp;
+uint32_t __box_tlsbox_datasp;
 
 __attribute__((unused))
 static uint32_t __box_tlsbox_fromptr(const void *ptr) {
@@ -1914,17 +1920,17 @@ static void *__box_tlsbox_toptr(uint32_t ptr) {
 void *__box_tlsbox_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
-    uint8_t *psp = __box_tlsbox_datasp;
-    if (psp + size > (uint8_t*)__box_tlsbox_toptr(65536)) {
+    uint32_t psp = __box_tlsbox_datasp;
+    if (psp + size > 65536) {
         return NULL;
     }
 
     __box_tlsbox_datasp = psp + size;
-    return psp;
+    return __box_tlsbox_toptr(psp);
 }
 
 void __box_tlsbox_pop(size_t size) {
-    assert(__box_tlsbox_datasp - size >= (uint8_t*)__box_tlsbox_toptr(0));
+    assert(__box_tlsbox_datasp - size >= 0);
     __box_tlsbox_datasp -= size;
 }
 
@@ -2272,6 +2278,9 @@ int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, 
 
 int __box_tlsbox_init(void) {
     int err;
+    if (__box_tlsbox_initialized) {
+        return 0;
+    }
     // load the box if unloaded
     err = __box_tlsbox_load();
     if (err) {
@@ -2337,7 +2346,7 @@ int __box_tlsbox_init(void) {
     }
 
     // setup data stack
-    __box_tlsbox_datasp = __box_tlsbox_toptr(0);
+    __box_tlsbox_datasp = 0;
 
     __box_tlsbox_initialized = true;
     return 0;

@@ -11,79 +11,27 @@
 
 //// box imports ////
 
-int box1_hello(void);
-
-int32_t box1_ping(int32_t a0);
-
-int32_t box1_ping_abort(int32_t a0);
-
-int32_t box1_ping_import(int32_t a0);
-
-int box2_hello(void);
-
-int32_t box2_ping(int32_t a0);
-
-int32_t box2_ping_abort(int32_t a0);
-
-int32_t box2_ping_import(int32_t a0);
-
-int box3_hello(void);
-
-int32_t box3_ping(int32_t a0);
-
-int32_t box3_ping_abort(int32_t a0);
-
-int32_t box3_ping_import(int32_t a0);
+int box_qsort(uint32_t *buffer, size_t size);
 
 //// box exports ////
 
 extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
-extern int32_t sys_ping(int32_t a0);
-
 //// box hooks ////
 
-// Initialize box box1. Resets the box to its initial state if already
+// Initialize box qsort. Resets the box to its initial state if already
 // initialized.
-int __box_box1_init(void);
+int __box_qsort_init(void);
 
-// Mark the box box1 as needing to be reinitialized.
-int __box_box1_clobber(void);
+// Mark the box qsort as needing to be reinitialized.
+int __box_qsort_clobber(void);
 
 // Allocate size bytes on the box's data stack. May return NULL if a stack
 // overflow would occur.
-void *__box_box1_push(size_t size);
+void *__box_qsort_push(size_t size);
 
 // Deallocate size bytes on the box's data stack.
-void __box_box1_pop(size_t size);
-
-// Initialize box box2. Resets the box to its initial state if already
-// initialized.
-int __box_box2_init(void);
-
-// Mark the box box2 as needing to be reinitialized.
-int __box_box2_clobber(void);
-
-// Allocate size bytes on the box's data stack. May return NULL if a stack
-// overflow would occur.
-void *__box_box2_push(size_t size);
-
-// Deallocate size bytes on the box's data stack.
-void __box_box2_pop(size_t size);
-
-// Initialize box box3. Resets the box to its initial state if already
-// initialized.
-int __box_box3_init(void);
-
-// Mark the box box3 as needing to be reinitialized.
-int __box_box3_clobber(void);
-
-// Allocate size bytes on the box's data stack. May return NULL if a stack
-// overflow would occur.
-void *__box_box3_push(size_t size);
-
-// Deallocate size bytes on the box's data stack.
-void __box_box3_pop(size_t size);
+void __box_qsort_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
@@ -940,90 +888,83 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
 };
 
-//// box1 loading ////
+//// qsort loading ////
 
-static int __box_box1_load(void) {
+static int __box_qsort_load(void) {
     // default loader does nothing
     return 0;
 }
 
-//// box1 state ////
-bool __box_box1_initialized = false;
-IM3Environment __box_box1_environment;
-IM3Runtime __box_box1_runtime;
-IM3Module __box_box1_module;
-uint32_t __box_box1_datasp;
+//// qsort state ////
+bool __box_qsort_initialized = false;
+IM3Environment __box_qsort_environment;
+IM3Runtime __box_qsort_runtime;
+IM3Module __box_qsort_module;
+uint32_t __box_qsort_datasp;
 
 __attribute__((unused))
-static uint32_t __box_box1_fromptr(const void *ptr) {
+static uint32_t __box_qsort_fromptr(const void *ptr) {
     return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(__box_box1_runtime->memory.mallocated));
+        - m3MemData(__box_qsort_runtime->memory.mallocated));
 }
 
 __attribute__((unused))
-static void *__box_box1_toptr(uint32_t ptr) {
-    return m3MemData(__box_box1_runtime->memory.mallocated) + ptr;
+static void *__box_qsort_toptr(uint32_t ptr) {
+    return m3MemData(__box_qsort_runtime->memory.mallocated) + ptr;
 }
 
-void *__box_box1_push(size_t size) {
+void *__box_qsort_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
-    uint32_t psp = __box_box1_datasp;
-    if (psp + size > 16384) {
+    uint32_t psp = __box_qsort_datasp;
+    if (psp + size > 32768) {
         return NULL;
     }
 
-    __box_box1_datasp = psp + size;
-    return __box_box1_toptr(psp);
+    __box_qsort_datasp = psp + size;
+    return __box_qsort_toptr(psp);
 }
 
-void __box_box1_pop(size_t size) {
-    assert(__box_box1_datasp - size >= 0);
-    __box_box1_datasp -= size;
+void __box_qsort_pop(size_t size) {
+    assert(__box_qsort_datasp - size >= 0);
+    __box_qsort_datasp -= size;
 }
 
-m3ApiRawFunction(__box_box1_import___box_box1_abort) {
+m3ApiRawFunction(__box_qsort_import___box_qsort_abort) {
     m3ApiGetArg(int, err);
-    __box_box1_runtime->exit_code = err;
+    __box_qsort_runtime->exit_code = err;
     m3ApiTrap(m3Err_trapExit);
 }
 
-// redirect __box_box1_write -> __box_write
-#define __box_box1_write __box_write
+// redirect __box_qsort_write -> __box_write
+#define __box_qsort_write __box_write
 
-// redirect __box_box1_flush -> __box_flush
-#define __box_box1_flush __box_flush
+// redirect __box_qsort_flush -> __box_flush
+#define __box_qsort_flush __box_flush
 
-//// box1 imports ////
+//// qsort imports ////
 
-m3ApiRawFunction(__box_box1_import___box_box1_write) {
+m3ApiRawFunction(__box_qsort_import___box_qsort_write) {
     m3ApiReturnType(ssize_t);
     m3ApiGetArg(int32_t, a0);
     m3ApiGetArgMem(const void*, a1);
     m3ApiGetArg(size_t, a2);
-    ssize_t r0 = __box_box1_write(a0, a1, a2);
+    ssize_t r0 = __box_qsort_write(a0, a1, a2);
     m3ApiReturn(r0);
 }
 
-m3ApiRawFunction(__box_box1_import___box_box1_flush) {
+m3ApiRawFunction(__box_qsort_import___box_qsort_flush) {
     m3ApiReturnType(int);
     m3ApiGetArg(int32_t, a0);
-    int r0 = __box_box1_flush(a0);
+    int r0 = __box_qsort_flush(a0);
     m3ApiReturn(r0);
 }
 
-m3ApiRawFunction(__box_box1_import_sys_ping) {
-    m3ApiReturnType(int32_t);
-    m3ApiGetArg(int32_t, a0);
-    int32_t r0 = sys_ping(a0);
-    m3ApiReturn(r0);
-}
+//// qsort exports ////
 
-//// box1 exports ////
-
-int box1_hello(void) {
-    if (!__box_box1_initialized) {
-        int err = __box_box1_init();
+int box_qsort(uint32_t *buffer, size_t size) {
+    if (!__box_qsort_initialized) {
+        int err = __box_qsort_init();
         if (err) {
             return err;
         }
@@ -1032,784 +973,99 @@ int box1_hello(void) {
     M3Result res;
     IM3Function f;
     res = m3_FindFunction(&f,
-            __box_box1_runtime,
-            "box1_hello");
+            __box_qsort_runtime,
+            "box_qsort");
     if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
-    uint64_t *stack = __box_box1_runtime->stack;
+    if (f->funcType->numArgs != 2) return -ENOEXEC;
+    uint64_t *stack = __box_qsort_runtime->stack;
+    *(uint32_t*)&stack[0] = __box_qsort_fromptr(buffer);
+    *(size_t*)&stack[1] = size;
     m3StackCheckInit();
     res = (M3Result)Call(
             f->compiled,
             (m3stack_t)stack,
-            __box_box1_runtime->memory.mallocated,
+            __box_qsort_runtime->memory.mallocated,
             d_m3OpDefaultArgs);
     if (res) {
         if (res == m3Err_trapExit) {
-            return __box_box1_runtime->exit_code;
+            return __box_qsort_runtime->exit_code;
         }
         return __box_wasm3_toerr(res);
     }
     return *(int*)&stack[0];
 }
 
-int32_t box1_ping(int32_t a0) {
-    if (!__box_box1_initialized) {
-        int err = __box_box1_init();
-        if (err) {
-            return err;
-        }
-    }
+//// qsort init ////
 
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box1_runtime,
-            "box1_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box1_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box1_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box1_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box1_ping_abort(int32_t a0) {
-    if (!__box_box1_initialized) {
-        int err = __box_box1_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box1_runtime,
-            "box1_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box1_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box1_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box1_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box1_ping_import(int32_t a0) {
-    if (!__box_box1_initialized) {
-        int err = __box_box1_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box1_runtime,
-            "box1_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box1_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box1_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box1_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-//// box1 init ////
-
-int __box_box1_init(void) {
+int __box_qsort_init(void) {
     int err;
-    if (__box_box1_initialized) {
+    if (__box_qsort_initialized) {
         return 0;
     }
     // load the box if unloaded
-    err = __box_box1_load();
+    err = __box_qsort_load();
     if (err) {
         return err;
     }
 
     // initialized wasm3 runtime
     M3Result res;
-    __box_box1_environment = m3_NewEnvironment();
-    if (!__box_box1_environment) return -ENOMEM;
-    __box_box1_runtime = m3_NewRuntime(
-            __box_box1_environment,
-            1024,
+    __box_qsort_environment = m3_NewEnvironment();
+    if (!__box_qsort_environment) return -ENOMEM;
+    __box_qsort_runtime = m3_NewRuntime(
+            __box_qsort_environment,
+            4096,
             NULL);
-    if (!__box_box1_runtime) return -ENOMEM;
-    extern uint32_t __box_box1_image;
+    if (!__box_qsort_runtime) return -ENOMEM;
+    extern uint32_t __box_qsort_image;
     res = m3_ParseModule(
-            __box_box1_environment,
-            &__box_box1_module,
-            (uint8_t*)(&__box_box1_image + 1),
-            __box_box1_image);
+            __box_qsort_environment,
+            &__box_qsort_module,
+            (uint8_t*)(&__box_qsort_image + 1),
+            __box_qsort_image);
     if (res) return __box_wasm3_toerr(res);
 
-    res = m3_LoadModule(__box_box1_runtime, __box_box1_module);
+    res = m3_LoadModule(__box_qsort_runtime, __box_qsort_module);
     if (res) return __box_wasm3_toerr(res);
 
     // link imports
     res = m3_LinkRawFunction(
-            __box_box1_module,
+            __box_qsort_module,
             "*",
             "__box_abort",
             "v(i)",
-            __box_box1_import___box_box1_abort);
+            __box_qsort_import___box_qsort_abort);
     if (res && res != m3Err_functionLookupFailed) {
         return __box_wasm3_toerr(res);
     }
     res = m3_LinkRawFunction(
-            __box_box1_module,
+            __box_qsort_module,
             "*",
             "__box_write",
             "i(i*i)",
-            __box_box1_import___box_box1_write);
+            __box_qsort_import___box_qsort_write);
     if (res && res != m3Err_functionLookupFailed) {
         return __box_wasm3_toerr(res);
     }
     res = m3_LinkRawFunction(
-            __box_box1_module,
+            __box_qsort_module,
             "*",
             "__box_flush",
             "i(i)",
-            __box_box1_import___box_box1_flush);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box1_module,
-            "*",
-            "sys_ping",
-            "i(i)",
-            __box_box1_import_sys_ping);
+            __box_qsort_import___box_qsort_flush);
     if (res && res != m3Err_functionLookupFailed) {
         return __box_wasm3_toerr(res);
     }
 
     // setup data stack
-    __box_box1_datasp = 0;
+    __box_qsort_datasp = 0;
 
-    __box_box1_initialized = true;
+    __box_qsort_initialized = true;
     return 0;
 }
 
-int __box_box1_clobber(void) {
-    __box_box1_initialized = false;
-    return 0;
-}
-
-//// box2 loading ////
-
-static int __box_box2_load(void) {
-    // default loader does nothing
-    return 0;
-}
-
-//// box2 state ////
-bool __box_box2_initialized = false;
-IM3Environment __box_box2_environment;
-IM3Runtime __box_box2_runtime;
-IM3Module __box_box2_module;
-uint32_t __box_box2_datasp;
-
-__attribute__((unused))
-static uint32_t __box_box2_fromptr(const void *ptr) {
-    return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(__box_box2_runtime->memory.mallocated));
-}
-
-__attribute__((unused))
-static void *__box_box2_toptr(uint32_t ptr) {
-    return m3MemData(__box_box2_runtime->memory.mallocated) + ptr;
-}
-
-void *__box_box2_push(size_t size) {
-    // we maintain a separate stack in the wasm memory space,
-    // sharing the stack space of the wasm-side libc
-    uint32_t psp = __box_box2_datasp;
-    if (psp + size > 16384) {
-        return NULL;
-    }
-
-    __box_box2_datasp = psp + size;
-    return __box_box2_toptr(psp);
-}
-
-void __box_box2_pop(size_t size) {
-    assert(__box_box2_datasp - size >= 0);
-    __box_box2_datasp -= size;
-}
-
-m3ApiRawFunction(__box_box2_import___box_box2_abort) {
-    m3ApiGetArg(int, err);
-    __box_box2_runtime->exit_code = err;
-    m3ApiTrap(m3Err_trapExit);
-}
-
-// redirect __box_box2_write -> __box_write
-#define __box_box2_write __box_write
-
-// redirect __box_box2_flush -> __box_flush
-#define __box_box2_flush __box_flush
-
-//// box2 imports ////
-
-m3ApiRawFunction(__box_box2_import___box_box2_write) {
-    m3ApiReturnType(ssize_t);
-    m3ApiGetArg(int32_t, a0);
-    m3ApiGetArgMem(const void*, a1);
-    m3ApiGetArg(size_t, a2);
-    ssize_t r0 = __box_box2_write(a0, a1, a2);
-    m3ApiReturn(r0);
-}
-
-m3ApiRawFunction(__box_box2_import___box_box2_flush) {
-    m3ApiReturnType(int);
-    m3ApiGetArg(int32_t, a0);
-    int r0 = __box_box2_flush(a0);
-    m3ApiReturn(r0);
-}
-
-m3ApiRawFunction(__box_box2_import_sys_ping) {
-    m3ApiReturnType(int32_t);
-    m3ApiGetArg(int32_t, a0);
-    int32_t r0 = sys_ping(a0);
-    m3ApiReturn(r0);
-}
-
-//// box2 exports ////
-
-int box2_hello(void) {
-    if (!__box_box2_initialized) {
-        int err = __box_box2_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box2_runtime,
-            "box2_hello");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
-    uint64_t *stack = __box_box2_runtime->stack;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box2_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box2_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int*)&stack[0];
-}
-
-int32_t box2_ping(int32_t a0) {
-    if (!__box_box2_initialized) {
-        int err = __box_box2_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box2_runtime,
-            "box2_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box2_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box2_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box2_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box2_ping_abort(int32_t a0) {
-    if (!__box_box2_initialized) {
-        int err = __box_box2_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box2_runtime,
-            "box2_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box2_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box2_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box2_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box2_ping_import(int32_t a0) {
-    if (!__box_box2_initialized) {
-        int err = __box_box2_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box2_runtime,
-            "box2_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box2_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box2_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box2_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-//// box2 init ////
-
-int __box_box2_init(void) {
-    int err;
-    if (__box_box2_initialized) {
-        return 0;
-    }
-    // load the box if unloaded
-    err = __box_box2_load();
-    if (err) {
-        return err;
-    }
-
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_box2_environment = m3_NewEnvironment();
-    if (!__box_box2_environment) return -ENOMEM;
-    __box_box2_runtime = m3_NewRuntime(
-            __box_box2_environment,
-            1024,
-            NULL);
-    if (!__box_box2_runtime) return -ENOMEM;
-    extern uint32_t __box_box2_image;
-    res = m3_ParseModule(
-            __box_box2_environment,
-            &__box_box2_module,
-            (uint8_t*)(&__box_box2_image + 1),
-            __box_box2_image);
-    if (res) return __box_wasm3_toerr(res);
-
-    res = m3_LoadModule(__box_box2_runtime, __box_box2_module);
-    if (res) return __box_wasm3_toerr(res);
-
-    // link imports
-    res = m3_LinkRawFunction(
-            __box_box2_module,
-            "*",
-            "__box_abort",
-            "v(i)",
-            __box_box2_import___box_box2_abort);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box2_module,
-            "*",
-            "__box_write",
-            "i(i*i)",
-            __box_box2_import___box_box2_write);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box2_module,
-            "*",
-            "__box_flush",
-            "i(i)",
-            __box_box2_import___box_box2_flush);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box2_module,
-            "*",
-            "sys_ping",
-            "i(i)",
-            __box_box2_import_sys_ping);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-
-    // setup data stack
-    __box_box2_datasp = 0;
-
-    __box_box2_initialized = true;
-    return 0;
-}
-
-int __box_box2_clobber(void) {
-    __box_box2_initialized = false;
-    return 0;
-}
-
-//// box3 loading ////
-
-static int __box_box3_load(void) {
-    // default loader does nothing
-    return 0;
-}
-
-//// box3 state ////
-bool __box_box3_initialized = false;
-IM3Environment __box_box3_environment;
-IM3Runtime __box_box3_runtime;
-IM3Module __box_box3_module;
-uint32_t __box_box3_datasp;
-
-__attribute__((unused))
-static uint32_t __box_box3_fromptr(const void *ptr) {
-    return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(__box_box3_runtime->memory.mallocated));
-}
-
-__attribute__((unused))
-static void *__box_box3_toptr(uint32_t ptr) {
-    return m3MemData(__box_box3_runtime->memory.mallocated) + ptr;
-}
-
-void *__box_box3_push(size_t size) {
-    // we maintain a separate stack in the wasm memory space,
-    // sharing the stack space of the wasm-side libc
-    uint32_t psp = __box_box3_datasp;
-    if (psp + size > 16384) {
-        return NULL;
-    }
-
-    __box_box3_datasp = psp + size;
-    return __box_box3_toptr(psp);
-}
-
-void __box_box3_pop(size_t size) {
-    assert(__box_box3_datasp - size >= 0);
-    __box_box3_datasp -= size;
-}
-
-m3ApiRawFunction(__box_box3_import___box_box3_abort) {
-    m3ApiGetArg(int, err);
-    __box_box3_runtime->exit_code = err;
-    m3ApiTrap(m3Err_trapExit);
-}
-
-// redirect __box_box3_write -> __box_write
-#define __box_box3_write __box_write
-
-// redirect __box_box3_flush -> __box_flush
-#define __box_box3_flush __box_flush
-
-//// box3 imports ////
-
-m3ApiRawFunction(__box_box3_import___box_box3_write) {
-    m3ApiReturnType(ssize_t);
-    m3ApiGetArg(int32_t, a0);
-    m3ApiGetArgMem(const void*, a1);
-    m3ApiGetArg(size_t, a2);
-    ssize_t r0 = __box_box3_write(a0, a1, a2);
-    m3ApiReturn(r0);
-}
-
-m3ApiRawFunction(__box_box3_import___box_box3_flush) {
-    m3ApiReturnType(int);
-    m3ApiGetArg(int32_t, a0);
-    int r0 = __box_box3_flush(a0);
-    m3ApiReturn(r0);
-}
-
-m3ApiRawFunction(__box_box3_import_sys_ping) {
-    m3ApiReturnType(int32_t);
-    m3ApiGetArg(int32_t, a0);
-    int32_t r0 = sys_ping(a0);
-    m3ApiReturn(r0);
-}
-
-//// box3 exports ////
-
-int box3_hello(void) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box3_runtime,
-            "box3_hello");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
-    uint64_t *stack = __box_box3_runtime->stack;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box3_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box3_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int*)&stack[0];
-}
-
-int32_t box3_ping(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box3_runtime,
-            "box3_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box3_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box3_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box3_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box3_ping_abort(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box3_runtime,
-            "box3_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box3_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box3_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box3_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-int32_t box3_ping_import(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    M3Result res;
-    IM3Function f;
-    res = m3_FindFunction(&f,
-            __box_box3_runtime,
-            "box3_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
-    uint64_t *stack = __box_box3_runtime->stack;
-    *(int32_t*)&stack[0] = a0;
-    m3StackCheckInit();
-    res = (M3Result)Call(
-            f->compiled,
-            (m3stack_t)stack,
-            __box_box3_runtime->memory.mallocated,
-            d_m3OpDefaultArgs);
-    if (res) {
-        if (res == m3Err_trapExit) {
-            return __box_box3_runtime->exit_code;
-        }
-        return __box_wasm3_toerr(res);
-    }
-    return *(int32_t*)&stack[0];
-}
-
-//// box3 init ////
-
-int __box_box3_init(void) {
-    int err;
-    if (__box_box3_initialized) {
-        return 0;
-    }
-    // load the box if unloaded
-    err = __box_box3_load();
-    if (err) {
-        return err;
-    }
-
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_box3_environment = m3_NewEnvironment();
-    if (!__box_box3_environment) return -ENOMEM;
-    __box_box3_runtime = m3_NewRuntime(
-            __box_box3_environment,
-            1024,
-            NULL);
-    if (!__box_box3_runtime) return -ENOMEM;
-    extern uint32_t __box_box3_image;
-    res = m3_ParseModule(
-            __box_box3_environment,
-            &__box_box3_module,
-            (uint8_t*)(&__box_box3_image + 1),
-            __box_box3_image);
-    if (res) return __box_wasm3_toerr(res);
-
-    res = m3_LoadModule(__box_box3_runtime, __box_box3_module);
-    if (res) return __box_wasm3_toerr(res);
-
-    // link imports
-    res = m3_LinkRawFunction(
-            __box_box3_module,
-            "*",
-            "__box_abort",
-            "v(i)",
-            __box_box3_import___box_box3_abort);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box3_module,
-            "*",
-            "__box_write",
-            "i(i*i)",
-            __box_box3_import___box_box3_write);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box3_module,
-            "*",
-            "__box_flush",
-            "i(i)",
-            __box_box3_import___box_box3_flush);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-    res = m3_LinkRawFunction(
-            __box_box3_module,
-            "*",
-            "sys_ping",
-            "i(i)",
-            __box_box3_import_sys_ping);
-    if (res && res != m3Err_functionLookupFailed) {
-        return __box_wasm3_toerr(res);
-    }
-
-    // setup data stack
-    __box_box3_datasp = 0;
-
-    __box_box3_initialized = true;
-    return 0;
-}
-
-int __box_box3_clobber(void) {
-    __box_box3_initialized = false;
+int __box_qsort_clobber(void) {
+    __box_qsort_initialized = false;
     return 0;
 }
 

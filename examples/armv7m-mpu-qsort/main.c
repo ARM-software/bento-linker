@@ -79,9 +79,54 @@ static inline uint32_t cyccnt_read(void) {
     return *DWT_CYCCNT;
 }
 
-// used to debug box imports
-int32_t sys_ping(int32_t a) {
-    return a + 3;
+// pseudo-random numbers using xorshift32
+uint32_t xorshift32(uint32_t *state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
+void printarray(uint32_t *array, size_t size) {
+    printf("[");
+    if (size > 16) {
+        printf("%d, %d, %d, ... %d, %d, %d",
+            array[0], array[1], array[2],
+            array[size-3], array[size-2], array[size-1]);
+    } else {
+        for (int i = 0; i < size; i++) {
+            printf("%d%s", array[i], (i < size-1) ? ", " : "");
+        }
+    }
+    printf("]");
+}
+
+void testqsort(uint32_t N) {
+    printf("generating random N=%d...\n", N);
+    __box_qsort_init();
+    uint32_t *array = __box_qsort_push(N*sizeof(uint32_t));
+    assert(array);
+
+    uint32_t x = 0x1234;
+    for (int i = 0; i < N; i++) {
+        // note there are duplicates
+        array[i] = xorshift32(&x) % N;
+    }
+
+    printf("array: ");
+    printarray(array, N);
+    printf("\n");
+
+    printf("calling qsort... N=%d\n", N);
+    int err = box_qsort(array, N);
+
+    printf("result: %d\n", err);
+    printf("array: ");
+    printarray(array, N);
+    printf("\n");
+    __box_qsort_pop(N*sizeof(uint32_t));
 }
 
 void main(void) {
@@ -94,30 +139,9 @@ void main(void) {
 
     printf("hi from nrf52840!\n");
 
-    int32_t x1, x2, x3;
-    printf("testing box ping\n");
-    x1 = box1_ping(0);
-    x2 = box2_ping(0);
-    x3 = box3_ping(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
-
-    printf("testing box import ping\n");
-    x1 = box1_ping_import(0);
-    x2 = box2_ping_import(0);
-    x3 = box3_ping_import(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
-
-    printf("testing box abort ping\n");
-    x1 = box1_ping_abort(0);
-    x2 = box2_ping_abort(0);
-    x3 = box3_ping_abort(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
-
-    printf("testing box printf\n");
-    x1 = box1_hello();
-    x2 = box2_hello();
-    x3 = box3_hello();
-    printf("return values: %d %d %d\n", x1, x2, x3);
+    testqsort(10);
+    testqsort(100);
+    testqsort(1000);
 
     printf("done\n");
 

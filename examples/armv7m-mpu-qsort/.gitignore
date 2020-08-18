@@ -1,0 +1,11 @@
+.gdb_history
+tags
+Cargo.lock
+target/
+*.o
+*.d
+*.wo
+*.wasm
+*.elf
+*.bin
+*.box

@@ -1,0 +1,41 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x4000
+heap = 0x800
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+]
+
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+import.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
+
+[box.qsort]
+runtime.runtime = 'jumptable'
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x6000'
+stack = 0x4000 # used for array allocation
+
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.ld = 'bb.ld'
+output.mk = 'Makefile'
+
+export.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'

@@ -83,17 +83,17 @@ static void *__box_%(box)s_toptr(uint32_t ptr) {
 void *__box_%(box)s_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
-    uint8_t *psp = __box_%(box)s_datasp;
-    if (psp + size > (uint8_t*)__box_%(box)s_toptr(%(data_stack)d)) {
+    uint32_t psp = __box_%(box)s_datasp;
+    if (psp + size > %(data_stack)d) {
         return NULL;
     }
 
     __box_%(box)s_datasp = psp + size;
-    return psp;
+    return __box_%(box)s_toptr(psp);
 }
 
 void __box_%(box)s_pop(size_t size) {
-    assert(__box_%(box)s_datasp - size >= (uint8_t*)__box_%(box)s_toptr(0));
+    assert(__box_%(box)s_datasp - size >= 0);
     __box_%(box)s_datasp -= size;
 }
 
@@ -291,7 +291,7 @@ class Wasm3Runtime(
         out.printf('IM3Environment __box_%(box)s_environment;')
         out.printf('IM3Runtime __box_%(box)s_runtime;')
         out.printf('IM3Module __box_%(box)s_module;')
-        out.printf('uint8_t *__box_%(box)s_datasp;')
+        out.printf('uint32_t __box_%(box)s_datasp;')
 
         output.decls.append(C_STUFF,
             data_stack=self._data_stack)
@@ -440,6 +440,10 @@ class Wasm3Runtime(
         out.printf('int __box_%(box)s_init(void) {')
         with out.indent():
             out.printf('int err;')
+            out.printf('if (__box_%(box)s_initialized) {')
+            with out.indent():
+                out.printf('return 0;')
+            out.printf('}')
             if box.roommates:
                 out.printf('// bring down any overlapping boxes')
             for i, roommate in enumerate(box.roommates):
@@ -503,7 +507,7 @@ class Wasm3Runtime(
                     out.printf('}')
                 out.printf()
             out.printf('// setup data stack')
-            out.printf('__box_%(box)s_datasp = __box_%(box)s_toptr(0);')
+            out.printf('__box_%(box)s_datasp = 0;')
             out.printf()
             out.printf('__box_%(box)s_initialized = true;')
             out.printf('return 0;')
