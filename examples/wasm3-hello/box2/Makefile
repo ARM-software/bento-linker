@@ -176,7 +176,6 @@ $(TARGET): $(WASMOBJ) $(WASMBOXES) $(WASMARCHIVES)
 %.box.flash: %.elf
 	$(strip $(OBJCOPY) $< $@ \
 	    --only-section .text \
-	    --only-section .data \
 	    -O binary)
 
 ### rules ###

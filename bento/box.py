@@ -65,7 +65,7 @@ class Section:
     def __bool__(self):
         return self.size is not None
 
-    def alloc(self, box, mode='rwxp', reverse=False):
+    def alloc(self, box, mode='rwxp', reverse=False, required=False):
         """
         Find best memory given parameters and assign this section to it.
         This updates Section's memory field as well as adds ourselfe to
@@ -76,6 +76,12 @@ class Section:
             align=self.align,
             memory=self.memory,
             reverse=reverse)
+
+        # if not required we can fail to alloc
+        if memory is None and not required:
+            return None
+
+        # if required we must find memory
         assert memory is not None, (
             "Not enough memory found that satisfies mode=%s size=%d:\n"
             "%s\n"
@@ -326,7 +332,11 @@ class Memory(Region):
             reverse=False):
         def key(self):
             return (
+                # 1st: the memory with the tightest mode match
                 len(self.mode - set(mode)),
+                # 2nd: try first the memories with non-zero space remaining
+                -(self._size != 0),
+                # 3rd: address order, either in order or reversed
                 -self.addr if reverse else self.addr)
         return key
 

@@ -59,7 +59,6 @@ runtime.runtime = 'wasm3'
 runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
 memory.flash = 'rxp 0x8000'
-memory.ram = 'rw 4'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'
@@ -79,7 +78,6 @@ runtime.runtime = 'wasm3'
 runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
 memory.flash = 'rxp 0x8000'
-memory.ram = 'rw 4'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'
@@ -99,7 +97,6 @@ runtime.runtime = 'wasm3'
 runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
 memory.flash = 'rxp 0x8000'
-memory.ram = 'rw 4'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'

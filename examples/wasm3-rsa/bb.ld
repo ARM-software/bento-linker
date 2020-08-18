@@ -11,10 +11,7 @@ MEMORY {
     BOX_TLSBOX_FLASH (RX ) : ORIGIN = 0x00078000, LENGTH = 0x00080000
     BOX_BOBBOX_FLASH (RX ) : ORIGIN = 0x000f8000, LENGTH = 0x00004000
     BOX_ALICEBOX_FLASH (RX ) : ORIGIN = 0x000fc000, LENGTH = 0x00004000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x0003fff4
-    BOX_TLSBOX_RAM   (RW ) : ORIGIN = 0x2003fff4, LENGTH = 0x00000004
-    BOX_BOBBOX_RAM   (RW ) : ORIGIN = 0x2003fff8, LENGTH = 0x00000004
-    BOX_ALICEBOX_RAM (RW ) : ORIGIN = 0x2003fffc, LENGTH = 0x00000004
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00040000
 }
 
 SECTIONS {
@@ -167,32 +164,5 @@ SECTIONS {
 
     ASSERT(__heap_end - __heap_start > __heap_min,
         "Not enough memory in RAM for heap")
-
-    /* BOX_TLSBOX_RAM sections */
-    . = ORIGIN(BOX_TLSBOX_RAM);
-    __box_tlsbox_ram_start = .;
-    .box.tlsbox.ram . (NOLOAD): {
-        KEEP(*(.box.tlsbox.ram*))
-    } > BOX_TLSBOX_RAM
-    . = ORIGIN(BOX_TLSBOX_RAM) + LENGTH(BOX_TLSBOX_RAM);
-    __box_tlsbox_ram_end = .;
-
-    /* BOX_BOBBOX_RAM sections */
-    . = ORIGIN(BOX_BOBBOX_RAM);
-    __box_bobbox_ram_start = .;
-    .box.bobbox.ram . (NOLOAD): {
-        KEEP(*(.box.bobbox.ram*))
-    } > BOX_BOBBOX_RAM
-    . = ORIGIN(BOX_BOBBOX_RAM) + LENGTH(BOX_BOBBOX_RAM);
-    __box_bobbox_ram_end = .;
-
-    /* BOX_ALICEBOX_RAM sections */
-    . = ORIGIN(BOX_ALICEBOX_RAM);
-    __box_alicebox_ram_start = .;
-    .box.alicebox.ram . (NOLOAD): {
-        KEEP(*(.box.alicebox.ram*))
-    } > BOX_ALICEBOX_RAM
-    . = ORIGIN(BOX_ALICEBOX_RAM) + LENGTH(BOX_ALICEBOX_RAM);
-    __box_alicebox_ram_end = .;
 }
 

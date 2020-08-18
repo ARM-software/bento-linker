@@ -11,10 +11,7 @@ MEMORY {
     BOX_BOX3_FLASH   (RX ) : ORIGIN = 0x000e8000, LENGTH = 0x00008000
     BOX_BOX2_FLASH   (RX ) : ORIGIN = 0x000f0000, LENGTH = 0x00008000
     BOX_BOX1_FLASH   (RX ) : ORIGIN = 0x000f8000, LENGTH = 0x00008000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x0003fff4
-    BOX_BOX3_RAM     (RW ) : ORIGIN = 0x2003fff4, LENGTH = 0x00000004
-    BOX_BOX2_RAM     (RW ) : ORIGIN = 0x2003fff8, LENGTH = 0x00000004
-    BOX_BOX1_RAM     (RW ) : ORIGIN = 0x2003fffc, LENGTH = 0x00000004
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00040000
 }
 
 SECTIONS {
@@ -167,32 +164,5 @@ SECTIONS {
 
     ASSERT(__heap_end - __heap_start > __heap_min,
         "Not enough memory in RAM for heap")
-
-    /* BOX_BOX3_RAM sections */
-    . = ORIGIN(BOX_BOX3_RAM);
-    __box_box3_ram_start = .;
-    .box.box3.ram . (NOLOAD): {
-        KEEP(*(.box.box3.ram*))
-    } > BOX_BOX3_RAM
-    . = ORIGIN(BOX_BOX3_RAM) + LENGTH(BOX_BOX3_RAM);
-    __box_box3_ram_end = .;
-
-    /* BOX_BOX2_RAM sections */
-    . = ORIGIN(BOX_BOX2_RAM);
-    __box_box2_ram_start = .;
-    .box.box2.ram . (NOLOAD): {
-        KEEP(*(.box.box2.ram*))
-    } > BOX_BOX2_RAM
-    . = ORIGIN(BOX_BOX2_RAM) + LENGTH(BOX_BOX2_RAM);
-    __box_box2_ram_end = .;
-
-    /* BOX_BOX1_RAM sections */
-    . = ORIGIN(BOX_BOX1_RAM);
-    __box_box1_ram_start = .;
-    .box.box1.ram . (NOLOAD): {
-        KEEP(*(.box.box1.ram*))
-    } > BOX_BOX1_RAM
-    . = ORIGIN(BOX_BOX1_RAM) + LENGTH(BOX_BOX1_RAM);
-    __box_box1_ram_end = .;
 }
 
