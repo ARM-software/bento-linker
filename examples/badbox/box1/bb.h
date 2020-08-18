@@ -19,8 +19,6 @@ extern int box1_hello(void);
 
 extern int box1_overflow(void);
 
-//// box hooks ////
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not

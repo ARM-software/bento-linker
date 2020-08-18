@@ -211,12 +211,12 @@ class MKOutput(outputs.Output):
             None)
         self._wasm_wasm2wat = (wasm_wasm2wat
             if wasm_wasm2wat else
-            os.path.join(wabt, 'bin/wasm-wasm2wat')
+            os.path.join(wabt, 'bin/wasm2wat')
             if wabt else
             None)
         self._wasm_wat2wasm = (wasm_wat2wasm
             if wasm_wat2wasm else
-            os.path.join(wabt, 'bin/wasm-wat2wasm')
+            os.path.join(wabt, 'bin/wat2wasm')
             if wabt else
             None)
 
@@ -241,6 +241,7 @@ class MKOutput(outputs.Output):
         super().box(box)
         self.pushattrs(
             target=self._target,
+            TARGET='$(TARGET)' if self.no_wasm else '$(TARGET:.wasm=.elf)',
             debug=self._debug,
             lto=self._lto,
             cc=self._cc,
@@ -407,7 +408,7 @@ class MKOutput(outputs.Output):
             out.printf('override WASMCFLAGS += -fdata-sections')
             out.printf('override WASMCFLAGS += -ffreestanding')
             out.printf('override WASMCFLAGS += -fno-builtin')
-            out.printf('override WASMCFLAGS += $(patsubst %%,-I%%,$(INC))')
+            out.printf('override WASMCFLAGS += $(patsubst %%,-I%%,$(WASMINC))')
 
         out = self.decls.append()
         out.printf('override CARGOFLAGS += --target=%(rusttriple)s')
@@ -451,7 +452,7 @@ class MKOutput(outputs.Output):
         out = self.rules.append(phony=True,
             doc="computing size size is a bit complicated as each .elf "
                 "includes its boxes, we want independent sizes.")
-        out.printf('size: $(TARGET) $(BOXES)')
+        out.printf('size: %(TARGET)s $(BOXES)')
         with out.indent():
             if not box.boxes:
                 # simpler form if we have no boxes
@@ -481,7 +482,7 @@ class MKOutput(outputs.Output):
                             n=3+len(box.boxes))
 
         out = self.rules.append(phony=True)
-        out.printf('debug: $(TARGET)')
+        out.printf('debug: %(TARGET)s')
         with out.indent():
             out.printf('echo \'$$qRcmd,68616c74#fc\' '
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # halt')
@@ -491,7 +492,7 @@ class MKOutput(outputs.Output):
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # go')
 
         out = self.rules.append(phony=True)
-        out.printf('flash: $(TARGET)')
+        out.printf('flash: %(TARGET)s')
         with out.indent():
             out.printf('echo \'$$qRcmd,68616c74#fc\' '
                 '| nc -N $(GDBADDR) $(GDBPORT) && echo # halt')
@@ -542,7 +543,7 @@ class MKOutput(outputs.Output):
                 out.printf('@echo "' + 48*'=' + '"')
 
         # other rules
-        self.rules.append(doc="header dependencies")
+        out = self.rules.append(doc="header dependencies")
         out.printf('-include $(DEP)')
 
         out = self.rules.append()
@@ -615,21 +616,30 @@ class MKOutput(outputs.Output):
             out.printf('$(foreach toml,$(CARGOTOMLS),'
                 '$(CARGO) clean --manifest-path=$(toml))')
             if not self.no_wasm:
-                out.printf('rm -f $(WASMOBJ)')
+                out.printf('rm -f $(TARGET:.wasm=.elf) $(WASMOBJ)')
             for child in box.boxes:
                 path = os.path.relpath(child.path, box.path)
                 out.printf('$(MAKE) -C %(path)s clean', path=path)
 
     def build_epilogue(self, box):
         # we put these at the end so they have precedence
-        if any([self._defines, self._c_flags, self._asm_flags, self._ld_flags]):
+        if any([self._defines,
+                self._c_flags,
+                self._asm_flags,
+                self._ld_flags,
+                self._wasm_c_flags,
+                self._wasm_ld_flags]):
             self.decls.append('### user provided flags ###')
 
-        if self._defines or self._c_flags:
+        if self._defines:
             out = self.decls.append()
             for k, v in self._defines.items():
                 out.printf('override CFLAGS += -D%s=%r' % (k, v))
+                if not self.no_wasm:
+                    out.printf('override WASMCFLAGS += -D%s=%r' % (k, v))
 
+        if self._c_flags:
+            out = self.decls.append()
             for cflag in self._c_flags:
                 out.printf('override CFLAGS += %s' % cflag)
 
@@ -642,6 +652,16 @@ class MKOutput(outputs.Output):
             out = self.decls.append()
             for lflag in self._ld_flags:
                 out.printf('override LDFLAGS += %s' % lflag)
+
+        if self._wasm_c_flags:
+            out = self.decls.append()
+            for cflag in self._wasm_c_flags:
+                out.printf('override WASMCFLAGS += %s' % cflag)
+
+        if self._wasm_ld_flags:
+            out = self.decls.append()
+            for lflag in self._wasm_ld_flags:
+                out.printf('override WASMLDFLAGS += %s' % lflag)
 
     def getvalue(self):
         self.seek(0)

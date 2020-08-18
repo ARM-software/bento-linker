@@ -115,6 +115,7 @@ override CFLAGS += -DNRFX_UARTE0_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE_ENABLED='1'
 override CFLAGS += -DPRIi64='"lli"'
 override CFLAGS += -DPRIu64='"llu"'
+
 override CFLAGS += -Wno-unused-function
 override CFLAGS += -Wno-unused-variable
 override CFLAGS += -Wno-strict-aliasing
@@ -243,10 +244,9 @@ box3/box3.box:
 	@echo "================= make -C box3 ================="
 	$(MAKE) --no-print-directory -C box3 box3.box
 	@echo "================================================"
--include $(DEP)
 
 # header dependencies
-
+-include $(DEP)
 
 define CARGORULE
 .PHONY: $(toml)

@@ -242,17 +242,6 @@ static int __box_wasm3_toerr(M3Result res) {
     else                                                    return -EGENERAL;
 }
 
-__attribute__((unused))
-static uint32_t __box_wasm3_fromptr(IM3Runtime runtime, const void *ptr) {
-    return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(runtime->memory.mallocated));
-}
-
-__attribute__((unused))
-static void *__box_wasm3_toptr(IM3Runtime runtime, uint32_t ptr) {
-    return m3MemData(runtime->memory.mallocated) + ptr;
-}
-
 #if defined(__GNUC__)
 // state of brk
 static uint8_t *__heap_brk = NULL;
@@ -963,6 +952,35 @@ bool __box_box1_initialized = false;
 IM3Environment __box_box1_environment;
 IM3Runtime __box_box1_runtime;
 IM3Module __box_box1_module;
+uint8_t *__box_box1_datasp;
+
+__attribute__((unused))
+static uint32_t __box_box1_fromptr(const void *ptr) {
+    return (uint32_t)((const uint8_t*)ptr
+        - m3MemData(__box_box1_runtime->memory.mallocated));
+}
+
+__attribute__((unused))
+static void *__box_box1_toptr(uint32_t ptr) {
+    return m3MemData(__box_box1_runtime->memory.mallocated) + ptr;
+}
+
+void *__box_box1_push(size_t size) {
+    // we maintain a separate stack in the wasm memory space,
+    // sharing the stack space of the wasm-side libc
+    uint8_t *psp = __box_box1_datasp;
+    if (psp + size > (uint8_t*)__box_box1_toptr(16384)) {
+        return NULL;
+    }
+
+    __box_box1_datasp = psp + size;
+    return psp;
+}
+
+void __box_box1_pop(size_t size) {
+    assert(__box_box1_datasp - size >= (uint8_t*)__box_box1_toptr(0));
+    __box_box1_datasp -= size;
+}
 
 m3ApiRawFunction(__box_box1_import___box_box1_abort) {
     m3ApiGetArg(int, err);
@@ -1198,6 +1216,9 @@ int __box_box1_init(void) {
         return __box_wasm3_toerr(res);
     }
 
+    // setup data stack
+    __box_box1_datasp = __box_box1_toptr(0);
+
     __box_box1_initialized = true;
     return 0;
 }
@@ -1219,6 +1240,35 @@ bool __box_box2_initialized = false;
 IM3Environment __box_box2_environment;
 IM3Runtime __box_box2_runtime;
 IM3Module __box_box2_module;
+uint8_t *__box_box2_datasp;
+
+__attribute__((unused))
+static uint32_t __box_box2_fromptr(const void *ptr) {
+    return (uint32_t)((const uint8_t*)ptr
+        - m3MemData(__box_box2_runtime->memory.mallocated));
+}
+
+__attribute__((unused))
+static void *__box_box2_toptr(uint32_t ptr) {
+    return m3MemData(__box_box2_runtime->memory.mallocated) + ptr;
+}
+
+void *__box_box2_push(size_t size) {
+    // we maintain a separate stack in the wasm memory space,
+    // sharing the stack space of the wasm-side libc
+    uint8_t *psp = __box_box2_datasp;
+    if (psp + size > (uint8_t*)__box_box2_toptr(16384)) {
+        return NULL;
+    }
+
+    __box_box2_datasp = psp + size;
+    return psp;
+}
+
+void __box_box2_pop(size_t size) {
+    assert(__box_box2_datasp - size >= (uint8_t*)__box_box2_toptr(0));
+    __box_box2_datasp -= size;
+}
 
 m3ApiRawFunction(__box_box2_import___box_box2_abort) {
     m3ApiGetArg(int, err);
@@ -1454,6 +1504,9 @@ int __box_box2_init(void) {
         return __box_wasm3_toerr(res);
     }
 
+    // setup data stack
+    __box_box2_datasp = __box_box2_toptr(0);
+
     __box_box2_initialized = true;
     return 0;
 }
@@ -1475,6 +1528,35 @@ bool __box_box3_initialized = false;
 IM3Environment __box_box3_environment;
 IM3Runtime __box_box3_runtime;
 IM3Module __box_box3_module;
+uint8_t *__box_box3_datasp;
+
+__attribute__((unused))
+static uint32_t __box_box3_fromptr(const void *ptr) {
+    return (uint32_t)((const uint8_t*)ptr
+        - m3MemData(__box_box3_runtime->memory.mallocated));
+}
+
+__attribute__((unused))
+static void *__box_box3_toptr(uint32_t ptr) {
+    return m3MemData(__box_box3_runtime->memory.mallocated) + ptr;
+}
+
+void *__box_box3_push(size_t size) {
+    // we maintain a separate stack in the wasm memory space,
+    // sharing the stack space of the wasm-side libc
+    uint8_t *psp = __box_box3_datasp;
+    if (psp + size > (uint8_t*)__box_box3_toptr(16384)) {
+        return NULL;
+    }
+
+    __box_box3_datasp = psp + size;
+    return psp;
+}
+
+void __box_box3_pop(size_t size) {
+    assert(__box_box3_datasp - size >= (uint8_t*)__box_box3_toptr(0));
+    __box_box3_datasp -= size;
+}
 
 m3ApiRawFunction(__box_box3_import___box_box3_abort) {
     m3ApiGetArg(int, err);
@@ -1709,6 +1791,9 @@ int __box_box3_init(void) {
     if (res && res != m3Err_functionLookupFailed) {
         return __box_wasm3_toerr(res);
     }
+
+    // setup data stack
+    __box_box3_datasp = __box_box3_toptr(0);
 
     __box_box3_initialized = true;
     return 0;

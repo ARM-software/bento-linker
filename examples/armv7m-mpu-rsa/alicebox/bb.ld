@@ -19,7 +19,6 @@ sys_send_to_bob          = __box_callregion + 4*13 + 2*1 + 1;
 
 /* overridable constants */
 __stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00001000;
-__heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00000000;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
@@ -128,20 +127,5 @@ SECTIONS {
     . = ALIGN(4);
     __bss_end = .;
     __bss_end__ = .;
-
-    . = ALIGN(4);
-    __heap_start = .;
-    __end__ = .;
-    PROVIDE(end = .);
-    .heap . (NOLOAD) : {
-        . = .;
-    } > RAM
-    . = ORIGIN(RAM) + LENGTH(RAM);
-    . = ALIGN(4);
-    __heap_end = .;
-    __heap_limit = .;
-
-    ASSERT(__heap_end - __heap_start > __heap_min,
-        "Not enough memory in RAM for heap")
 }
 

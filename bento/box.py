@@ -679,7 +679,8 @@ class Fn:
         names = set(
             arg.name for arg in it.chain(self.preboundargs, self.rets)
             if arg.name)
-        prebound = prebound or len(self.args) != len(self.postboundargs)
+        prebound = prebound or (
+            not postbound and len(self.args) != len(self.postboundargs))
 
         for i, arg in enumerate(self.preboundargs):
             if not prebound and arg.name and arg.name in self.boundargs:
@@ -1313,14 +1314,16 @@ class Box:
                 if not relative:
                     continue
                 for output in relative.outputs:
-                    if (level, output.name) not in relative._box_prologues:
+                    key = (self.runtime.__argname__, level, output.name)
+                    if key not in relative._box_prologues:
                         getattr(self.runtime, 'box%s_%s_prologue' % (
                             suffix, output.name))(output, relative)
-                        relative._box_prologues.add((level, output.name))
-                if level not in relative._box_prologues:
+                        relative._box_prologues.add(key)
+                key = (self.runtime.__argname__, level)
+                if key not in relative._box_prologues:
                     getattr(self.runtime, 'box%s_prologue' % (
                         suffix))(relative)
-                    relative._box_prologues.add(level)
+                    relative._box_prologues.add(key)
             for child in self.boxes:
                 child.box(stage='prologues')
 
@@ -1350,14 +1353,16 @@ class Box:
                 if not relative:
                     continue
                 for output in relative.outputs:
-                    if (level, output.name) not in relative._box_epilogues:
+                    key = (self.runtime.__argname__, level, output.name)
+                    if key not in relative._box_epilogues:
                         getattr(self.runtime, 'box%s_%s_epilogue' % (
                             suffix, output.name))(output, relative)
-                        relative._box_epilogues.add((level, output.name))
-                if level not in relative._box_epilogues:
+                        relative._box_epilogues.add(key)
+                key = (self.runtime.__argname__, level)
+                if key not in relative._box_epilogues:
                     getattr(self.runtime, 'box%s_epilogue' % (
                         suffix))(relative)
-                    relative._box_epilogues.add(level)
+                    relative._box_epilogues.add(key)
             for child in self.boxes:
                 child.box(stage='epilogues')
 
@@ -1514,15 +1519,17 @@ class Box:
                 if not relative:
                     continue
                 for output in relative.outputs:
-                    if (level, output.name) not in relative._build_prologues:
+                    key = (self.runtime.__argname__, level, output.name)
+                    if key not in relative._build_prologues:
                         with output.pushattrs(**{level: relative.name}):
                             getattr(self.runtime, 'build%s_%s_prologue' % (
                                 suffix, output.name))(output, relative)
-                        relative._build_prologues.add((level, output.name))
-                if level not in relative._build_prologues:
+                        relative._build_prologues.add(key)
+                key = (self.runtime.__argname__, level)
+                if key not in relative._build_prologues:
                     getattr(self.runtime, 'build%s_prologue' % (
                         suffix))(relative)
-                    relative._build_prologues.add(level)
+                    relative._build_prologues.add(key)
             for child in self.boxes:
                 child.build(stage='prologues')
 
@@ -1555,14 +1562,16 @@ class Box:
                 if not relative:
                     continue
                 for output in relative.outputs:
-                    if (level, output.name) not in relative._build_epilogues:
+                    key = (self.runtime.__argname__, level, output.name)
+                    if key not in relative._build_epilogues:
                         with output.pushattrs(**{level: relative.name}):
                             getattr(self.runtime, 'build%s_%s_epilogue' % (
                                 suffix, output.name))(output, relative)
-                        relative._build_epilogues.add((level, output.name))
-                if level not in relative._build_epilogues:
+                        relative._build_epilogues.add(key)
+                key = (self.runtime.__argname__, level)
+                if key not in relative._build_epilogues:
                     getattr(self.runtime, 'build%s_epilogue' % (
                         suffix))(relative)
-                    relative._build_epilogues.add(level)
+                    relative._build_epilogues.add(key)
             for child in self.boxes:
                 child.build(stage='epilogues')

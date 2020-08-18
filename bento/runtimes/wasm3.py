@@ -66,17 +66,37 @@ static int __box_wasm3_toerr(M3Result res) {
     // fallback to general error?
     else                                                    return -EGENERAL;
 }
+"""
 
+C_STUFF = """
 __attribute__((unused))
-static uint32_t __box_wasm3_fromptr(IM3Runtime runtime, const void *ptr) {
+static uint32_t __box_%(box)s_fromptr(const void *ptr) {
     return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(runtime->memory.mallocated));
+        - m3MemData(__box_%(box)s_runtime->memory.mallocated));
 }
 
 __attribute__((unused))
-static void *__box_wasm3_toptr(IM3Runtime runtime, uint32_t ptr) {
-    return m3MemData(runtime->memory.mallocated) + ptr;
+static void *__box_%(box)s_toptr(uint32_t ptr) {
+    return m3MemData(__box_%(box)s_runtime->memory.mallocated) + ptr;
 }
+
+void *__box_%(box)s_push(size_t size) {
+    // we maintain a separate stack in the wasm memory space,
+    // sharing the stack space of the wasm-side libc
+    uint8_t *psp = __box_%(box)s_datasp;
+    if (psp + size > (uint8_t*)__box_%(box)s_toptr(%(data_stack)d)) {
+        return NULL;
+    }
+
+    __box_%(box)s_datasp = psp + size;
+    return psp;
+}
+
+void __box_%(box)s_pop(size_t size) {
+    assert(__box_%(box)s_datasp - size >= (uint8_t*)__box_%(box)s_toptr(0));
+    __box_%(box)s_datasp -= size;
+}
+
 """
 
 ABORT_HOOK = """
@@ -271,6 +291,10 @@ class Wasm3Runtime(
         out.printf('IM3Environment __box_%(box)s_environment;')
         out.printf('IM3Runtime __box_%(box)s_runtime;')
         out.printf('IM3Module __box_%(box)s_module;')
+        out.printf('uint8_t *__box_%(box)s_datasp;')
+
+        output.decls.append(C_STUFF,
+            data_stack=self._data_stack)
 
         # redirect hooks if necessary
         if not self._abort_hook.link:
@@ -300,15 +324,15 @@ class Wasm3Runtime(
             with out.indent():
                 if export.rets:
                     out.printf('m3ApiReturnType(%(ret)s);',
-                        ret=output.repr_arg(export.rets[0]))
+                        ret=output.repr_arg(export.rets[0], name=''))
                 for arg, name in export.zippedargs():
                     if arg.isptr():
                         out.printf('m3ApiGetArgMem(%(arg)s, %(name)s);',
-                            arg=output.repr_arg(arg),
+                            arg=output.repr_arg(arg, name=''),
                             name=name)
                     else:
                         out.printf('m3ApiGetArg(%(arg)s, %(name)s);',
-                            arg=output.repr_arg(arg),
+                            arg=output.repr_arg(arg, name=''),
                             name=name)
                 out.printf('%(rets)s%(alias)s(%(args)s);',
                     args=', '.join(map(str, export.argnamesandbounds())),
@@ -372,12 +396,12 @@ class Wasm3Runtime(
                 for i, (arg, name) in enumerate(import_.zippedargsandbounds()):
                     if arg.isptr():
                         out.printf('*(uint32_t*)&stack[%(i)d] = '
-                            '__box_wasm3%(f)sromptr(%(name)s);',
+                            '__box_%(box)s_fromptr(%(name)s);',
                             name=name,
                             i=i)
                     else:
                         out.printf('*(%(arg)s*)&stack[%(i)d] = %(name)s;',
-                            arg=output.repr_arg(arg),
+                            arg=output.repr_arg(arg, name=''),
                             name=name,
                             i=i)
                 out.printf('m3StackCheckInit();')
@@ -400,11 +424,11 @@ class Wasm3Runtime(
                     out.printf('assert(!%(res)s);')
                 for ret in import_.rets:
                     if ret.isptr():
-                        out.printf('return __box_wasm3_toptr('
+                        out.printf('return __box_%(box)s_toptr('
                             '*(uint32_t*)&stack[0]);')
                     else:
                         out.printf('return *(%(ret)s*)&stack[0];',
-                            ret=output.repr_arg(ret))
+                            ret=output.repr_arg(ret, name=''))
                 if import_.isnoreturn():
                     # kinda wish we could apply noreturn to C types...
                     out.printf('__builtin_unreachable();')
@@ -478,6 +502,9 @@ class Wasm3Runtime(
                         out.printf('return __box_wasm3_toerr(res);')
                     out.printf('}')
                 out.printf()
+            out.printf('// setup data stack')
+            out.printf('__box_%(box)s_datasp = __box_%(box)s_toptr(0);')
+            out.printf()
             out.printf('__box_%(box)s_initialized = true;')
             out.printf('return 0;')
         out.printf('}')

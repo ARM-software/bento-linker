@@ -11,8 +11,6 @@ extern int32_t box2_add2(int32_t a0, int32_t a1);
 
 extern int box2_hello(void);
 
-//// box hooks ////
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not

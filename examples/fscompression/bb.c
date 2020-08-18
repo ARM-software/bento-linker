@@ -377,6 +377,30 @@ struct __box_state {
     uint32_t *sp;
 };
 
+#if defined(__GNUC__)
+// state of brk
+static uint8_t *__heap_brk = NULL;
+// assigned by linker
+extern uint8_t __heap_start;
+extern uint8_t __heap_end;
+
+// GCC's _sbrk uses sp for bounds checking, this
+// does not work if our stack is located before the heap
+void *_sbrk(ptrdiff_t diff) {
+    if (!__heap_brk) {
+        __heap_brk = &__heap_start;
+    }
+
+    uint8_t *pbrk = __heap_brk;
+    if (pbrk + diff > &__heap_end) {
+        return (void*)-1;
+    }
+
+    __heap_brk = pbrk+diff;
+    return pbrk;
+}
+#endif
+
 //// __box_abort glue ////
 
 __attribute__((noreturn))
@@ -385,12 +409,18 @@ void __box_abort(int err) {
     while (1) {}
 }
 
-__attribute__((used, noreturn))
+__attribute__((used))
+__attribute__((noreturn))
 void __wrap_abort(void) {
     __box_abort(-1);
 }
 
-#ifdef __GNUC__
+__attribute__((used))
+void __wrap_exit(int code) {
+    __box_abort(code > 0 ? -code : code);
+}
+
+#if defined(__GNUC__)
 __attribute__((noreturn))
 void __assert_func(const char *file, int line,
         const char *func, const char *expr) {
@@ -399,12 +429,8 @@ void __assert_func(const char *file, int line,
 }
 
 __attribute__((noreturn))
-void _exit(int returncode) {
-    if (returncode > 0) {
-        returncode = -returncode;
-    }
-
-    __box_abort(returncode);
+void _exit(int code) {
+    __box_abort(code > 0 ? -code : code);
 }
 #endif
 
@@ -678,7 +704,7 @@ int __wrap_fflush(FILE *f) {
     return __box_flush(fd);
 }
 
-#ifdef __GNUC__
+#if defined(__GNUC__)
 int _write(int handle, const char *buffer, int size) {
     return __box_write(handle, (const uint8_t*)buffer, size);
 }
@@ -706,6 +732,15 @@ int32_t __box_reset_handler(void) {
     for (uint32_t *d = &__bss_start; d < &__bss_end; d++) {
         *d = 0;
     }
+
+
+    // FPU bringup?
+    #if defined(__VFP_FP__) && !defined(__SOFTFP__)
+    #define CPACR ((volatile uint32_t*)0xe000ed88)
+    *CPACR |= 0x00f00000;
+    __asm__ volatile ("dsb");
+    __asm__ volatile ("isb");
+    #endif
 
     // init libc
     extern void __libc_init_array(void);

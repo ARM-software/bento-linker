@@ -29,8 +29,6 @@ extern ssize_t tlsbox_rsa_pkcs1_decrypt(int32_t key, const void *input, void *ou
 
 extern int tlsbox_rsa_pkcs1_encrypt(int32_t key, const void *input, size_t input_size, void *output);
 
-//// box hooks ////
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not

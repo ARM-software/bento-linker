@@ -23,8 +23,6 @@ extern void* boxc_qsort_alloc(size_t size);
 
 extern ssize_t boxc_qsort_partition(uint32_t *buffer, size_t size, uint32_t pivot);
 
-//// box hooks ////
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not

@@ -19,8 +19,8 @@ WASMCC           ?= ../wasi-sdk/bin/clang
 WASMSYSROOT      ?= ../wasi-sdk/share/wasi-sysroot
 WASMSTRIP        ?= ../wabt/bin/wasm-strip
 WASMOBJDUMP      ?= ../wabt/bin/wasm-objdump
-WASMWASM2WAT     ?= ../wabt/bin/wasm-wasm2wat
-WASMWAT2WASM     ?= ../wabt/bin/wasm-wat2wasm
+WASMWASM2WAT     ?= ../wabt/bin/wasm2wat
+WASMWAT2WASM     ?= ../wabt/bin/wat2wasm
 
 override WASMLDFLAGS += -Wl,-z,stack-size=16384
 
@@ -105,7 +105,7 @@ override WASMCFLAGS += -ffunction-sections
 override WASMCFLAGS += -fdata-sections
 override WASMCFLAGS += -ffreestanding
 override WASMCFLAGS += -fno-builtin
-override WASMCFLAGS += $(patsubst %,-I%,$(INC))
+override WASMCFLAGS += $(patsubst %,-I%,$(WASMINC))
 
 override CARGOFLAGS += --target=thumbv7em-none-eabi
 ifeq ($(DEBUG),0)
@@ -188,18 +188,18 @@ all build: $(TARGET)
 # computing size size is a bit complicated as each .elf includes its boxes, we
 # want independent sizes.
 .PHONY: size
-size: $(TARGET) $(BOXES)
+size: $(TARGET:.wasm=.elf) $(BOXES)
 	$(SIZE) $<
 
 .PHONY: debug
-debug: $(TARGET)
+debug: $(TARGET:.wasm=.elf)
 	echo '$$qRcmd,68616c74#fc' | nc -N $(GDBADDR) $(GDBPORT) && echo # halt
 	$(strip $(GDB) $< \
 	    -ex "target remote $(GDBADDR):$(GDBPORT)")
 	echo '$$qRcmd,676f#2c' | nc -N $(GDBADDR) $(GDBPORT) && echo # go
 
 .PHONY: flash
-flash: $(TARGET)
+flash: $(TARGET:.wasm=.elf)
 	echo '$$qRcmd,68616c74#fc' | nc -N $(GDBADDR) $(GDBPORT) && echo # halt
 	$(strip $(GDB) $< \
 	    -ex "target remote $(GDBADDR):$(GDBPORT)" \
@@ -223,10 +223,10 @@ tags:
 	    $(shell find $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))))-include $(DEP)
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
 
 # header dependencies
-
+-include $(DEP)
 
 define CARGORULE
 .PHONY: $(toml)
@@ -272,5 +272,5 @@ clean:
 	rm -f $(OBJ)
 	rm -f $(DEP)
 	$(foreach toml,$(CARGOTOMLS),$(CARGO) clean --manifest-path=$(toml))
-	rm -f $(WASMOBJ)
+	rm -f $(TARGET:.wasm=.elf) $(WASMOBJ)
 

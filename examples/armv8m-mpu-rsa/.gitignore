@@ -4,6 +4,8 @@ Cargo.lock
 target/
 *.o
 *.d
+*.wo
+*.wasm
 *.elf
 *.bin
 *.box
