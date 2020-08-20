@@ -53,6 +53,9 @@ class MkOutput(outputs.Output):
         parser.add_argument('--lto', type=bool,
             help='Enables link-time optimizations during compilation. '
                 'Defaults to true.')
+        parser.add_argument('--asserts', type=bool,
+            help='Enables asserts independently of debug mode. Defaults to '
+                'true.')
         defineparser = parser.add_set('--define', append=True)
         defineparser.add_argument('define',
             help='Adds custom defines to the Makefile. For example: '
@@ -153,7 +156,7 @@ class MkOutput(outputs.Output):
             help='Add custom WebAssembly linker flags.')
 
     def __init__(self, path=None, target=None,
-            debug=None, lto=None, define=None,
+            debug=None, lto=None, asserts=None, define=None,
             cc=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
@@ -171,6 +174,7 @@ class MkOutput(outputs.Output):
         self._target = target
         self._debug = debug if debug is not None else False
         self._lto = lto if lto is not None else True
+        self._asserts = asserts if asserts is not None else True
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
 
@@ -256,6 +260,7 @@ class MkOutput(outputs.Output):
             TARGET='$(TARGET)' if self.no_wasm else '$(TARGET:.wasm=.elf)',
             debug=self._debug,
             lto=self._lto,
+            asserts=self._asserts,
             cc=self._cc,
             objcopy=self._objcopy,
             objdump=self._objdump,
@@ -284,6 +289,7 @@ class MkOutput(outputs.Output):
         out = self.decls.append()
         out.printf('DEBUG            ?= %(debug)d')
         out.printf('LTO              ?= %(lto)d')
+        out.printf('ASSERTS          ?= %(asserts)d')
         # note we can't use ?= for program names, implicit
         # makefile variables get in the way :(
         out.printf('CC               = %(cc)s')
@@ -368,11 +374,12 @@ class MkOutput(outputs.Output):
 
         out = self.decls.append()
         out.printf('ifneq ($(DEBUG),0)')
-        out.printf('override CFLAGS += -DDEBUG')
         out.printf('override CFLAGS += -g')
         out.printf('override CFLAGS += -O0')
         out.printf('else')
+        out.printf('ifeq ($(ASSERTS),0)')
         out.printf('override CFLAGS += -DNDEBUG')
+        out.printf('endif')
         out.printf('override CFLAGS += -Os')
         out.printf('ifneq ($(LTO),0)')
         out.printf('override CFLAGS += -flto')
@@ -404,11 +411,12 @@ class MkOutput(outputs.Output):
         if not self.no_wasm:
             out = self.decls.append()
             out.printf('ifneq ($(DEBUG),0)')
-            out.printf('override WASMCFLAGS += -DDEBUG')
             out.printf('override WASMCFLAGS += -g')
             out.printf('override WASMCFLAGS += -O0')
             out.printf('else')
+            out.printf('ifeq ($(ASSERTS),0)')
             out.printf('override WASMCFLAGS += -DNDEBUG')
+            out.printf('endif')
             out.printf('override WASMCFLAGS += -Os')
             out.printf('ifneq ($(LTO),0)')
             out.printf('override WASMCFLAGS += -flto')

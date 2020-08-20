@@ -4,6 +4,7 @@ TARGET           ?= boxrust.elf
 
 DEBUG            ?= 0
 LTO              ?= 1
+ASSERTS          ?= 1
 CC               = arm-none-eabi-gcc
 OBJCOPY          = arm-none-eabi-objcopy
 OBJDUMP          = arm-none-eabi-objdump
@@ -46,11 +47,12 @@ LIB += $(patsubst lib%.a,%,$(notdir $(CRATELIBS)))
 LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
 
 ifneq ($(DEBUG),0)
-override CFLAGS += -DDEBUG
 override CFLAGS += -g
 override CFLAGS += -O0
 else
+ifeq ($(ASSERTS),0)
 override CFLAGS += -DNDEBUG
+endif
 override CFLAGS += -Os
 ifneq ($(LTO),0)
 override CFLAGS += -flto
