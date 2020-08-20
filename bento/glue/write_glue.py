@@ -484,8 +484,8 @@ class WriteGlue(glue.Glue):
                 out.printf('override WASMLDFLAGS += -Wl,--wrap,vfprintf')
             out.printf('override WASMLDFLAGS += -Wl,--wrap,fflush')
 
-    def build_rs(self, output, box):
-        super().build_rs(output, box)
+    def build_rust_lib(self, output, box):
+        super().build_rust_lib(output, box)
         output.uses.append('core::fmt')
         output.decls.append(RUST_HOOKS)
         output.decls.append(RUST_STDOUT,

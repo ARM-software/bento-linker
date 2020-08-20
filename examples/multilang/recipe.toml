@@ -88,9 +88,9 @@ heap = 0x800
 
 output.ld = 'bb/src/bb.ld'
 output.c = 'bb/src/bb.c'
-output.rs.path = 'bb/src/lib.rs'
-output.rs.no_runtime_logic = true
+output.rust_lib.path = 'bb/src/lib.rs'
 output.mk.path = 'Makefile'
+output.mk.cargo = 'cargo'
 output.mk.srcs = ['.', 'bb/src']
 
 export.boxrust_add2 = 'fn(i32, i32) -> err32'

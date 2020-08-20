@@ -6,7 +6,7 @@ import itertools as it
 import collections as co
 
 @outputs.output
-class LDOutput(outputs.Output):
+class LdOutput(outputs.Output):
     """
     Name of file to target for a linkerscript.
     """

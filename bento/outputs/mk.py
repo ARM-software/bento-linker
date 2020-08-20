@@ -33,7 +33,7 @@ RUST_TRIPLES = co.defaultdict(
 )
 
 @outputs.output
-class MKOutput(outputs.Output):
+class MkOutput(outputs.Output):
     """
     Name of file to target for a box-specific Makefile. This makes some
     assumptions about the cross compiler (GCC) and is really only intended
@@ -60,8 +60,6 @@ class MKOutput(outputs.Output):
 
         parser.add_argument('--cc',
             help='Override the C compiler for the makefile.')
-        parser.add_argument('--cargo',
-            help='Override the cargo program for the makefile.')
         parser.add_argument('--objcopy',
             help='Override the obcopy program for the makefile.')
         parser.add_argument('--objdump',
@@ -103,6 +101,16 @@ class MKOutput(outputs.Output):
             help='Add custom assembly flags.')
         parser.add_argument('--ld_flags', type=list,
             help='Add custom linker flags.')
+
+        parser.add_argument('--cargo',
+            help='Override the cargo program for the makefile. This can be '
+                '--cargo=cargo if cargo can be found in your path. If not '
+                'provided, the generated makefile will error when asked to '
+                'compile Rust crates.')
+        parser.add_argument('--crates', type=list,
+            help='Supply Rust crate directories. This only needs to be the '
+                'root library crate as Rust\'s module system automatically '
+                'finds dependencies. Defaults to [\'.\'].')
 
         parser.add_argument('--wasi_sdk',
             help='Provide path to a WASI SDK build. This will be used to '
@@ -146,12 +154,13 @@ class MKOutput(outputs.Output):
 
     def __init__(self, path=None, target=None,
             debug=None, lto=None, define=None,
-            cc=None, cargo=None, objcopy=None, objdump=None, ar=None,
+            cc=None, objcopy=None, objdump=None, ar=None,
             size=None, gdb=None, gdb_addr=None, gdb_port=None,
             tty=None, baud=None,
             cpu=None, fpu=None, isa=None,
             srcs=None, incs=None, libs=None,
             c_flags=None, asm_flags=None, ld_flags=None,
+            cargo=None, crates=None,
             wasi_sdk=None, wabt=None,
             wasm_cc=None, wasm_sysroot=None, wasm_strip=None,
             wasm_objdump=None, wasm_wasm2wat=None, wasm_wat2wasm=None,
@@ -166,7 +175,6 @@ class MKOutput(outputs.Output):
             (k, getattr(v, 'define', v)) for k, v in define.items()))
 
         self._cc = cc or '%(gcctriple)s-gcc'
-        self._cargo = cargo or 'cargo'
         self._objcopy = objcopy or '%(gcctriple)s-objcopy'
         self._objdump = objdump or '%(gcctriple)s-objdump'
         self._ar = ar or '%(gcctriple)s-ar'
@@ -188,6 +196,9 @@ class MKOutput(outputs.Output):
         self._c_flags = c_flags if c_flags is not None else []
         self._asm_flags = asm_flags if asm_flags is not None else []
         self._ld_flags = ld_flags if ld_flags is not None else []
+
+        self._cargo = cargo
+        self._crates = crates if crates is not None else ['.']
 
         self._wasm_cc = (wasm_cc
             if wasm_cc else
@@ -232,6 +243,7 @@ class MKOutput(outputs.Output):
         self._wasm_ld_flags = wasm_ld_flags if wasm_ld_flags is not None else []
 
         # used to decide what gets emitting into Makefile
+        self.no_rust = self._cargo is None
         self.no_wasm = self._wasm_cc is None
 
         self.decls = outputs.OutputField(self)
@@ -245,7 +257,6 @@ class MKOutput(outputs.Output):
             debug=self._debug,
             lto=self._lto,
             cc=self._cc,
-            cargo=self._cargo,
             objcopy=self._objcopy,
             objdump=self._objdump,
             ar=self._ar,
@@ -259,6 +270,7 @@ class MKOutput(outputs.Output):
             fpu=self._fpu,
             isa=self._isa,
             gcctriple=GCC_TRIPLES[self._cpu],
+            cargo=self._cargo,
             rusttriple=RUST_TRIPLES[self._cpu],
             wasm_cc=self._wasm_cc,
             wasm_sysroot=self._wasm_sysroot,
@@ -275,7 +287,6 @@ class MKOutput(outputs.Output):
         # note we can't use ?= for program names, implicit
         # makefile variables get in the way :(
         out.printf('CC               = %(cc)s')
-        out.printf('CARGO            = %(cargo)s')
         out.printf('OBJCOPY          = %(objcopy)s')
         out.printf('OBJDUMP          = %(objdump)s')
         out.printf('AR               = %(ar)s')
@@ -285,6 +296,8 @@ class MKOutput(outputs.Output):
         out.printf('GDBPORT          ?= %(gdb_port)s')
         out.printf('TTY              ?= %(tty)s')
         out.printf('BAUD             ?= %(baud)s')
+        if not self.no_rust:
+            out.printf('CARGO            = %(cargo)s')
         if not self.no_wasm:
             out.printf('WASMCC           ?= %(wasm_cc)s')
             out.printf('WASMSYSROOT      ?= %(wasm_sysroot)s')
@@ -301,6 +314,9 @@ class MKOutput(outputs.Output):
             out.printf('INC += %(path)s', path=inc)
         for lib in self._libs:
             out.printf('LIB += %(path)s', path=lib)
+        if not self.no_rust:
+            for crate in self._crates:
+                out.printf('CRATES += %(path)s', path=crate)
         if not self.no_wasm:
             for src in self._wasm_srcs:
                 out.printf('WASMSRC += %(path)s', path=src)
@@ -309,20 +325,19 @@ class MKOutput(outputs.Output):
             for lib in self._wasm_libs:
                 out.printf('WASMLIB += %(path)s', path=lib)
 
-        out = self.decls.append()
-        out.printf('CARGOTOML2ARCHIVE = $(foreach lib,$\\\n'
-            '    $(shell $(CARGO) metadata $\\\n'
-            '        --manifest-path=$(1) $\\\n'
-            '        --format-version=1 --no-deps $\\\n'
-            '        | jq -r \'.packages|.[].name|gsub("-";"_")\'),$\\\n'
-            '    $(patsubst %%/Cargo.toml,%%,$(1))/$\\\n'
-            '        target/%(rusttriple)s/$\\\n'
-            '        $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
-            '        lib$(lib).a)')
-
-        out = self.decls.append()
-        out.printf('CARGOTOMLS := $(wildcard '
-            '$(patsubst %%,%%/Cargo.toml,$(SRC)))')
+        if not self.no_rust:
+            out = self.decls.append(doc='find crate libs in one pass')
+            out.printf('CRATELIBS := $(foreach crate,$(CRATES),$\\\n'
+                '    $(foreach lib,$\\\n'
+                '        $(shell $(CARGO) metadata $\\\n'
+                '            --manifest-path=$(crate)/Cargo.toml $\\\n'
+                '            --format-version=1 --no-deps $\\\n'
+                '            | jq -r \'.packages'
+                                 '|.[].name'
+                                 '|gsub("-";"_")\'),$\\\n'
+                '        $(crate)/target/%(rusttriple)s/$\\\n'
+                '            $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
+                '            lib$(lib).a))')
 
         out = self.decls.append()
         out.printf('OBJ := $(patsubst %%.c,%%.o,'
@@ -332,14 +347,12 @@ class MKOutput(outputs.Output):
         out.printf('OBJ += $(patsubst %%.S,%%.o,'
             '$(wildcard $(patsubst %%,%%/*.S,$(SRC))))')
         out.printf('DEP := $(patsubst %%.o,%%.d,$(OBJ))')
+        if not self.no_rust:
+            out.printf('SRC += $(dir $(CRATELIBS))')
+            out.printf('LIB += $(patsubst lib%%.a,%%,$(notdir $(CRATELIBS)))')
         out.printf('LDSCRIPT := $(firstword $(wildcard '
             '$(patsubst %%,%%/*.ld,$(SRC))))')
-        out.printf('ARCHIVES := $(wildcard '
-            '$(patsubst %%,%%/lib*.a,$(SRC)))')
-        out.printf('ARCHIVES += $(foreach toml,$(CARGOTOMLS),'
-            '$(call CARGOTOML2ARCHIVE,$(toml)))')
-        out.printf('LIB += $(patsubst lib%%.a,%%,'
-            '$(notdir $(ARCHIVES)))')
+
         for child in box.boxes:
             path = os.path.relpath(child.path, box.path)
             out.printf('BOXES += %(path)s/%(box)s.box',
@@ -352,10 +365,6 @@ class MKOutput(outputs.Output):
             out.printf('WASMOBJ += $(patsubst %%.S,%%.wo,'
                 '$(wildcard $(patsubst %%,%%/*.S,$(WASMSRC))))')
             out.printf('DEP += $(patsubst %%.wo,%%.d,$(WASMOBJ))')
-            out.printf('WASMARCHIVES := $(wildcard '
-                '$(patsubst %%,%%/lib*.a,$(WASMSRC)))')
-            out.printf('WASMLIB += $(patsubst lib%%.a,%%,'
-                '$(notdir $(WASMARCHIVES)))')
 
         out = self.decls.append()
         out.printf('ifneq ($(DEBUG),0)')
@@ -384,7 +393,16 @@ class MKOutput(outputs.Output):
         out.printf('override CFLAGS += -ffreestanding')
         out.printf('override CFLAGS += -fno-builtin')
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
+
+        if not self.no_rust:
+            out = self.decls.append()
+            out.printf('override CARGOFLAGS += --target=%(rusttriple)s')
+            out.printf('ifeq ($(DEBUG),0)')
+            out.printf('override CARGOFLAGS += --release')
+            out.printf('endif')
+
         if not self.no_wasm:
+            out = self.decls.append()
             out.printf('ifneq ($(DEBUG),0)')
             out.printf('override WASMCFLAGS += -DDEBUG')
             out.printf('override WASMCFLAGS += -g')
@@ -411,20 +429,14 @@ class MKOutput(outputs.Output):
             out.printf('override WASMCFLAGS += $(patsubst %%,-I%%,$(WASMINC))')
 
         out = self.decls.append()
-        out.printf('override CARGOFLAGS += --target=%(rusttriple)s')
-        out.printf('ifeq ($(DEBUG),0)')
-        out.printf('override CARGOFLAGS += --release')
-        out.printf('endif')
-
-        out = self.decls.append()
         out.printf('override ASMFLAGS += $(CFLAGS)')
 
         out = self.decls.append()
         out.printf('override LDFLAGS += $(CFLAGS)')
         out.printf('override LDFLAGS += -T$(LDSCRIPT)')
-        out.printf('override LDFLAGS += $(patsubst %%,-L%%,$(dir $(ARCHIVES)))')
-        out.printf('override LDFLAGS += -Wl,--start-group '
-            '$(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
+        out.printf('override LDFLAGS += $(patsubst %%,-L%%,$(SRC))')
+        out.printf('override LDFLAGS += '
+            '-Wl,--start-group $(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
         out.printf('override LDFLAGS += -static')
         out.printf('override LDFLAGS += --specs=nano.specs')
         out.printf('override LDFLAGS += --specs=nosys.specs')
@@ -433,10 +445,8 @@ class MKOutput(outputs.Output):
         out.printf('override LDFLAGS += -Wl,-z,muldefs')
         if not self.no_wasm:
             out.printf('override WASMLDFLAGS += $(WASMCFLAGS)')
-            out.printf('override WASMLDFLAGS += '
-                '$(patsubst %%,-L%%,$(dir $(ARCHIVES)))')
-            out.printf('override WASMLDFLAGS += '
-                '$(patsubst %%,-l%%,$(WASMLIB))')
+            out.printf('override WASMLDFLAGS += $(patsubst %%,-L%%,$(WASMSRC))')
+            out.printf('override WASMLDFLAGS += $(patsubst %%,-l%%,$(WASMLIB))')
             out.printf('override WASMLDFLAGS += -Wl,--gc-sections')
             out.printf('override WASMLDFLAGS += -Wl,--no-entry')
             out.printf('override WASMLDFLAGS += -Wl,--allow-undefined')
@@ -546,14 +556,16 @@ class MKOutput(outputs.Output):
         out = self.rules.append(doc="header dependencies")
         out.printf('-include $(DEP)')
 
-        out = self.rules.append()
-        out.printf('define CARGORULE')
-        out.printf('.PHONY: $(toml)')
-        out.printf('$(call CARGOTOML2ARCHIVE,$(toml)): $(toml)')
-        with out.indent():
-            out.printf('$(CARGO) build --manifest-path=$$< $(CARGOFLAGS)')
-        out.printf('endef')
-        out.printf('$(foreach toml,$(CARGOTOMLS),$(eval $(CARGORULE)))')
+        if not self.no_rust:
+            out = self.rules.append()
+            out.printf('define CRATERULE')
+            out.printf('.PHONY: $(crate)')
+            out.printf('$(crate):')
+            with out.indent():
+                out.printf('$(CARGO) build '
+                    '--manifest-path=$(crate)/Cargo.toml $(CARGOFLAGS)')
+            out.printf('endef')
+            out.printf('$(foreach crate,$(CRATES),$(eval $(CRATERULE)))')
 
         out = self.rules.append()
         out.printf('%%.bin: %%.elf')
@@ -613,8 +625,9 @@ class MKOutput(outputs.Output):
             out.printf('rm -f $(TARGET) $(BOXES)')
             out.printf('rm -f $(OBJ)')
             out.printf('rm -f $(DEP)')
-            out.printf('$(foreach toml,$(CARGOTOMLS),'
-                '$(CARGO) clean --manifest-path=$(toml))')
+            if not self.no_rust:
+                out.printf('$(foreach crate,$(CRATES),'
+                    '$(CARGO) clean --manifest-path=$(crate)/Cargo.toml)')
             if not self.no_wasm:
                 out.printf('rm -f $(TARGET:.wasm=.elf) $(WASMOBJ)')
             for child in box.boxes:

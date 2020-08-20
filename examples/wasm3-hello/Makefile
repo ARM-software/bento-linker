@@ -5,7 +5,6 @@ TARGET           ?= sys.elf
 DEBUG            ?= 0
 LTO              ?= 1
 CC               = arm-none-eabi-gcc
-CARGO            = cargo
 OBJCOPY          = arm-none-eabi-objcopy
 OBJDUMP          = arm-none-eabi-objdump
 AR               = arm-none-eabi-ar
@@ -31,26 +30,11 @@ LIB += c
 LIB += gcc
 LIB += nosys
 
-CARGOTOML2ARCHIVE = $(foreach lib,$\
-    $(shell $(CARGO) metadata $\
-        --manifest-path=$(1) $\
-        --format-version=1 --no-deps $\
-        | jq -r '.packages|.[].name|gsub("-";"_")'),$\
-    $(patsubst %/Cargo.toml,%,$(1))/$\
-        target/thumbv7em-none-eabi/$\
-        $(if $(filter-out 0,$(DEBUG)),debug,release)/$\
-        lib$(lib).a)
-
-CARGOTOMLS := $(wildcard $(patsubst %,%/Cargo.toml,$(SRC)))
-
 OBJ := $(patsubst %.c,%.o,$(wildcard $(patsubst %,%/*.c,$(SRC))))
 OBJ += $(patsubst %.s,%.o,$(wildcard $(patsubst %,%/*.s,$(SRC))))
 OBJ += $(patsubst %.S,%.o,$(wildcard $(patsubst %,%/*.S,$(SRC))))
 DEP := $(patsubst %.o,%.d,$(OBJ))
 LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
-ARCHIVES := $(wildcard $(patsubst %,%/lib*.a,$(SRC)))
-ARCHIVES += $(foreach toml,$(CARGOTOMLS),$(call CARGOTOML2ARCHIVE,$(toml)))
-LIB += $(patsubst lib%.a,%,$(notdir $(ARCHIVES)))
 BOXES += box1/box1.box
 BOXES += box2/box2.box
 BOXES += box3/box3.box
@@ -79,16 +63,11 @@ override CFLAGS += -ffreestanding
 override CFLAGS += -fno-builtin
 override CFLAGS += $(patsubst %,-I%,$(INC))
 
-override CARGOFLAGS += --target=thumbv7em-none-eabi
-ifeq ($(DEBUG),0)
-override CARGOFLAGS += --release
-endif
-
 override ASMFLAGS += $(CFLAGS)
 
 override LDFLAGS += $(CFLAGS)
 override LDFLAGS += -T$(LDSCRIPT)
-override LDFLAGS += $(patsubst %,-L%,$(dir $(ARCHIVES)))
+override LDFLAGS += $(patsubst %,-L%,$(SRC))
 override LDFLAGS += -Wl,--start-group $(patsubst %,-l%,$(LIB)) -Wl,--end-group
 override LDFLAGS += -static
 override LDFLAGS += --specs=nano.specs
@@ -248,13 +227,6 @@ box3/box3.box:
 # header dependencies
 -include $(DEP)
 
-define CARGORULE
-.PHONY: $(toml)
-$(call CARGOTOML2ARCHIVE,$(toml)): $(toml)
-	$(CARGO) build --manifest-path=$$< $(CARGOFLAGS)
-endef
-$(foreach toml,$(CARGOTOMLS),$(eval $(CARGORULE)))
-
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
 
@@ -275,7 +247,6 @@ clean:
 	rm -f $(TARGET) $(BOXES)
 	rm -f $(OBJ)
 	rm -f $(DEP)
-	$(foreach toml,$(CARGOTOMLS),$(CARGO) clean --manifest-path=$(toml))
 	$(MAKE) -C box1 clean
 	$(MAKE) -C box2 clean
 	$(MAKE) -C box3 clean

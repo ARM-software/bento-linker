@@ -8,6 +8,14 @@ autobins = false
 opt-level = 'z'
 lto = true
 debug = true
+debug-assertions = false
+
+[profile.dev]
+opt-level = 'z'
+lto = false
+debug = true
+debug-assertions = true
+
 
 [lib]
 crate-type = ["staticlib"]

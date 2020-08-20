@@ -4,29 +4,17 @@ import io
 import textwrap
 import itertools as it
 
+
 @outputs.output
-class RustOutput(outputs.Output):
+class RustLibOutput(outputs.Output):
     """
-    Name of rust file to place the generated bento-box crate.
+    Path of Rust file to place the generated bento-box library.
     """
-    __argname__ = "rs"
+    __argname__ = "rust_lib"
     __arghelp__ = __doc__
-    @classmethod
-    def __argparse__(cls, parser, **kwargs):
-        super().__argparse__(parser, **kwargs)
 
-        parser.add_argument('--no_runtime_logic', type=bool,
-            help='Don\'t emit the box runtime logic, requires runtime '
-                'logic to be output in another source file. Currently required '
-                'as pure Rust runtime logic is not currently supported but may '
-                'be added in the future.')
-
-    def __init__(self, path=None, no_runtime_logic=None):
+    def __init__(self, path=None):
         super().__init__(path)
-
-        self.no_runtime_logic = no_runtime_logic or False
-        assert self.no_runtime_logic, ("Runtime logic in Rust output currently "
-            "unsupported. Requires the no_runtime_logic flag.")
 
         self.inner_attrs = outputs.OutputField(self)
         self.uses = outputs.OutputField(self)
@@ -79,12 +67,12 @@ class RustOutput(outputs.Output):
             'fn',
             ' %s' % name if name else '',
             '(',
-            ', '.join(RustOutput.repr_arg(arg, name, ns)
+            ', '.join(RustLibOutput.repr_arg(arg, name, ns)
                 for arg, name in zip(fn.args, fn.argnames())
                 if name not in asizes),
             ')',
             ' -> !' if fn.isnoreturn() else
-            ' -> %s' % RustOutput.repr_arg(fn.rets[0], '', ns, True)
+            ' -> %s' % RustLibOutput.repr_arg(fn.rets[0], '', ns, True)
             if fn.rets else
             '']))
 
@@ -112,11 +100,11 @@ class RustOutput(outputs.Output):
             'fn',
             ' %s' % name if name else '',
             '(',
-            ', '.join(RustOutput.repr_rawarg(arg, name)
+            ', '.join(RustLibOutput.repr_rawarg(arg, name)
                 for arg, name in zip(fn.args, fn.argnames())),
             ')',
             ' -> !' if fn.isnoreturn() else
-            ' -> %s' % RustOutput.repr_rawarg(fn.rets[0], '') if fn.rets else
+            ' -> %s' % RustLibOutput.repr_rawarg(fn.rets[0], '') if fn.rets else
             '']))
 
     @staticmethod

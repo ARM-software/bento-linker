@@ -642,7 +642,7 @@ class ARMv7MMPURuntime(
             name='TARGET', target=output.get('target', '%(box)s.elf'))
 
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)')
+        out.printf('$(TARGET): $(OBJ) $(CRATES) $(BOXES) $(LDSCRIPT)')
         with out.indent():
             out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
 

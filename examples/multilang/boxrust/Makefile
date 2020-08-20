@@ -5,7 +5,6 @@ TARGET           ?= boxrust.elf
 DEBUG            ?= 0
 LTO              ?= 1
 CC               = arm-none-eabi-gcc
-CARGO            = cargo
 OBJCOPY          = arm-none-eabi-objcopy
 OBJDUMP          = arm-none-eabi-objdump
 AR               = arm-none-eabi-ar
@@ -15,6 +14,7 @@ GDBADDR          ?= localhost
 GDBPORT          ?= 3333
 TTY              ?= $(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))
 BAUD             ?= 115200
+CARGO            = cargo
 
 SRC += .
 SRC += bb/src
@@ -24,27 +24,26 @@ LIB += m
 LIB += c
 LIB += gcc
 LIB += nosys
+CRATES += .
 
-CARGOTOML2ARCHIVE = $(foreach lib,$\
-    $(shell $(CARGO) metadata $\
-        --manifest-path=$(1) $\
-        --format-version=1 --no-deps $\
-        | jq -r '.packages|.[].name|gsub("-";"_")'),$\
-    $(patsubst %/Cargo.toml,%,$(1))/$\
-        target/thumbv7em-none-eabi/$\
-        $(if $(filter-out 0,$(DEBUG)),debug,release)/$\
-        lib$(lib).a)
-
-CARGOTOMLS := $(wildcard $(patsubst %,%/Cargo.toml,$(SRC)))
+# find crate libs in one pass
+CRATELIBS := $(foreach crate,$(CRATES),$\
+    $(foreach lib,$\
+        $(shell $(CARGO) metadata $\
+            --manifest-path=$(crate)/Cargo.toml $\
+            --format-version=1 --no-deps $\
+            | jq -r '.packages|.[].name|gsub("-";"_")'),$\
+        $(crate)/target/thumbv7em-none-eabi/$\
+            $(if $(filter-out 0,$(DEBUG)),debug,release)/$\
+            lib$(lib).a))
 
 OBJ := $(patsubst %.c,%.o,$(wildcard $(patsubst %,%/*.c,$(SRC))))
 OBJ += $(patsubst %.s,%.o,$(wildcard $(patsubst %,%/*.s,$(SRC))))
 OBJ += $(patsubst %.S,%.o,$(wildcard $(patsubst %,%/*.S,$(SRC))))
 DEP := $(patsubst %.o,%.d,$(OBJ))
+SRC += $(dir $(CRATELIBS))
+LIB += $(patsubst lib%.a,%,$(notdir $(CRATELIBS)))
 LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
-ARCHIVES := $(wildcard $(patsubst %,%/lib*.a,$(SRC)))
-ARCHIVES += $(foreach toml,$(CARGOTOMLS),$(call CARGOTOML2ARCHIVE,$(toml)))
-LIB += $(patsubst lib%.a,%,$(notdir $(ARCHIVES)))
 
 ifneq ($(DEBUG),0)
 override CFLAGS += -DDEBUG
@@ -79,7 +78,7 @@ override ASMFLAGS += $(CFLAGS)
 
 override LDFLAGS += $(CFLAGS)
 override LDFLAGS += -T$(LDSCRIPT)
-override LDFLAGS += $(patsubst %,-L%,$(dir $(ARCHIVES)))
+override LDFLAGS += $(patsubst %,-L%,$(SRC))
 override LDFLAGS += -Wl,--start-group $(patsubst %,-l%,$(LIB)) -Wl,--end-group
 override LDFLAGS += -static
 override LDFLAGS += --specs=nano.specs
@@ -100,7 +99,7 @@ override LDFLAGS += -Wl,--wrap,vfprintf
 override LDFLAGS += -Wl,--wrap,fflush
 
 # target rule
-$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)
+$(TARGET): $(OBJ) $(CRATES) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region
@@ -171,12 +170,12 @@ tags:
 # header dependencies
 -include $(DEP)
 
-define CARGORULE
-.PHONY: $(toml)
-$(call CARGOTOML2ARCHIVE,$(toml)): $(toml)
-	$(CARGO) build --manifest-path=$$< $(CARGOFLAGS)
+define CRATERULE
+.PHONY: $(crate)
+$(crate):
+	$(CARGO) build --manifest-path=$(crate)/Cargo.toml $(CARGOFLAGS)
 endef
-$(foreach toml,$(CARGOTOMLS),$(eval $(CARGORULE)))
+$(foreach crate,$(CRATES),$(eval $(CRATERULE)))
 
 %.bin: %.elf
 	$(OBJCOPY) -O binary $< $@
@@ -198,5 +197,5 @@ clean:
 	rm -f $(TARGET) $(BOXES)
 	rm -f $(OBJ)
 	rm -f $(DEP)
-	$(foreach toml,$(CARGOTOMLS),$(CARGO) clean --manifest-path=$(toml))
+	$(foreach crate,$(CRATES),$(CARGO) clean --manifest-path=$(crate)/Cargo.toml)
 

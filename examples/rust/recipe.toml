@@ -5,12 +5,12 @@ memory.ram = 'rw 0x2000'
 stack = 0x800
 heap = 0x800
 
-output.ld = 'bb/src/bb.ld'
-output.c = 'bb/src/bb.c'
-output.rs.path = 'bb/src/lib.rs'
-output.rs.no_runtime_logic = true
+output.ld = 'bb/bb.ld'
+output.c = 'bb/bb.c'
+output.rust_lib = 'bb/src/lib.rs'
 output.mk.path = 'Makefile'
-output.mk.srcs = ['.', 'bb/src']
+output.mk.cargo = 'cargo'
+output.mk.srcs = ['.', 'bb']
 
 export.boxrust_add2 = 'fn(i32, i32) -> err32'
 export.boxrust_hello = 'fn() -> err'

@@ -213,8 +213,8 @@ class ErrorGlue(glue.Glue):
         super().build_wasm_c_prologue(output, box)
         self.__build_common_prologue(output, box)
 
-    def build_rs_prologue(self, output, box):
-        super().build_rs_prologue(output, box)
+    def build_rust_lib_prologue(self, output, box):
+        super().build_rust_lib_prologue(output, box)
 
         output.uses.append('core::num')
         output.decls.append(RUST_ERROR_STRUCT)
