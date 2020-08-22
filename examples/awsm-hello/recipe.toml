@@ -1,0 +1,128 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x800
+heap = 0x800
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+]
+
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+export.sys_ping = 'fn(i32) -> err32'
+
+import.box1_ping = 'fn(i32) -> err32'
+import.box1_ping_import = 'fn(i32) -> err32'
+import.box1_ping_abort = 'fn(i32) -> err32'
+import.box1_hello = 'fn() -> err'
+
+import.box2_ping = 'fn(i32) -> err32'
+import.box2_ping_import = 'fn(i32) -> err32'
+import.box2_ping_abort = 'fn(i32) -> err32'
+import.box2_hello = 'fn() -> err'
+
+import.box3_ping = 'fn(i32) -> err32'
+import.box3_ping_import = 'fn(i32) -> err32'
+import.box3_ping_abort = 'fn(i32) -> err32'
+import.box3_hello = 'fn() -> err'
+
+[box.box1]
+runtime.runtime = 'awsm'
+runtime.awsm.data_stack = 0x4000
+runtime.awsm.memory.size = 0x10000
+runtime.awsm.table.size = 0x200
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x12000'
+
+output.wasm_h = 'bb.h'
+output.wasm_c = 'bb.c'
+output.h = 'runtime/bb.h'
+output.c = 'runtime/bb.c'
+output.ld = 'runtime/bb.ld'
+output.mk.path = 'Makefile'
+output.mk.awsm = '../awsm/target/debug/awsm'
+output.mk.llvm_cc = 'clang'
+output.mk.llvm_srcs = ['runtime']
+output.mk.srcs = ['runtime'] # for linkerscript
+output.mk.wasi_sdk = '../wasi-sdk'
+output.mk.wabt = '../wabt'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box1_ping = 'fn(i32) -> err32'
+export.box1_ping_import = 'fn(i32) -> err32'
+export.box1_ping_abort = 'fn(i32) -> err32'
+export.box1_hello = 'fn() -> err'
+
+[box.box2]
+runtime.runtime = 'awsm'
+runtime.awsm.data_stack = 0x4000
+runtime.awsm.memory.size = 0x10000
+runtime.awsm.table.size = 0x200
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x12000'
+
+output.wasm_h = 'bb.h'
+output.wasm_c = 'bb.c'
+output.h = 'runtime/bb.h'
+output.c = 'runtime/bb.c'
+output.ld = 'runtime/bb.ld'
+output.mk.path = 'Makefile'
+output.mk.awsm = '../awsm/target/debug/awsm'
+output.mk.llvm_cc = 'clang'
+output.mk.llvm_srcs = ['runtime']
+output.mk.srcs = ['runtime'] # for linkerscript
+output.mk.wasi_sdk = '../wasi-sdk'
+output.mk.wabt = '../wabt'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box2_ping = 'fn(i32) -> err32'
+export.box2_ping_import = 'fn(i32) -> err32'
+export.box2_ping_abort = 'fn(i32) -> err32'
+export.box2_hello = 'fn() -> err'
+
+[box.box3]
+runtime.runtime = 'awsm'
+runtime.awsm.data_stack = 0x4000
+runtime.awsm.memory.size = 0x10000
+runtime.awsm.table.size = 0x200
+memory.flash = 'rxp 0x2000'
+memory.ram = 'rw 0x12000'
+
+output.wasm_h = 'bb.h'
+output.wasm_c = 'bb.c'
+output.h = 'runtime/bb.h'
+output.c = 'runtime/bb.c'
+output.ld = 'runtime/bb.ld'
+output.mk.path = 'Makefile'
+output.mk.awsm = '../awsm/target/debug/awsm'
+output.mk.llvm_cc = 'clang'
+output.mk.llvm_srcs = ['runtime']
+output.mk.srcs = ['runtime'] # for linkerscript
+output.mk.wasi_sdk = '../wasi-sdk'
+output.mk.wabt = '../wabt'
+
+import.sys_ping  = 'fn(i32) -> err32'
+
+export.box3_ping = 'fn(i32) -> err32'
+export.box3_ping_import = 'fn(i32) -> err32'
+export.box3_ping_abort = 'fn(i32) -> err32'
+export.box3_hello = 'fn() -> err'
+

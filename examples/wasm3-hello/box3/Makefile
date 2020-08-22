@@ -4,6 +4,7 @@ TARGET           ?= box3.wasm
 
 DEBUG            ?= 0
 LTO              ?= 1
+ASSERTS          ?= 1
 CC               = arm-none-eabi-gcc
 OBJCOPY          = arm-none-eabi-objcopy
 OBJDUMP          = arm-none-eabi-objdump
@@ -14,12 +15,12 @@ GDBADDR          ?= localhost
 GDBPORT          ?= 3333
 TTY              ?= $(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))
 BAUD             ?= 115200
-WASMCC           ?= ../wasi-sdk/bin/clang
+WASMCC           = ../wasi-sdk/bin/clang
 WASMSYSROOT      ?= ../wasi-sdk/share/wasi-sysroot
-WASMSTRIP        ?= ../wabt/bin/wasm-strip
-WASMOBJDUMP      ?= ../wabt/bin/wasm-objdump
-WASMWASM2WAT     ?= ../wabt/bin/wasm2wat
-WASMWAT2WASM     ?= ../wabt/bin/wat2wasm
+WASMSTRIP        = ../wabt/bin/wasm-strip
+WASMOBJDUMP      = ../wabt/bin/wasm-objdump
+WASMWASM2WAT     = ../wabt/bin/wasm2wat
+WASMWAT2WASM     = ../wabt/bin/wat2wasm
 
 override WASMLDFLAGS += -Wl,-z,stack-size=16384
 
@@ -42,12 +43,13 @@ WASMOBJ += $(patsubst %.s,%.wo,$(wildcard $(patsubst %,%/*.s,$(WASMSRC))))
 WASMOBJ += $(patsubst %.S,%.wo,$(wildcard $(patsubst %,%/*.S,$(WASMSRC))))
 DEP += $(patsubst %.wo,%.d,$(WASMOBJ))
 
-ifneq ($(DEBUG),0)
-override CFLAGS += -DDEBUG
 override CFLAGS += -g
+ifneq ($(DEBUG),0)
 override CFLAGS += -O0
 else
+ifeq ($(ASSERTS),0)
 override CFLAGS += -DNDEBUG
+endif
 override CFLAGS += -Os
 ifneq ($(LTO),0)
 override CFLAGS += -flto
@@ -64,14 +66,16 @@ override CFLAGS += -ffunction-sections
 override CFLAGS += -fdata-sections
 override CFLAGS += -ffreestanding
 override CFLAGS += -fno-builtin
+override CFLAGS += -fshort-enums
 override CFLAGS += $(patsubst %,-I%,$(INC))
 
 ifneq ($(DEBUG),0)
-override WASMCFLAGS += -DDEBUG
 override WASMCFLAGS += -g
 override WASMCFLAGS += -O0
 else
+ifeq ($(ASSERTS),0)
 override WASMCFLAGS += -DNDEBUG
+endif
 override WASMCFLAGS += -Os
 ifneq ($(LTO),0)
 override WASMCFLAGS += -flto
@@ -93,7 +97,7 @@ override WASMCFLAGS += $(patsubst %,-I%,$(WASMINC))
 override ASMFLAGS += $(CFLAGS)
 
 override LDFLAGS += $(CFLAGS)
-override LDFLAGS += -T$(LDSCRIPT)
+override LDFLAGS += $(addprefix -T,$(LDSCRIPT))
 override LDFLAGS += $(patsubst %,-L%,$(SRC))
 override LDFLAGS += -Wl,--start-group $(patsubst %,-l%,$(LIB)) -Wl,--end-group
 override LDFLAGS += -static
@@ -123,7 +127,7 @@ override WASMLDFLAGS += -Wl,--wrap,vfprintf
 override WASMLDFLAGS += -Wl,--wrap,fflush
 
 # target rule
-$(TARGET): $(WASMOBJ) $(WASMBOXES) $(WASMARCHIVES)
+$(TARGET): $(WASMOBJ) $(WASMBOXES) $(lastword $(MAKEFILE_LIST))
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 %.wasm.prefixed: %.wasm.strip

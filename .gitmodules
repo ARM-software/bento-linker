@@ -13,3 +13,6 @@
 [submodule "extra/wabt-source"]
 	path = extra/wabt-source
 	url = https://github.com/WebAssembly/wabt
+[submodule "extra/awsm"]
+	path = extra/awsm
+	url = git@github.com:geky/awsm

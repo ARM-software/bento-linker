@@ -37,8 +37,8 @@ LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
 BOXES += boxc/boxc.box
 BOXES += boxrust/boxrust.box
 
-ifneq ($(DEBUG),0)
 override CFLAGS += -g
+ifneq ($(DEBUG),0)
 override CFLAGS += -O0
 else
 ifeq ($(ASSERTS),0)
@@ -60,12 +60,13 @@ override CFLAGS += -ffunction-sections
 override CFLAGS += -fdata-sections
 override CFLAGS += -ffreestanding
 override CFLAGS += -fno-builtin
+override CFLAGS += -fshort-enums
 override CFLAGS += $(patsubst %,-I%,$(INC))
 
 override ASMFLAGS += $(CFLAGS)
 
 override LDFLAGS += $(CFLAGS)
-override LDFLAGS += -T$(LDSCRIPT)
+override LDFLAGS += $(addprefix -T,$(LDSCRIPT))
 override LDFLAGS += $(patsubst %,-L%,$(SRC))
 override LDFLAGS += -Wl,--start-group $(patsubst %,-l%,$(LIB)) -Wl,--end-group
 override LDFLAGS += -static
@@ -93,7 +94,7 @@ override CFLAGS += -DNRFX_UARTE0_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE_ENABLED='1'
 
 # target rule
-$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)
+$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region

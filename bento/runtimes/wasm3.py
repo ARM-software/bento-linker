@@ -238,7 +238,7 @@ class Wasm3Runtime(
             "--output.mk.wasm_cc" % self.__argname__)
 
         # decls for wasm
-        out = output.decls.append('override WASMLDFLAGS += '
+        output.decls.append('override WASMLDFLAGS += '
             '-Wl,-z,stack-size=%(data_stack)d',
             data_stack=self._data_stack)
 
@@ -247,7 +247,10 @@ class Wasm3Runtime(
             name='TARGET', target=output.get('target', '%(box)s.wasm'))
 
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES) $(WASMARCHIVES)')
+        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES) '
+            # also depend on generated makefile because of the
+            # stack-size argument
+            '$(lastword $(MAKEFILE_LIST))')
         with out.indent():
             out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
 

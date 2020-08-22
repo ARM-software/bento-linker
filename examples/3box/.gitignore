@@ -5,6 +5,7 @@ target/
 *.o
 *.d
 *.wo
+*.bc
 *.wasm
 *.elf
 *.bin

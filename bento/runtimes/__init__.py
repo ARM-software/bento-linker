@@ -60,5 +60,5 @@ from .armv7m_sys import ARMv7MSysRuntime
 from .armv8m_sys import ARMv8MSysRuntime
 from .armv7m_mpu import ARMv7MMPURuntime
 from .armv8m_mpu import ARMv8MMPURuntime
-from .silverfish import SilverfishRuntime
+from .awsm import aWsmRuntime
 from .wasm3 import Wasm3Runtime

@@ -4,6 +4,7 @@ TARGET           ?= bobbox.elf
 
 DEBUG            ?= 0
 LTO              ?= 1
+ASSERTS          ?= 1
 CC               = arm-none-eabi-gcc
 OBJCOPY          = arm-none-eabi-objcopy
 OBJDUMP          = arm-none-eabi-objdump
@@ -28,12 +29,13 @@ OBJ += $(patsubst %.S,%.o,$(wildcard $(patsubst %,%/*.S,$(SRC))))
 DEP := $(patsubst %.o,%.d,$(OBJ))
 LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
 
-ifneq ($(DEBUG),0)
-override CFLAGS += -DDEBUG
 override CFLAGS += -g
+ifneq ($(DEBUG),0)
 override CFLAGS += -O0
 else
+ifeq ($(ASSERTS),0)
 override CFLAGS += -DNDEBUG
+endif
 override CFLAGS += -Os
 ifneq ($(LTO),0)
 override CFLAGS += -flto
@@ -50,12 +52,13 @@ override CFLAGS += -ffunction-sections
 override CFLAGS += -fdata-sections
 override CFLAGS += -ffreestanding
 override CFLAGS += -fno-builtin
+override CFLAGS += -fshort-enums
 override CFLAGS += $(patsubst %,-I%,$(INC))
 
 override ASMFLAGS += $(CFLAGS)
 
 override LDFLAGS += $(CFLAGS)
-override LDFLAGS += -T$(LDSCRIPT)
+override LDFLAGS += $(addprefix -T,$(LDSCRIPT))
 override LDFLAGS += $(patsubst %,-L%,$(SRC))
 override LDFLAGS += -Wl,--start-group $(patsubst %,-l%,$(LIB)) -Wl,--end-group
 override LDFLAGS += -static
@@ -77,7 +80,7 @@ override LDFLAGS += -Wl,--wrap,vfprintf
 override LDFLAGS += -Wl,--wrap,fflush
 
 # target rule
-$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)
+$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region

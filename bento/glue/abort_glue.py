@@ -39,8 +39,18 @@ size_t __stdout_write(FILE *f, const uint8_t *buffer, size_t len) {
     return -ENOSYS;
 }
 
+size_t __stdio_write(FILE *f, const uint8_t *buffer, size_t len) {
+    return -ENOSYS;
+}
+
 int __stdio_close(FILE *f) {
     return -ENOSYS;
+}
+
+__attribute__((noreturn))
+void __assert_fail(const char *m) {
+    printf("assert failed: %%s\\n", m);
+    __box_abort(-1);
 }
 """
 

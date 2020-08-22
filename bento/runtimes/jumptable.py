@@ -30,7 +30,7 @@ class JumptableRuntime(
             help="Do not use longjmp for error recovery. longjmp adds a small "
                 "cost to every box entry point. --no_longjmp disables longjmp "
                 "and forces any unhandled aborts to halt. Note this has no "
-                "if an explicit __box_<box>_abort hook is provided.")
+                "affetc if an explicit __box_<box>_abort hook is provided.")
 
     def __init__(self, jumptable=None, no_longjmp=None):
         super().__init__()
@@ -160,7 +160,7 @@ class JumptableRuntime(
             name='TARGET', target=output.get('target', '%(box)s.elf'))
 
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(OBJ) $(BOXES) $(ARCHIVES) $(LDSCRIPT)')
+        out.printf('$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)')
         with out.indent():
             out.printf('$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@')
 

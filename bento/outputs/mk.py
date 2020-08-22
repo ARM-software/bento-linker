@@ -25,6 +25,10 @@ GCC_TRIPLES = co.defaultdict(
     lambda: 'arm-none-eabi'
 )
 
+LLVM_TRIPLES = co.defaultdict(
+    lambda: 'thumbv7em-v7m-none-gnueabi'
+)
+
 RUST_TRIPLES = co.defaultdict(
     lambda: 'thumbv7em-none-eabi',
     **{
@@ -106,7 +110,7 @@ class MkOutput(outputs.Output):
             help='Add custom linker flags.')
 
         parser.add_argument('--cargo',
-            help='Override the cargo program for the makefile. This can be '
+            help='Provide the cargo program for the makefile. This can be '
                 '--cargo=cargo if cargo can be found in your path. If not '
                 'provided, the generated makefile will error when asked to '
                 'compile Rust crates.')
@@ -114,6 +118,9 @@ class MkOutput(outputs.Output):
             help='Supply Rust crate directories. This only needs to be the '
                 'root library crate as Rust\'s module system automatically '
                 'finds dependencies. Defaults to [\'.\'].')
+
+        parser.add_argument('--cargo_flags', type=list,
+            help='Add custom Cargo flags.')
 
         parser.add_argument('--wasi_sdk',
             help='Provide path to a WASI SDK build. This will be used to '
@@ -155,6 +162,32 @@ class MkOutput(outputs.Output):
         parser.add_argument('--wasm_ld_flags', type=list,
             help='Add custom WebAssembly linker flags.')
 
+        parser.add_argument('--awsm',
+            help='Provide the aWsm ahead-of-time compiler.')
+        parser.add_argument('--llvm_cc',
+            help='Provide the LLVM compiler for the makefile. This is '
+                'different from --cc as the LLVM compiler must also accept '
+                'LLVM bitcode (.bc) files. This is often set to `clang`.')
+        parser.add_argument('--llvm_sysroot',
+            help='Override the sysroot for LLVM. By default this is found '
+                'automatically from the compiler in --cc.')
+        parser.add_argument('--llvm_link',
+            help='Override the llvm-link program, used to link LLVM bitcode '
+                'files. Required for LTO prior to --cc linking.')
+        parser.add_argument('--llvm_dis',
+            help='Override the llvm-dis program.')
+
+        parser.add_argument('--llvm_srcs', type=list,
+            help='Supply source directories. Defaults to [\'.\'].')
+        parser.add_argument('--llvm_incs', type=list,
+            help='Supply include directories. Defaults to what\'s '
+                'passed to --llvm_srcs.')
+
+        parser.add_argument('--awsm_flags', type=list,
+            help='Add custom aWsm flags.')
+        parser.add_argument('--llvm_c_flags', type=list,
+            help='Add custom LLVM C flags.')
+
     def __init__(self, path=None, target=None,
             debug=None, lto=None, asserts=None, define=None,
             cc=None, objcopy=None, objdump=None, ar=None,
@@ -164,11 +197,16 @@ class MkOutput(outputs.Output):
             srcs=None, incs=None, libs=None,
             c_flags=None, asm_flags=None, ld_flags=None,
             cargo=None, crates=None,
+            cargo_flags=None,
             wasi_sdk=None, wabt=None,
             wasm_cc=None, wasm_sysroot=None, wasm_strip=None,
             wasm_objdump=None, wasm_wasm2wat=None, wasm_wat2wasm=None,
             wasm_cpu=None, wasm_srcs=None, wasm_incs=None, wasm_libs=None,
-            wasm_c_flags=None, wasm_ld_flags=None):
+            wasm_c_flags=None, wasm_ld_flags=None,
+            awsm=None, llvm_cc=None, llvm_sysroot=None,
+            llvm_link=None, llvm_dis=None,
+            llvm_srcs=None, llvm_incs=None,
+            awsm_flags=None, llvm_c_flags=None):
         super().__init__(path)
 
         self._target = target
@@ -178,12 +216,12 @@ class MkOutput(outputs.Output):
         self._defines = co.OrderedDict(sorted(
             (k, getattr(v, 'define', v)) for k, v in define.items()))
 
-        self._cc = cc or '%(gcctriple)s-gcc'
-        self._objcopy = objcopy or '%(gcctriple)s-objcopy'
-        self._objdump = objdump or '%(gcctriple)s-objdump'
-        self._ar = ar or '%(gcctriple)s-ar'
-        self._size = size or '%(gcctriple)s-size'
-        self._gdb = gdb or '%(gcctriple)s-gdb'
+        self._cc = cc or '%(gcc_triple)s-gcc'
+        self._objcopy = objcopy or '%(gcc_triple)s-objcopy'
+        self._objdump = objdump or '%(gcc_triple)s-objdump'
+        self._ar = ar or '%(gcc_triple)s-ar'
+        self._size = size or '%(gcc_triple)s-size'
+        self._gdb = gdb or '%(gcc_triple)s-gdb'
         self._gdb_addr = gdb_addr or 'localhost'
         self._gdb_port = gdb_port or 3333
         self._tty = tty or '$(firstword $(wildcard /dev/ttyACM* /dev/ttyUSB*))'
@@ -203,6 +241,8 @@ class MkOutput(outputs.Output):
 
         self._cargo = cargo
         self._crates = crates if crates is not None else ['.']
+
+        self._cargo_flags = cargo_flags if cargo_flags is not None else []
 
         self._wasm_cc = (wasm_cc
             if wasm_cc else
@@ -246,9 +286,30 @@ class MkOutput(outputs.Output):
         self._wasm_c_flags = wasm_c_flags if wasm_c_flags is not None else []
         self._wasm_ld_flags = wasm_ld_flags if wasm_ld_flags is not None else []
 
+        self._awsm = awsm
+        self._llvm_cc = llvm_cc
+        self._llvm_sysroot = llvm_sysroot or '$(shell $(CC) -print-sysroot)'
+        self._llvm_link = llvm_link or 'llvm-link'
+        self._llvm_dis = llvm_dis or 'llvm-dis'
+
+        self._llvm_srcs = llvm_srcs if llvm_srcs is not None else ['.']
+        self._llvm_incs = (llvm_incs
+            if llvm_incs is not None else
+            self._llvm_srcs)
+
+        self._llvm_srcs = llvm_srcs if llvm_srcs is not None else ['.']
+        self._llvm_incs = (llvm_incs
+            if llvm_incs is not None else
+            self._llvm_srcs)
+
+        self._awsm_flags = awsm_flags if awsm_flags is not None else []
+        self._llvm_c_flags = llvm_c_flags if llvm_c_flags is not None else []
+
         # used to decide what gets emitting into Makefile
         self.no_rust = self._cargo is None
         self.no_wasm = self._wasm_cc is None
+        self.no_awsm = self._awsm is None
+        self.no_llvm = self._llvm_cc is None
 
         self.decls = outputs.OutputField(self)
         self.rules = outputs.OutputField(self)
@@ -274,16 +335,22 @@ class MkOutput(outputs.Output):
             cpu=self._cpu,
             fpu=self._fpu,
             isa=self._isa,
-            gcctriple=GCC_TRIPLES[self._cpu],
+            gcc_triple=GCC_TRIPLES[self._cpu],
             cargo=self._cargo,
-            rusttriple=RUST_TRIPLES[self._cpu],
+            rust_triple=RUST_TRIPLES[self._cpu],
             wasm_cc=self._wasm_cc,
             wasm_sysroot=self._wasm_sysroot,
             wasm_strip=self._wasm_strip,
             wasm_objdump=self._wasm_objdump,
             wasm_wasm2wat=self._wasm_wasm2wat,
             wasm_wat2wasm=self._wasm_wat2wasm,
-            wasm_cpu=self._wasm_cpu)
+            wasm_cpu=self._wasm_cpu,
+            awsm=self._awsm,
+            llvm_cc=self._llvm_cc,
+            llvm_sysroot=self._llvm_sysroot,
+            llvm_link=self._llvm_link,
+            llvm_dis=self._llvm_dis,
+            llvm_triple=LLVM_TRIPLES[self._cpu])
 
     def build_prologue(self, box):
         out = self.decls.append()
@@ -305,12 +372,19 @@ class MkOutput(outputs.Output):
         if not self.no_rust:
             out.printf('CARGO            = %(cargo)s')
         if not self.no_wasm:
-            out.printf('WASMCC           ?= %(wasm_cc)s')
+            out.printf('WASMCC           = %(wasm_cc)s')
             out.printf('WASMSYSROOT      ?= %(wasm_sysroot)s')
-            out.printf('WASMSTRIP        ?= %(wasm_strip)s')
-            out.printf('WASMOBJDUMP      ?= %(wasm_objdump)s')
-            out.printf('WASMWASM2WAT     ?= %(wasm_wasm2wat)s')
-            out.printf('WASMWAT2WASM     ?= %(wasm_wat2wasm)s')
+            out.printf('WASMSTRIP        = %(wasm_strip)s')
+            out.printf('WASMOBJDUMP      = %(wasm_objdump)s')
+            out.printf('WASMWASM2WAT     = %(wasm_wasm2wat)s')
+            out.printf('WASMWAT2WASM     = %(wasm_wat2wasm)s')
+        if not self.no_awsm:
+            out.printf('AWSM             = %(awsm)s')
+        if not self.no_llvm:
+            out.printf('LLVMCC           = %(llvm_cc)s')
+            out.printf('LLVMSYSROOT      ?= %(llvm_sysroot)s')
+            out.printf('LLVMLINK         = %(llvm_link)s')
+            out.printf('LLVMDIS          = %(llvm_dis)s')
 
     def build(self, box):
         out = self.decls.append()
@@ -330,6 +404,11 @@ class MkOutput(outputs.Output):
                 out.printf('WASMINC += %(path)s', path=inc)
             for lib in self._wasm_libs:
                 out.printf('WASMLIB += %(path)s', path=lib)
+        if not self.no_llvm:
+            for src in self._llvm_srcs:
+                out.printf('LLVMSRC += %(path)s', path=src)
+            for inc in self._llvm_incs:
+                out.printf('LLVMINC += %(path)s', path=inc)
 
         if not self.no_rust:
             out = self.decls.append(doc='find crate libs in one pass')
@@ -341,7 +420,7 @@ class MkOutput(outputs.Output):
                 '            | jq -r \'.packages'
                                  '|.[].name'
                                  '|gsub("-";"_")\'),$\\\n'
-                '        $(crate)/target/%(rusttriple)s/$\\\n'
+                '        $(crate)/target/%(rust_triple)s/$\\\n'
                 '            $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
                 '            lib$(lib).a))')
 
@@ -358,11 +437,6 @@ class MkOutput(outputs.Output):
             out.printf('LIB += $(patsubst lib%%.a,%%,$(notdir $(CRATELIBS)))')
         out.printf('LDSCRIPT := $(firstword $(wildcard '
             '$(patsubst %%,%%/*.ld,$(SRC))))')
-
-        for child in box.boxes:
-            path = os.path.relpath(child.path, box.path)
-            out.printf('BOXES += %(path)s/%(box)s.box',
-                box=child.name, path=path)
         if not self.no_wasm:
             out.printf('WASMOBJ := $(patsubst %%.c,%%.wo,'
                 '$(wildcard $(patsubst %%,%%/*.c,$(WASMSRC))))')
@@ -371,10 +445,22 @@ class MkOutput(outputs.Output):
             out.printf('WASMOBJ += $(patsubst %%.S,%%.wo,'
                 '$(wildcard $(patsubst %%,%%/*.S,$(WASMSRC))))')
             out.printf('DEP += $(patsubst %%.wo,%%.d,$(WASMOBJ))')
+        if not self.no_llvm:
+            out.printf('LLVMOBJ := $(patsubst %%.c,%%.bc,'
+                '$(wildcard $(patsubst %%,%%/*.c,$(LLVMSRC))))')
+            out.printf('LLVMOBJ += $(patsubst %%.s,%%.bc,'
+                '$(wildcard $(patsubst %%,%%/*.s,$(LLVMSRC))))')
+            out.printf('LLVMOBJ += $(patsubst %%.S,%%.bc,'
+                '$(wildcard $(patsubst %%,%%/*.S,$(LLVMSRC))))')
+            out.printf('DEP += $(patsubst %%.bc,%%.d,$(LLVMOBJ))')
+        for child in box.boxes:
+            path = os.path.relpath(child.path, box.path)
+            out.printf('BOXES += %(path)s/%(box)s.box',
+                box=child.name, path=path)
 
         out = self.decls.append()
-        out.printf('ifneq ($(DEBUG),0)')
         out.printf('override CFLAGS += -g')
+        out.printf('ifneq ($(DEBUG),0)')
         out.printf('override CFLAGS += -O0')
         out.printf('else')
         out.printf('ifeq ($(ASSERTS),0)')
@@ -399,11 +485,12 @@ class MkOutput(outputs.Output):
         out.printf('override CFLAGS += -fdata-sections')
         out.printf('override CFLAGS += -ffreestanding')
         out.printf('override CFLAGS += -fno-builtin')
+        out.printf('override CFLAGS += -fshort-enums')
         out.printf('override CFLAGS += $(patsubst %%,-I%%,$(INC))')
 
         if not self.no_rust:
             out = self.decls.append()
-            out.printf('override CARGOFLAGS += --target=%(rusttriple)s')
+            out.printf('override CARGOFLAGS += --target=%(rust_triple)s')
             out.printf('ifeq ($(DEBUG),0)')
             out.printf('override CARGOFLAGS += --release')
             out.printf('endif')
@@ -436,15 +523,55 @@ class MkOutput(outputs.Output):
             out.printf('override WASMCFLAGS += -fno-builtin')
             out.printf('override WASMCFLAGS += $(patsubst %%,-I%%,$(WASMINC))')
 
+        if not self.no_awsm:
+            out = self.decls.append()
+            out.printf('override AWSMFLAGS += --target=%(llvm_triple)s')
+
+        if not self.no_llvm:
+            out = self.decls.append()
+            out.printf('override LLVMCFLAGS += -g')
+            out.printf('ifneq ($(DEBUG),0)')
+            out.printf('# we need the -always-inline pass otherwise the')
+            out.printf('# resulting binary is unusably large')
+            out.printf('override LLVMCFLAGS += -O1')
+            out.printf('else')
+            out.printf('ifeq ($(ASSERTS),0)')
+            out.printf('override LLVMCFLAGS += -DNDEBUG')
+            out.printf('endif')
+            out.printf('override LLVMCFLAGS += -Oz')
+            out.printf('ifneq ($(LTO),0)')
+            out.printf('override LLVMCFLAGS += -flto')
+            out.printf('endif')
+            out.printf('endif')
+            if out.get('isa', False):
+                out.printf('override LLVMCFLAGS += -m%(isa)s')
+            if out.get('cpu', False):
+                out.printf('override LLVMCFLAGS += -mcpu=%(cpu)s')
+            if out.get('fpu', False):
+                out.printf('override LLVMCFLAGS += -mfpu=%(fpu)s')
+                out.printf('override LLVMCFLAGS += -mfloat-abi=softfp')
+            out.printf('override LLVMCFLAGS += --target=%(llvm_triple)s')
+            out.printf('override LLVMCFLAGS += --sysroot=$(LLVMSYSROOT)')
+            out.printf('override LLVMCFLAGS += -I$(LLVMSYSROOT)/include')
+            out.printf('override LLVMCFLAGS += -std=c99')
+            out.printf('override LLVMCFLAGS += -Wall -Wno-format')
+            out.printf('override LLVMCFLAGS += -fno-common')
+            out.printf('override LLVMCFLAGS += -ffunction-sections')
+            out.printf('override LLVMCFLAGS += -fdata-sections')
+            out.printf('override LLVMCFLAGS += -ffreestanding')
+            out.printf('override LLVMCFLAGS += -fno-builtin')
+            out.printf('override LLVMCFLAGS += -fshort-enums')
+            out.printf('override LLVMCFLAGS += $(patsubst %%,-I%%,$(LLVMINC))')
+
         out = self.decls.append()
         out.printf('override ASMFLAGS += $(CFLAGS)')
 
         out = self.decls.append()
         out.printf('override LDFLAGS += $(CFLAGS)')
-        out.printf('override LDFLAGS += -T$(LDSCRIPT)')
+        out.printf('override LDFLAGS += $(addprefix -T,$(LDSCRIPT))')
         out.printf('override LDFLAGS += $(patsubst %%,-L%%,$(SRC))')
-        out.printf('override LDFLAGS += '
-            '-Wl,--start-group $(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
+        out.printf('override LDFLAGS += -Wl,--start-group '
+            '$(patsubst %%,-l%%,$(LIB)) -Wl,--end-group')
         out.printf('override LDFLAGS += -static')
         out.printf('override LDFLAGS += --specs=nano.specs')
         out.printf('override LDFLAGS += --specs=nosys.specs')
@@ -627,6 +754,18 @@ class MkOutput(outputs.Output):
                 out.printf('cp $< $@')
                 out.printf('$(WASMSTRIP) $@')
 
+        if not self.no_llvm:
+            out = self.rules.append()
+            out.printf('%%.bc: %%.c')
+            with out.indent():
+                out.printf('$(LLVMCC) -c -emit-llvm '
+                    '-MMD -MP $(LLVMCFLAGS) $< -o $@')
+
+            out = self.rules.append()
+            out.printf('%%.ll: %%.bc')
+            with out.indent():
+                out.printf('$(LLVMDIS) $< -o $@')
+
         out = self.rules.append(phony=True)
         out.printf('clean:')
         with out.indent():
@@ -638,6 +777,13 @@ class MkOutput(outputs.Output):
                     '$(CARGO) clean --manifest-path=$(crate)/Cargo.toml)')
             if not self.no_wasm:
                 out.printf('rm -f $(TARGET:.wasm=.elf) $(WASMOBJ)')
+            if not self.no_awsm:
+                out.printf('rm -f $(TARGET:.elf=.bc) '
+                    '$(TARGET:.elf=.wasm) '
+                    '$(TARGET:.elf=.awsm.bc) '
+                    '$(TARGET:.elf=.awsm.o)')
+            if not self.no_llvm:
+                out.printf('rm -f $(LLVMOBJ)')
             for child in box.boxes:
                 path = os.path.relpath(child.path, box.path)
                 out.printf('$(MAKE) -C %(path)s clean', path=path)
@@ -648,8 +794,10 @@ class MkOutput(outputs.Output):
                 self._c_flags,
                 self._asm_flags,
                 self._ld_flags,
+                self._awsm_flags,
                 self._wasm_c_flags,
-                self._wasm_ld_flags]):
+                self._wasm_ld_flags,
+                self._llvm_c_flags]):
             self.decls.append('### user provided flags ###')
 
         if self._defines:
@@ -674,6 +822,11 @@ class MkOutput(outputs.Output):
             for lflag in self._ld_flags:
                 out.printf('override LDFLAGS += %s' % lflag)
 
+        if self._awsm_flags:
+            out = self.decls.append()
+            for lflag in self._awsm_flags:
+                out.printf('override AWSMFLAGS += %s' % lflag)
+
         if self._wasm_c_flags:
             out = self.decls.append()
             for cflag in self._wasm_c_flags:
@@ -683,6 +836,11 @@ class MkOutput(outputs.Output):
             out = self.decls.append()
             for lflag in self._wasm_ld_flags:
                 out.printf('override WASMLDFLAGS += %s' % lflag)
+
+        if self._llvm_c_flags:
+            out = self.decls.append()
+            for cflag in self._llvm_c_flags:
+                out.printf('override LLVMCFLAGS += %s' % cflag)
 
     def getvalue(self):
         self.seek(0)
