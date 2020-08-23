@@ -1122,6 +1122,10 @@ const uint32_t __box_alicebox_importjumptable[] = {
 
 int __box_alicebox_init(void) {
     int err;
+    if (__box_alicebox_initialized) {
+        return 0;
+    }
+
     // prepare data stack
     __box_alicebox_datasp = (void*)__box_alicebox_exportjumptable[0];
 
@@ -1354,6 +1358,10 @@ const uint32_t __box_bobbox_importjumptable[] = {
 
 int __box_bobbox_init(void) {
     int err;
+    if (__box_bobbox_initialized) {
+        return 0;
+    }
+
     // prepare data stack
     __box_bobbox_datasp = (void*)__box_bobbox_exportjumptable[0];
 
@@ -1655,6 +1663,10 @@ const uint32_t __box_tlsbox_importjumptable[] = {
 
 int __box_tlsbox_init(void) {
     int err;
+    if (__box_tlsbox_initialized) {
+        return 0;
+    }
+
     // prepare data stack
     __box_tlsbox_datasp = (void*)__box_tlsbox_exportjumptable[0];
 

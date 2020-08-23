@@ -11,6 +11,9 @@ from ..glue.heap_glue import HeapGlue
 from ..outputs import OutputBlob
 
 C_COMMON = """
+// wams3 supports sharing of the M3Environment state
+IM3Environment __box_wasm3_environment;
+
 __attribute__((unused))
 static int __box_wasm3_toerr(M3Result res) {
     // note we can't use switch/case here because these are pointers
@@ -121,21 +124,23 @@ class Wasm3Runtime(
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, **kwargs):
-        parser.add_argument('--data_stack', type=int,
-            help="Size of WebAssembly-side data stack in bytes. "
-                "Defaults to 16KiB (1/4th of a WebAssembly page).")
-        parser.add_argument('--interp_stack', type=int,
-            help="Size of Wasm3 interpreter stack in bytes. "
-                "Defaults to 1KiB (arbitrary).")
+        parser.add_nestedparser('--data_stack', Section,
+            help="Size of WebAssembly-side data stack in bytes. By "
+                "default this uses the same value as --stack, but can "
+                "be assigned independently.")
+        parser.add_nestedparser('--interp_stack', Section,
+            help="Size of Wasm3 interpreter stack in bytes. By "
+                "default this uses the same value as --stack, but can "
+                "be assigned independently.")
 
     def __init__(self, data_stack=None, interp_stack=None):
         super().__init__()
-        self._data_stack = (data_stack
-            if data_stack is not None else
-            16*1024)
-        self._interp_stack = (interp_stack
-            if interp_stack is not None else
-            1*1024)
+        self._data_stack = (Section('data_stack', **data_stack.__dict__)
+            if data_stack.size is not None else
+            None)
+        self._interp_stack = (Section('interp_stack', **interp_stack.__dict__)
+            if interp_stack.size is not None else
+            None)
 
     def box_parent(self, parent, box):
         self._load_hook = parent.addimport(
@@ -163,6 +168,10 @@ class Wasm3Runtime(
 
     def box(self, box):
         super().box(box)
+        if self._data_stack is None:
+            self._data_stack = box.stack
+        if self._interp_stack is None:
+            self._interp_stack = box.stack
         # plugs
         self._abort_plug = box.addexport(
             '__box_abort', 'fn(err) -> noreturn',
@@ -240,7 +249,7 @@ class Wasm3Runtime(
         # decls for wasm
         output.decls.append('override WASMLDFLAGS += '
             '-Wl,-z,stack-size=%(data_stack)d',
-            data_stack=self._data_stack)
+            data_stack=self._data_stack.size)
 
         # target rule
         output.decls.insert(0, '%(name)-16s ?= %(target)s',
@@ -291,13 +300,12 @@ class Wasm3Runtime(
         out = output.decls.append()
         out.printf('//// %(box)s state ////')
         out.printf('bool __box_%(box)s_initialized = false;')
-        out.printf('IM3Environment __box_%(box)s_environment;')
         out.printf('IM3Runtime __box_%(box)s_runtime;')
         out.printf('IM3Module __box_%(box)s_module;')
         out.printf('uint32_t __box_%(box)s_datasp;')
 
         output.decls.append(C_STUFF,
-            data_stack=self._data_stack)
+            data_stack=self._data_stack.size)
 
         # redirect hooks if necessary
         if not self._abort_hook.link:
@@ -447,6 +455,7 @@ class Wasm3Runtime(
             with out.indent():
                 out.printf('return 0;')
             out.printf('}')
+            out.printf()
             if box.roommates:
                 out.printf('// bring down any overlapping boxes')
             for i, roommate in enumerate(box.roommates):
@@ -465,21 +474,31 @@ class Wasm3Runtime(
                 out.printf('return err;')
             out.printf('}')
             out.printf()
+            # initialize environment
+            out.printf('// initialize wasm3 environment, this only needs')
+            out.printf('// to be done once')
+            out.printf('if (!__box_wasm3_environment) {')
+            with out.indent():
+                out.printf('__box_wasm3_environment = m3_NewEnvironment();')
+                out.printf('if (!__box_wasm3_environment) {')
+                with out.indent():
+                    out.printf('return -ENOMEM;')
+                out.printf('}')
+            out.printf('}')
+            out.printf()
             # initialize runtime
-            out.printf('// initialized wasm3 runtime')
-            out.printf('M3Result res;')
-            out.printf('__box_%(box)s_environment = m3_NewEnvironment();')
-            out.printf('if (!__box_%(box)s_environment) return -ENOMEM;')
+            out.printf('// initialize wasm3 runtime')
             out.printf('__box_%(box)s_runtime = m3_NewRuntime(\n'
-                '        __box_%(box)s_environment,\n'
+                '        __box_wasm3_environment,\n'
                 '        %(interp_stack)d,\n'
                 '        NULL);',
-                interp_stack=self._interp_stack)
+                interp_stack=self._interp_stack.size)
             # TODO use this pointer for initialized state?
             out.printf('if (!__box_%(box)s_runtime) return -ENOMEM;')
             out.printf('extern uint32_t __box_%(box)s_image;')
+            out.printf('M3Result res;')
             out.printf('res = m3_ParseModule(\n'
-                '        __box_%(box)s_environment,\n'
+                '        __box_wasm3_environment,\n'
                 '        &__box_%(box)s_module,\n'
                 '        (uint8_t*)(&__box_%(box)s_image + 1),\n'
                 '        __box_%(box)s_image);')
@@ -519,6 +538,7 @@ class Wasm3Runtime(
         out = output.decls.append()
         out.printf('int __box_%(box)s_clobber(void) {')
         with out.indent():
+            out.printf('m3_FreeRuntime(__box_%(box)s_runtime);')
             out.printf('__box_%(box)s_initialized = false;')
             out.printf('return 0;')
         out.printf('}')

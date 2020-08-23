@@ -11,6 +11,9 @@ output.mk.path = 'Makefile'
 output.mk.define.NRF52840_XXAA=1
 output.mk.define.NRFX_UARTE_ENABLED=1
 output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.define.NRFX_CLOCK_ENABLED=1
+output.mk.define.NRFX_TIMER_ENABLED=1
+output.mk.define.NRFX_TIMER0_ENABLED=1
 output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
@@ -35,6 +38,11 @@ output.mk.c_flags = [
     '-Wno-unused-variable',
     '-Wno-strict-aliasing',
 ]
+
+export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
+export.__box_irq0_handler.type = 'fn() -> void'
+export.__box_irq8_handler.alias = 'TIMER0_IRQHandler'
+export.__box_irq8_handler.type = 'fn() -> void'
 
 export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 export.sys_ping = 'fn(i32) -> err32'

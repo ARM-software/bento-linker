@@ -14,6 +14,10 @@ int box_qsort(uint32_t *buffer, size_t size);
 
 //// box exports ////
 
+extern void POWER_CLOCK_IRQHandler(void);
+
+extern void TIMER0_IRQHandler(void);
+
 extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
 //// box hooks ////
@@ -589,6 +593,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_pendsv_handler,
     (uint32_t)__box_systick_handler,
     // External IRQ handlers
+    (uint32_t)POWER_CLOCK_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -596,8 +601,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)TIMER0_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -912,6 +916,10 @@ const uint32_t __box_qsort_importjumptable[] = {
 
 int __box_qsort_init(void) {
     int err;
+    if (__box_qsort_initialized) {
+        return 0;
+    }
+
     // prepare data stack
     __box_qsort_datasp = (void*)__box_qsort_exportjumptable[0];
 

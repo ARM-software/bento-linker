@@ -3,15 +3,11 @@
 #include <string.h>
 
 #ifndef BOBBOX_KEY_SIZE
-#define BOBBOX_KEY_SIZE 512
+#define BOBBOX_KEY_SIZE 1024
 #endif
 
 #ifndef BOBBOX_KEY_EXPONENT
 #define BOBBOX_KEY_EXPONENT 65537
-#endif
-
-#ifndef BOBBOX_TEMPBUFFER_SIZE
-#define BOBBOX_TEMPBUFFER_SIZE 1024
 #endif
 
 #ifndef BOBBOX_SECRET_MESSAGE

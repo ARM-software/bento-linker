@@ -30,25 +30,9 @@ void _exit(int code) {
 """
 
 WASM_HOOKS = """
-// these actually should not get called, but seem to get linked in anyways
-off_t __stdio_seek(FILE *f, off_t off, int whence) {
-    return -ENOSYS;
-}
-
-size_t __stdout_write(FILE *f, const uint8_t *buffer, size_t len) {
-    return -ENOSYS;
-}
-
-size_t __stdio_write(FILE *f, const uint8_t *buffer, size_t len) {
-    return -ENOSYS;
-}
-
-int __stdio_close(FILE *f) {
-    return -ENOSYS;
-}
-
 __attribute__((noreturn))
-void __assert_fail(const char *m) {
+void __assert_fail(const char *m,
+        const char *file, int32_t line, const char *func) {
     printf("assert failed: %%s\\n", m);
     __box_abort(-1);
 }

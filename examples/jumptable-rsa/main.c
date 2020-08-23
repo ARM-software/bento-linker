@@ -9,7 +9,7 @@
 #endif
 
 #ifndef SYS_KEY_SIZE
-#define SYS_KEY_SIZE 512
+#define SYS_KEY_SIZE 1024
 #endif
 
 // uart hooks for nrfx

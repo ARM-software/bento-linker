@@ -3,15 +3,11 @@
 #include <string.h>
 
 #ifndef ALICEBOX_KEY_SIZE
-#define ALICEBOX_KEY_SIZE 512
+#define ALICEBOX_KEY_SIZE 1024
 #endif
 
 #ifndef ALICEBOX_KEY_EXPONENT
 #define ALICEBOX_KEY_EXPONENT 65537
-#endif
-
-#ifndef ALICEBOX_TEMPBUFFER_SIZE
-#define ALICEBOX_TEMPBUFFER_SIZE 1024
 #endif
 
 #ifndef ALICEBOX_SECRET_MESSAGE
@@ -21,7 +17,8 @@
 
 // private RSA key
 static int32_t key;
-static char pubkey[4*(ALICEBOX_KEY_SIZE/8)]; // this overshoots a bit
+static char pubkey[8*(ALICEBOX_KEY_SIZE/8)]; // this overshoots a bit
+//static char pubkey[4*(ALICEBOX_KEY_SIZE/8)]; // this overshoots a bit
 
 int alicebox_getpubkey(char *buffer, size_t size) {
     // get our public key from the TLS box
@@ -66,8 +63,19 @@ int alicebox_init(void) {
     key = nkey;
 
     // print public key for fun
+    printf("alicebox: serializing private key...\n");
+    int err = sys_rsa_getprivkey(key, pubkey, sizeof(pubkey));
+    if (err) {
+        return err;
+    }
+
+    printf("alicebox: privkey: '''\n");
+    printf("%.*s\n", sizeof(pubkey), pubkey);
+    printf("'''\n");
+
+    // print public key for fun
     printf("alicebox: serializing public key...\n");
-    int err = sys_rsa_getpubkey(key, pubkey, sizeof(pubkey));
+    err = sys_rsa_getpubkey(key, pubkey, sizeof(pubkey));
     if (err) {
         return err;
     }

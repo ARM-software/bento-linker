@@ -22,7 +22,7 @@ class WasmHOutput(outputs.HOutput):
                 self.decls.append('//// box exports ////')
             self.decls.append('%(fn)s;',
                 fn=self.repr_fn(export,
-                    attrs=['__attribute__((visibility("default")))', 'extern']),
+                    attrs=['__attribute__((used))', 'extern']),
                 doc=export.doc)
 
 

@@ -11,6 +11,9 @@ output.mk.path = 'Makefile'
 output.mk.define.NRF52840_XXAA=1
 output.mk.define.NRFX_UARTE_ENABLED=1
 output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.define.NRFX_CLOCK_ENABLED=1
+output.mk.define.NRFX_TIMER_ENABLED=1
+output.mk.define.NRFX_TIMER0_ENABLED=1
 output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
@@ -24,14 +27,19 @@ output.mk.incs = [
     'nrfx/templates',
 ]
 
+export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
+export.__box_irq0_handler.type = 'fn() -> void'
+export.__box_irq8_handler.alias = 'TIMER0_IRQHandler'
+export.__box_irq8_handler.type = 'fn() -> void'
+
 export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
 import.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 
 [box.qsort]
 runtime.runtime = 'awsm'
-runtime.awsm.data_stack = 0x8000
 runtime.awsm.memory.size = 0x10000
 runtime.awsm.table.size = 0x200
+stack = 0x8000
 memory.flash = 'rxp 0x2000'
 memory.ram = 'rw 0x12000'
 

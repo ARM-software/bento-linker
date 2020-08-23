@@ -16,3 +16,6 @@
 [submodule "extra/awsm"]
 	path = extra/awsm
 	url = git@github.com:geky/awsm
+[submodule "extra/littlefs"]
+	path = extra/littlefs
+	url = git@github.com:armmbed/littlefs

@@ -1031,6 +1031,10 @@ const uint32_t __box_boxc_sys_jumptable[] = {
 
 int __box_boxc_init(void) {
     int err;
+    if (__box_boxc_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {

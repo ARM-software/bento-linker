@@ -25,6 +25,7 @@ AWSM             = ../awsm/target/debug/awsm
 LLVMCC           = clang
 LLVMSYSROOT      ?= $(shell $(CC) -print-sysroot)
 LLVMLINK         = llvm-link
+LLVMOPT          = opt
 LLVMDIS          = llvm-dis
 
 override WASMLDFLAGS += -Wl,-z,stack-size=32768
@@ -82,12 +83,12 @@ override CFLAGS += $(patsubst %,-I%,$(INC))
 
 ifneq ($(DEBUG),0)
 override WASMCFLAGS += -g
-override WASMCFLAGS += -O0
+override WASMCFLAGS += -Oz
 else
 ifeq ($(ASSERTS),0)
 override WASMCFLAGS += -DNDEBUG
 endif
-override WASMCFLAGS += -Os
+override WASMCFLAGS += -Oz
 ifneq ($(LTO),0)
 override WASMCFLAGS += -flto
 endif
@@ -107,9 +108,17 @@ override WASMCFLAGS += $(patsubst %,-I%,$(WASMINC))
 
 override AWSMFLAGS += --target=thumbv7em-v7m-none-gnueabi
 
+ifneq ($(DEBUG),0)
+# note we need the -always-inline pass otherwise the
+# resulting binary is unusably large
+override LLVMOPTFLAGS += -O1
+else
+override LLVMOPTFLAGS += -Oz
+endif
+
 override LLVMCFLAGS += -g
 ifneq ($(DEBUG),0)
-# we need the -always-inline pass otherwise the
+# note we need the -always-inline pass otherwise the
 # resulting binary is unusably large
 override LLVMCFLAGS += -O1
 else
@@ -156,8 +165,13 @@ override WASMLDFLAGS += $(patsubst %,-l%,$(WASMLIB))
 override WASMLDFLAGS += -Wl,--gc-sections
 override WASMLDFLAGS += -Wl,--no-entry
 override WASMLDFLAGS += -Wl,--allow-undefined
-override WASMLDFLAGS += -Wl,--export-dynamic
 override WASMLDFLAGS += -Wl,--stack-first
+
+### replace-me-heap glue ###
+override WASMLDFLAGS += -Wl,--wrap,malloc
+override WASMLDFLAGS += -Wl,--wrap,free
+override WASMLDFLAGS += -Wl,--wrap,calloc
+override WASMLDFLAGS += -Wl,--wrap,realloc
 
 ### __box_abort glue ###
 override LDFLAGS += -Wl,--wrap,abort
@@ -175,6 +189,7 @@ override WASMLDFLAGS += -Wl,--wrap,printf
 override WASMLDFLAGS += -Wl,--wrap,vprintf
 override WASMLDFLAGS += -Wl,--wrap,fprintf
 override WASMLDFLAGS += -Wl,--wrap,vfprintf
+override WASMLDFLAGS += -Wl,--wrap,writev
 override WASMLDFLAGS += -Wl,--wrap,fflush
 
 # target rule
@@ -186,6 +201,7 @@ $(TARGET:.elf=.awsm.o): $(TARGET:.elf=.awsm.bc)
 
 $(TARGET:.elf=.awsm.bc): $(TARGET:.elf=.bc) $(LLVMOBJ)
 	$(LLVMLINK) $^ -o $@
+	$(LLVMOPT) $(LLVMOPTFLAGS) $@ -o $@
 
 $(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)
 	$(AWSM) $(AWSMFLAGS) $< -o $@
@@ -266,10 +282,11 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
-	    $(shell find $(INC) -name '*.h') \
+	    $(shell find -L $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
+	    $(wildcard $(patsubst %,%/*.h,$(INC))))
 
 # header dependencies
 -include $(DEP)

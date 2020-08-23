@@ -129,10 +129,11 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
-	    $(shell find $(INC) -name '*.h') \
+	    $(shell find -L $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
+	    $(wildcard $(patsubst %,%/*.h,$(INC))))
 
 # header dependencies
 -include $(DEP)
@@ -177,8 +178,8 @@ clean:
 	    --only-section .text \
 	    --only-section .data \
 	    --only-section .bss \
+	    --only-section .jumptable \
 	    --only-section .stack \
 	    --only-section .heap \
-	    --only-section .jumptable \
 	    -O binary)
 

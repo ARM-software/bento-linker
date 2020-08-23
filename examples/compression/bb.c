@@ -1096,6 +1096,10 @@ const uint32_t __box_box1_sys_jumptable[] = {
 
 int __box_box1_init(void) {
     int err;
+    if (__box_box1_state.initialized) {
+        return 0;
+    }
+
     // bring down any overlapping boxes
     extern int __box_box2_clobber(void);
     err = __box_box2_clobber();
@@ -1246,6 +1250,10 @@ const uint32_t __box_box2_sys_jumptable[] = {
 
 int __box_box2_init(void) {
     int err;
+    if (__box_box2_state.initialized) {
+        return 0;
+    }
+
     // bring down any overlapping boxes
     extern int __box_box1_clobber(void);
     err = __box_box1_clobber();
@@ -1396,6 +1404,10 @@ const uint32_t __box_box3_sys_jumptable[] = {
 
 int __box_box3_init(void) {
     int err;
+    if (__box_box3_state.initialized) {
+        return 0;
+    }
+
     // bring down any overlapping boxes
     extern int __box_box1_clobber(void);
     err = __box_box1_clobber();

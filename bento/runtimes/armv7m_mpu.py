@@ -546,6 +546,8 @@ class ARMv7MMPURuntime(
 
         super().box(box)
         self._jumptable.alloc(box, 'rp')
+        box.stack.alloc(box, 'rw')
+        box.heap.alloc(box, 'rw')
 
         # plugs
         self._abort_plug = box.addexport(
@@ -750,6 +752,11 @@ class ARMv7MMPURuntime(
         out.printf('int __box_%(box)s_init(void) {')
         with out.indent():
             out.printf('int err;')
+            out.printf('if (__box_%(box)s_state.initialized) {')
+            with out.indent():
+                out.printf('return 0;')
+            out.printf('}')
+            out.printf()
             if box.roommates:
                 out.printf('// bring down any overlapping boxes')
             for i, roommate in enumerate(box.roommates):

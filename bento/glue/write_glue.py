@@ -276,6 +276,34 @@ int _write(int handle, const char *buffer, int size) {
 #endif
 """
 
+WASM_HOOKS = """
+ssize_t __wrap_writev(int fd, const struct iovec *iov, int count) {
+    size_t sum = 0;
+    for (int i = 0; i < count; i++) {
+        ssize_t res = __box_write(fd, iov[i].iov_base, iov[i].iov_len);
+        if (res < 0) {
+            return res;
+        }
+
+        sum += res;
+    }
+
+    return sum;
+}
+
+int __isatty(int fd) {
+    return true;
+}
+
+off_t __stdio_seek(FILE *f, off_t off, int whence) {
+    return -ESPIPE;
+}
+
+int __stdio_close(FILE *f) {
+    return 0;
+}
+"""
+
 RUST_HOOKS = '''
 pub fn write(fd: i32, buffer: &[u8]) -> Result<usize> {
     extern "C" {
@@ -460,6 +488,9 @@ class WriteGlue(glue.Glue):
                 visibility='__attribute__((visibility("hidden")))'):
             self.__build_common_c(output, box)
 
+            if not output.no_stdlib_hooks:
+                output.decls.append(WASM_HOOKS)
+
     def build_mk(self, output, box):
         super().build_mk(output, box)
 
@@ -482,6 +513,7 @@ class WriteGlue(glue.Glue):
                 out.printf('override WASMLDFLAGS += -Wl,--wrap,vprintf')
                 out.printf('override WASMLDFLAGS += -Wl,--wrap,fprintf')
                 out.printf('override WASMLDFLAGS += -Wl,--wrap,vfprintf')
+            out.printf('override WASMLDFLAGS += -Wl,--wrap,writev')
             out.printf('override WASMLDFLAGS += -Wl,--wrap,fflush')
 
     def build_rust_lib(self, output, box):

@@ -983,6 +983,10 @@ const uint32_t __box_box1_sys_jumptable[] = {
 
 int __box_box1_init(void) {
     int err;
+    if (__box_box1_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
@@ -1098,6 +1102,10 @@ const uint32_t __box_box2_sys_jumptable[] = {
 
 int __box_box2_init(void) {
     int err;
+    if (__box_box2_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
@@ -1213,6 +1221,10 @@ const uint32_t __box_box3_sys_jumptable[] = {
 
 int __box_box3_init(void) {
     int err;
+    if (__box_box3_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {

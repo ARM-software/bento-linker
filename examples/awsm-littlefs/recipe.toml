@@ -1,0 +1,132 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x8000
+heap = 0x1000
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.define.NRFX_CLOCK_ENABLED=1
+output.mk.define.NRFX_TIMER_ENABLED=1
+output.mk.define.NRFX_TIMER0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+    'wasm3/source',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+    'wasm3/source',
+]
+
+# These are needed for wasm3
+# TODO fix upstream?
+output.mk.define.PRIi64='"lli"'
+output.mk.define.PRIu64='"llu"'
+output.mk.c_flags = [
+    '-Wno-unused-function',
+    '-Wno-unused-variable',
+    '-Wno-strict-aliasing',
+]
+
+export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
+export.__box_irq0_handler.type = 'fn() -> void'
+export.__box_irq8_handler.alias = 'TIMER0_IRQHandler'
+export.__box_irq8_handler.type = 'fn() -> void'
+
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+export.bd_block_size = 'fn() -> u32'
+export.bd_block_count = 'fn() -> u32'
+export.bd_read = '''
+    fn(u32 block, u32 off, mut u8 buffer[size], usize size) -> err
+    '''
+export.bd_prog = '''
+    fn(u32 block, u32 off, const u8 buffer[size], usize size) -> err
+    '''
+export.bd_erase = 'fn(u32 block) -> err'
+export.bd_sync = 'fn() -> err'
+
+import.lfsbox_format = 'fn() -> err'
+import.lfsbox_mount = 'fn() -> err'
+import.lfsbox_unmount = 'fn() -> err'
+import.lfsbox_rename = 'fn(const i8 *oldpath, const i8 *newpath) -> err'
+import.lfsbox_file_open = 'fn(const i8 *path, u32 flags) -> err32'
+import.lfsbox_file_close = 'fn(i32 fd) -> err'
+import.lfsbox_file_read = '''
+    fn(i32 fd, mut u8 buffer[size], usize size) -> errsize
+    '''
+import.lfsbox_file_write = '''
+    fn(i32 fd, const u8 buffer[size], usize size) -> errsize
+    '''
+import.lfsbox_file_seek = 'fn(i32 fd, i32 off, u32 whence) -> err32'
+
+[box.lfsbox]
+runtime.runtime = 'awsm'
+runtime.awsm.memory.size = 0x10000
+runtime.awsm.table.size = 0x400
+memory.flash = 'rxp 0x10000'
+memory.ram = 'rw 0x12000'
+stack = 0x4000
+heap = 0x4000
+
+output.wasm_h = 'bb.h'
+output.wasm_c = 'bb.c'
+output.h = 'runtime/bb.h'
+output.c = 'runtime/bb.c'
+output.ld = 'runtime/bb.ld'
+output.mk.path = 'Makefile'
+output.mk.awsm = '../awsm/target/debug/awsm'
+output.mk.llvm_cc = 'clang'
+output.mk.llvm_srcs = ['runtime']
+output.mk.srcs = ['runtime'] # for linkerscript
+output.mk.wasi_sdk = '../wasi-sdk'
+output.mk.wabt = '../wabt'
+# TODO figure out why we need this?
+output.mk.define.LFS_NO_INTRINSICS=1
+output.mk.wasm_srcs = [
+    '.',
+    'littlefs',
+]
+
+import.bd_block_size = 'fn() -> u32'
+import.bd_block_count = 'fn() -> u32'
+import.bd_read = '''
+    fn(u32 block, u32 off, mut u8 buffer[size], usize size) -> err
+    '''
+import.bd_prog = '''
+    fn(u32 block, u32 off, const u8 buffer[size], usize size) -> err
+    '''
+import.bd_erase = 'fn(u32 block) -> err'
+import.bd_sync = 'fn() -> err'
+
+export.lfsbox_format = 'fn() -> err'
+export.lfsbox_mount = 'fn() -> err'
+export.lfsbox_unmount = 'fn() -> err'
+export.lfsbox_rename = '''
+    fn(const i8 *oldpath, const i8 *newpath) -> err
+    '''
+export.lfsbox_file_open = '''
+    fn(const i8 *path, u32 flags) -> err32
+    '''
+export.lfsbox_file_close = '''
+    fn(i32 fd) -> err
+    '''
+export.lfsbox_file_read = '''
+    fn(i32 fd, mut u8 buffer[size], usize size) -> errsize
+    '''
+export.lfsbox_file_write = '''
+    fn(i32 fd, const u8 buffer[size], usize size) -> errsize
+    '''
+export.lfsbox_file_seek = '''
+    fn(i32 fd, i32 off, u32 whence) -> err32
+    '''

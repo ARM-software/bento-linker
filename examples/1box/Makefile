@@ -176,10 +176,11 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
-	    $(shell find $(INC) -name '*.h') \
+	    $(shell find -L $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
+	    $(wildcard $(patsubst %,%/*.h,$(INC))))
 
 .PHONY: $(shell make -s -C box1 box1.box -q || echo box1/box1.box)
 box1/box1.box:

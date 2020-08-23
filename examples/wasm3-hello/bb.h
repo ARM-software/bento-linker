@@ -33,6 +33,10 @@ int32_t box3_ping_import(int32_t a0);
 
 //// box exports ////
 
+extern void POWER_CLOCK_IRQHandler(void);
+
+extern void TIMER0_IRQHandler(void);
+
 extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
 extern int32_t sys_ping(int32_t a0);

@@ -77,6 +77,8 @@ class ARMv7MSysRuntime(
             print("warning: Box `%s` has no stack!" % box.name)
         super().box(box)
         self._isr_vector.alloc(box, 'rp')
+        box.stack.alloc(box, 'rw')
+        box.heap.alloc(box, 'rw')
 
         if not self._no_startup:
             # allow overloading main, but default to using main if available
@@ -234,7 +236,9 @@ class ARMv7MSysRuntime(
                     out.printf('(uint32_t)%(handler)s,', handler=
                         0
                         if not esr else
-                        esr.alias)
+                        esr.alias
+                        if not esr.link else
+                        esr.link.export.alias)
                 out.printf('// External IRQ handlers')
                 for isr in self._isr_hooks:
                     out.printf('(uint32_t)%(handler)s,', handler=
@@ -242,7 +246,7 @@ class ARMv7MSysRuntime(
                         if not isr else
                         '__box_default_handler'
                         if not isr.link else
-                        isr.alias)
+                        isr.link.export.alias)
             out.printf('};')
 
 

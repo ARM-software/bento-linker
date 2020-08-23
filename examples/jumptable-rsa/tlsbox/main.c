@@ -7,10 +7,6 @@
 #include "mbedtls/bignum.h"
 #include "mbedtls/rsa.h"
 
-#ifndef TLSBOX_TEMPBUFFER_SIZE
-#define TLSBOX_TEMPBUFFER_SIZE (4*1024)
-#endif
-
 #ifndef TLSBOX_KEY_COUNT
 #define TLSBOX_KEY_COUNT 4
 #endif
@@ -160,6 +156,7 @@ int tlsbox_rsa_getprivkey(int32_t key, char *privkey, size_t size) {
         err = mbedtls_mpi_write_string(mpis[i], 16,
                 privkey, size, &diff);
         if (err) {
+            printf("oh no! %d\n", err);
             return err;
         }
 

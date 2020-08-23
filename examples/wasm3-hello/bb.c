@@ -37,6 +37,10 @@ int32_t box3_ping_import(int32_t a0);
 
 //// box exports ////
 
+extern void POWER_CLOCK_IRQHandler(void);
+
+extern void TIMER0_IRQHandler(void);
+
 extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
 extern int32_t sys_ping(int32_t a0);
@@ -185,6 +189,9 @@ enum box_errors {
     EOWNERDEAD       = 130,  // Owner died
     ENOTRECOVERABLE  = 131,  // State not recoverable
 };
+
+// wams3 supports sharing of the M3Environment state
+IM3Environment __box_wasm3_environment;
 
 __attribute__((unused))
 static int __box_wasm3_toerr(M3Result res) {
@@ -698,6 +705,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_pendsv_handler,
     (uint32_t)__box_systick_handler,
     // External IRQ handlers
+    (uint32_t)POWER_CLOCK_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -705,8 +713,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)TIMER0_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -949,7 +956,6 @@ static int __box_box1_load(void) {
 
 //// box1 state ////
 bool __box_box1_initialized = false;
-IM3Environment __box_box1_environment;
 IM3Runtime __box_box1_runtime;
 IM3Module __box_box1_module;
 uint32_t __box_box1_datasp;
@@ -1155,24 +1161,32 @@ int __box_box1_init(void) {
     if (__box_box1_initialized) {
         return 0;
     }
+
     // load the box if unloaded
     err = __box_box1_load();
     if (err) {
         return err;
     }
 
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_box1_environment = m3_NewEnvironment();
-    if (!__box_box1_environment) return -ENOMEM;
+    // initialize wasm3 environment, this only needs
+    // to be done once
+    if (!__box_wasm3_environment) {
+        __box_wasm3_environment = m3_NewEnvironment();
+        if (!__box_wasm3_environment) {
+            return -ENOMEM;
+        }
+    }
+
+    // initialize wasm3 runtime
     __box_box1_runtime = m3_NewRuntime(
-            __box_box1_environment,
+            __box_wasm3_environment,
             1024,
             NULL);
     if (!__box_box1_runtime) return -ENOMEM;
     extern uint32_t __box_box1_image;
+    M3Result res;
     res = m3_ParseModule(
-            __box_box1_environment,
+            __box_wasm3_environment,
             &__box_box1_module,
             (uint8_t*)(&__box_box1_image + 1),
             __box_box1_image);
@@ -1227,6 +1241,7 @@ int __box_box1_init(void) {
 }
 
 int __box_box1_clobber(void) {
+    m3_FreeRuntime(__box_box1_runtime);
     __box_box1_initialized = false;
     return 0;
 }
@@ -1240,7 +1255,6 @@ static int __box_box2_load(void) {
 
 //// box2 state ////
 bool __box_box2_initialized = false;
-IM3Environment __box_box2_environment;
 IM3Runtime __box_box2_runtime;
 IM3Module __box_box2_module;
 uint32_t __box_box2_datasp;
@@ -1446,24 +1460,32 @@ int __box_box2_init(void) {
     if (__box_box2_initialized) {
         return 0;
     }
+
     // load the box if unloaded
     err = __box_box2_load();
     if (err) {
         return err;
     }
 
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_box2_environment = m3_NewEnvironment();
-    if (!__box_box2_environment) return -ENOMEM;
+    // initialize wasm3 environment, this only needs
+    // to be done once
+    if (!__box_wasm3_environment) {
+        __box_wasm3_environment = m3_NewEnvironment();
+        if (!__box_wasm3_environment) {
+            return -ENOMEM;
+        }
+    }
+
+    // initialize wasm3 runtime
     __box_box2_runtime = m3_NewRuntime(
-            __box_box2_environment,
+            __box_wasm3_environment,
             1024,
             NULL);
     if (!__box_box2_runtime) return -ENOMEM;
     extern uint32_t __box_box2_image;
+    M3Result res;
     res = m3_ParseModule(
-            __box_box2_environment,
+            __box_wasm3_environment,
             &__box_box2_module,
             (uint8_t*)(&__box_box2_image + 1),
             __box_box2_image);
@@ -1518,6 +1540,7 @@ int __box_box2_init(void) {
 }
 
 int __box_box2_clobber(void) {
+    m3_FreeRuntime(__box_box2_runtime);
     __box_box2_initialized = false;
     return 0;
 }
@@ -1531,7 +1554,6 @@ static int __box_box3_load(void) {
 
 //// box3 state ////
 bool __box_box3_initialized = false;
-IM3Environment __box_box3_environment;
 IM3Runtime __box_box3_runtime;
 IM3Module __box_box3_module;
 uint32_t __box_box3_datasp;
@@ -1737,24 +1759,32 @@ int __box_box3_init(void) {
     if (__box_box3_initialized) {
         return 0;
     }
+
     // load the box if unloaded
     err = __box_box3_load();
     if (err) {
         return err;
     }
 
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_box3_environment = m3_NewEnvironment();
-    if (!__box_box3_environment) return -ENOMEM;
+    // initialize wasm3 environment, this only needs
+    // to be done once
+    if (!__box_wasm3_environment) {
+        __box_wasm3_environment = m3_NewEnvironment();
+        if (!__box_wasm3_environment) {
+            return -ENOMEM;
+        }
+    }
+
+    // initialize wasm3 runtime
     __box_box3_runtime = m3_NewRuntime(
-            __box_box3_environment,
+            __box_wasm3_environment,
             1024,
             NULL);
     if (!__box_box3_runtime) return -ENOMEM;
     extern uint32_t __box_box3_image;
+    M3Result res;
     res = m3_ParseModule(
-            __box_box3_environment,
+            __box_wasm3_environment,
             &__box_box3_module,
             (uint8_t*)(&__box_box3_image + 1),
             __box_box3_image);
@@ -1809,6 +1839,7 @@ int __box_box3_init(void) {
 }
 
 int __box_box3_clobber(void) {
+    m3_FreeRuntime(__box_box3_runtime);
     __box_box3_initialized = false;
     return 0;
 }

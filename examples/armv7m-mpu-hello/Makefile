@@ -91,6 +91,9 @@ override LDFLAGS += -Wl,--wrap,fflush
 ### user provided flags ###
 
 override CFLAGS += -DNRF52840_XXAA='1'
+override CFLAGS += -DNRFX_CLOCK_ENABLED='1'
+override CFLAGS += -DNRFX_TIMER0_ENABLED='1'
+override CFLAGS += -DNRFX_TIMER_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE0_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE_ENABLED='1'
 
@@ -196,10 +199,11 @@ cat:
 .PHONY: tags
 tags:
 	$(strip ctags \
-	    $(shell find $(INC) -name '*.h') \
+	    $(shell find -L $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
+	    $(wildcard $(patsubst %,%/*.h,$(INC))))
 
 .PHONY: $(shell make -s -C box1 box1.box -q || echo box1/box1.box)
 box1/box1.box:

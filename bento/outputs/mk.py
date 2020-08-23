@@ -174,6 +174,8 @@ class MkOutput(outputs.Output):
         parser.add_argument('--llvm_link',
             help='Override the llvm-link program, used to link LLVM bitcode '
                 'files. Required for LTO prior to --cc linking.')
+        parser.add_argument('--llvm_opt',
+            help='Override the llvm-opt program.')
         parser.add_argument('--llvm_dis',
             help='Override the llvm-dis program.')
 
@@ -204,7 +206,7 @@ class MkOutput(outputs.Output):
             wasm_cpu=None, wasm_srcs=None, wasm_incs=None, wasm_libs=None,
             wasm_c_flags=None, wasm_ld_flags=None,
             awsm=None, llvm_cc=None, llvm_sysroot=None,
-            llvm_link=None, llvm_dis=None,
+            llvm_link=None, llvm_opt=None, llvm_dis=None,
             llvm_srcs=None, llvm_incs=None,
             awsm_flags=None, llvm_c_flags=None):
         super().__init__(path)
@@ -290,6 +292,7 @@ class MkOutput(outputs.Output):
         self._llvm_cc = llvm_cc
         self._llvm_sysroot = llvm_sysroot or '$(shell $(CC) -print-sysroot)'
         self._llvm_link = llvm_link or 'llvm-link'
+        self._llvm_opt = llvm_opt or 'opt'
         self._llvm_dis = llvm_dis or 'llvm-dis'
 
         self._llvm_srcs = llvm_srcs if llvm_srcs is not None else ['.']
@@ -349,6 +352,7 @@ class MkOutput(outputs.Output):
             llvm_cc=self._llvm_cc,
             llvm_sysroot=self._llvm_sysroot,
             llvm_link=self._llvm_link,
+            llvm_opt=self._llvm_opt,
             llvm_dis=self._llvm_dis,
             llvm_triple=LLVM_TRIPLES[self._cpu])
 
@@ -384,6 +388,7 @@ class MkOutput(outputs.Output):
             out.printf('LLVMCC           = %(llvm_cc)s')
             out.printf('LLVMSYSROOT      ?= %(llvm_sysroot)s')
             out.printf('LLVMLINK         = %(llvm_link)s')
+            out.printf('LLVMOPT          = %(llvm_opt)s')
             out.printf('LLVMDIS          = %(llvm_dis)s')
 
     def build(self, box):
@@ -499,12 +504,12 @@ class MkOutput(outputs.Output):
             out = self.decls.append()
             out.printf('ifneq ($(DEBUG),0)')
             out.printf('override WASMCFLAGS += -g')
-            out.printf('override WASMCFLAGS += -O0')
+            out.printf('override WASMCFLAGS += -Oz')
             out.printf('else')
             out.printf('ifeq ($(ASSERTS),0)')
             out.printf('override WASMCFLAGS += -DNDEBUG')
             out.printf('endif')
-            out.printf('override WASMCFLAGS += -Os')
+            out.printf('override WASMCFLAGS += -Oz')
             out.printf('ifneq ($(LTO),0)')
             out.printf('override WASMCFLAGS += -flto')
             out.printf('endif')
@@ -529,9 +534,18 @@ class MkOutput(outputs.Output):
 
         if not self.no_llvm:
             out = self.decls.append()
+            out.printf('ifneq ($(DEBUG),0)')
+            out.printf('# note we need the -always-inline pass otherwise the')
+            out.printf('# resulting binary is unusably large')
+            out.printf('override LLVMOPTFLAGS += -O1')
+            out.printf('else')
+            out.printf('override LLVMOPTFLAGS += -Oz')
+            out.printf('endif')
+
+            out = self.decls.append()
             out.printf('override LLVMCFLAGS += -g')
             out.printf('ifneq ($(DEBUG),0)')
-            out.printf('# we need the -always-inline pass otherwise the')
+            out.printf('# note we need the -always-inline pass otherwise the')
             out.printf('# resulting binary is unusably large')
             out.printf('override LLVMCFLAGS += -O1')
             out.printf('else')
@@ -585,7 +599,6 @@ class MkOutput(outputs.Output):
             out.printf('override WASMLDFLAGS += -Wl,--gc-sections')
             out.printf('override WASMLDFLAGS += -Wl,--no-entry')
             out.printf('override WASMLDFLAGS += -Wl,--allow-undefined')
-            out.printf('override WASMLDFLAGS += -Wl,--export-dynamic')
             out.printf('override WASMLDFLAGS += -Wl,--stack-first')
 
         # default rule
@@ -666,10 +679,11 @@ class MkOutput(outputs.Output):
         with out.indent():
             out.writef('$(strip ctags')
             with out.indent():
-                out.writef(' \\\n$(shell find $(INC) -name \'*.h\')')
+                out.writef(' \\\n$(shell find -L $(INC) -name \'*.h\')')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.c,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.s,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.S,$(SRC)))')
+                out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.h,$(INC)))')
                 out.writef(')')
 
         for child in box.boxes:

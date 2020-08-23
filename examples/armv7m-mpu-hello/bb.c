@@ -35,6 +35,10 @@ int32_t box3_ping_import(int32_t a0);
 
 //// box exports ////
 
+extern void POWER_CLOCK_IRQHandler(void);
+
+extern void TIMER0_IRQHandler(void);
+
 extern ssize_t __box_write(int32_t a0, const void *a1, size_t size);
 
 extern int32_t sys_ping(int32_t a0);
@@ -692,6 +696,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_pendsv_handler,
     (uint32_t)__box_systick_handler,
     // External IRQ handlers
+    (uint32_t)POWER_CLOCK_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -699,8 +704,7 @@ const uint32_t __isr_vector[256] = {
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
-    (uint32_t)__box_default_handler,
+    (uint32_t)TIMER0_IRQHandler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
     (uint32_t)__box_default_handler,
@@ -1022,6 +1026,10 @@ const uint32_t __box_box1_sys_jumptable[] = {
 
 int __box_box1_init(void) {
     int err;
+    if (__box_box1_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
@@ -1162,6 +1170,10 @@ const uint32_t __box_box2_sys_jumptable[] = {
 
 int __box_box2_init(void) {
     int err;
+    if (__box_box2_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {
@@ -1302,6 +1314,10 @@ const uint32_t __box_box3_sys_jumptable[] = {
 
 int __box_box3_init(void) {
     int err;
+    if (__box_box3_state.initialized) {
+        return 0;
+    }
+
     // make sure that the MPU is initialized
     err = __box_mpu_init();
     if (err) {

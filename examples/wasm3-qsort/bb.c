@@ -134,6 +134,9 @@ enum box_errors {
     ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
+// wams3 supports sharing of the M3Environment state
+IM3Environment __box_wasm3_environment;
+
 __attribute__((unused))
 static int __box_wasm3_toerr(M3Result res) {
     // note we can't use switch/case here because these are pointers
@@ -897,7 +900,6 @@ static int __box_qsort_load(void) {
 
 //// qsort state ////
 bool __box_qsort_initialized = false;
-IM3Environment __box_qsort_environment;
 IM3Runtime __box_qsort_runtime;
 IM3Module __box_qsort_module;
 uint32_t __box_qsort_datasp;
@@ -1002,24 +1004,32 @@ int __box_qsort_init(void) {
     if (__box_qsort_initialized) {
         return 0;
     }
+
     // load the box if unloaded
     err = __box_qsort_load();
     if (err) {
         return err;
     }
 
-    // initialized wasm3 runtime
-    M3Result res;
-    __box_qsort_environment = m3_NewEnvironment();
-    if (!__box_qsort_environment) return -ENOMEM;
+    // initialize wasm3 environment, this only needs
+    // to be done once
+    if (!__box_wasm3_environment) {
+        __box_wasm3_environment = m3_NewEnvironment();
+        if (!__box_wasm3_environment) {
+            return -ENOMEM;
+        }
+    }
+
+    // initialize wasm3 runtime
     __box_qsort_runtime = m3_NewRuntime(
-            __box_qsort_environment,
+            __box_wasm3_environment,
             4096,
             NULL);
     if (!__box_qsort_runtime) return -ENOMEM;
     extern uint32_t __box_qsort_image;
+    M3Result res;
     res = m3_ParseModule(
-            __box_qsort_environment,
+            __box_wasm3_environment,
             &__box_qsort_module,
             (uint8_t*)(&__box_qsort_image + 1),
             __box_qsort_image);
@@ -1065,6 +1075,7 @@ int __box_qsort_init(void) {
 }
 
 int __box_qsort_clobber(void) {
+    m3_FreeRuntime(__box_qsort_runtime);
     __box_qsort_initialized = false;
     return 0;
 }

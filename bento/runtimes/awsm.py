@@ -463,14 +463,10 @@ class aWsmRuntime(
                 "cost to every box entry point. --no_longjmp disables longjmp "
                 "and forces any unhandled aborts to halt. Note this has no "
                 "affetc if an explicit __box_<box>_abort hook is provided.")
-        parser.add_argument('--data_stack', type=int,
-            help="Size of WebAssembly-side data stack in bytes. "
-                "Defaults to 16KiB (1/4th of a WebAssembly page).")
 
     def __init__(self, bounds_check=None,
             memory=None, table=None,
-            jumptable=None, no_longjmp=None,
-            data_stack=None):
+            jumptable=None, no_longjmp=None):
         super().__init__()
         self._bounds_check = bounds_check or 'branch'
         self._memory = Section('memory', **memory.__dict__)
@@ -481,9 +477,6 @@ class aWsmRuntime(
             self._table.size = 64*8
         self._jumptable = Section('jumptable', **jumptable.__dict__)
         self._no_longjmp = no_longjmp or False
-        self._data_stack = (data_stack
-            if data_stack is not None else
-            16*1024)
 
     def box_parent(self, parent, box):
         self._load_hook = parent.addimport(
@@ -661,8 +654,6 @@ class aWsmRuntime(
         out.printf('bool __box_%(box)s_initialized = false;')
         if not self._abort_hook.link and not self._no_longjmp:
             out.printf('jmp_buf *__box_%(box)s_jmpbuf = NULL;')
-        if box.stack.size > 0:
-            out.printf('uint8_t *__box_%(box)s_datasp = NULL;')
         out.printf('extern uint32_t __box_%(box)s_jumptable[];')
         out.printf('#define __box_%(box)s_exportjumptable '
             '__box_%(box)s_jumptable')
@@ -674,7 +665,7 @@ class aWsmRuntime(
             out = output.decls.append(
                 fn=output.repr_fn(import_),
                 fnptr=output.repr_fnptr(import_.prebound(), ''),
-                i=i+1 if box.stack.size > 0 else i)
+                i=i)
             out.printf('%(fn)s {')
             with out.indent():
                 # inject lazy-init?
@@ -807,6 +798,11 @@ class aWsmRuntime(
         out.printf('int __box_%(box)s_init(void) {')
         with out.indent():
             out.printf('int err;')
+            out.printf('if (__box_%(box)s_initialized) {')
+            with out.indent():
+                out.printf('return 0;')
+            out.printf('}')
+            out.printf()
             if box.roommates:
                 out.printf('// bring down any overlapping boxes')
             for i, roommate in enumerate(box.roommates):
@@ -961,8 +957,6 @@ class aWsmRuntime(
             out.printf('}')
 
         out = output.decls.append(doc='box-side jumptable')
-        if box.stack.size > 0:
-            out.printf('extern uint8_t __stack_end;')
         out.printf('__attribute__((used, section(".jumptable")))')
         out.printf('const uint32_t __box_exportjumptable[] = {')
         with out.pushindent():
@@ -1047,8 +1041,8 @@ class aWsmRuntime(
 
         # decls for wasm
         output.decls.append('override WASMLDFLAGS += '
-            '-Wl,-z,stack-size=%(data_stack)d',
-            data_stack=self._data_stack)
+            '-Wl,-z,stack-size=%(stack_size)d',
+            stack_size=box.stack.size)
 
         # target rule
         output.decls.insert(0, '%(name)-16s ?= %(target)s',
@@ -1069,6 +1063,7 @@ class aWsmRuntime(
         out.printf('$(TARGET:.elf=.awsm.bc): $(TARGET:.elf=.bc) $(LLVMOBJ)')
         with out.indent():
             out.printf('$(LLVMLINK) $^ -o $@')
+            out.printf('$(LLVMOPT) $(LLVMOPTFLAGS) $@ -o $@')
 
         out = output.rules.append()
         out.printf('$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)')

@@ -1,0 +1,60 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x4000
+heap = 0x800
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.define.NRFX_CLOCK_ENABLED=1
+output.mk.define.NRFX_TIMER_ENABLED=1
+output.mk.define.NRFX_TIMER0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+]
+
+export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
+export.__box_irq0_handler.type = 'fn() -> void'
+export.__box_irq8_handler.alias = 'TIMER0_IRQHandler'
+export.__box_irq8_handler.type = 'fn() -> void'
+
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+import.mandlebrot = 'fn(usize width, usize height, u32 iterations) -> err'
+
+[box.mandlebrot]
+runtime.runtime = 'awsm'
+runtime.awsm.memory.size = 0x10000
+runtime.awsm.table.size = 0x400
+memory.flash = 'rxp 0x8000'
+memory.ram = 'rw 0x12000'
+stack = 0x4000
+heap = 0x4000
+
+output.wasm_h = 'bb.h'
+output.wasm_c = 'bb.c'
+output.h = 'runtime/bb.h'
+output.c = 'runtime/bb.c'
+output.ld = 'runtime/bb.ld'
+output.mk.path = 'Makefile'
+output.mk.awsm = '../awsm/target/debug/awsm'
+output.mk.llvm_cc = 'clang'
+output.mk.llvm_srcs = ['runtime']
+output.mk.srcs = ['runtime'] # for linkerscript
+output.mk.wasi_sdk = '../wasi-sdk'
+output.mk.wabt = '../wabt'
+
+export.mandlebrot = 'fn(usize width, usize height, u32 iterations) -> err'

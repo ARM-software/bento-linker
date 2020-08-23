@@ -111,6 +111,49 @@ enum box_errors {
     ENOTRECOVERABLE  = 131,  // State not recoverable
 };
 
+uint8_t *__heap_ptr;
+uint8_t *__heap_end = 0;
+
+void *__wrap_malloc(size_t size) {
+    if (__heap_end == 0) {
+        __heap_end = (uint8_t*)(__builtin_wasm_memory_size(0)*64*1024);
+        __heap_ptr = __heap_end - 0;
+    }
+
+    size = ((size+3)/4)*4;
+    if (__heap_ptr + size > __heap_end) {
+        printf("replace_me_malloc: out of memory\n");
+        return NULL;
+    }
+
+    uint8_t *pptr = __heap_ptr;
+    __heap_ptr += size;
+    return pptr;
+}
+
+void __wrap_free(void *ptr) {
+    printf("replace_me_malloc: warning, "
+        "free called but does nothing\n");
+}
+
+void *__wrap_calloc(size_t size) {
+    uint8_t *ptr = __wrap_malloc(size);
+    memset(ptr, 0, size);
+    return ptr;
+}
+
+void *__wrap_realloc(void *ptr, size_t size) {
+    printf("replace_me_malloc: warning, "
+        "realloc called and is probably a bad idea\n");
+    void *nptr = __wrap_malloc(size);
+    if (nptr) {
+        // yes this copies extra, we don't really care
+        memmove(nptr, ptr, size);
+    }
+
+    return nptr;
+}
+
 //// __box_abort glue ////
 
 __attribute__((visibility("hidden")))
@@ -124,25 +167,9 @@ void __wrap_exit(int code) {
     __box_abort(code > 0 ? -code : code);
 }
 
-// these actually should not get called, but seem to get linked in anyways
-off_t __stdio_seek(FILE *f, off_t off, int whence) {
-    return -ENOSYS;
-}
-
-size_t __stdout_write(FILE *f, const uint8_t *buffer, size_t len) {
-    return -ENOSYS;
-}
-
-size_t __stdio_write(FILE *f, const uint8_t *buffer, size_t len) {
-    return -ENOSYS;
-}
-
-int __stdio_close(FILE *f) {
-    return -ENOSYS;
-}
-
 __attribute__((noreturn))
-void __assert_fail(const char *m) {
+void __assert_fail(const char *m,
+        const char *file, int32_t line, const char *func) {
     printf("assert failed: %s\n", m);
     __box_abort(-1);
 }
@@ -411,5 +438,31 @@ __attribute__((visibility("hidden")))
 int __wrap_fflush(FILE *f) {
     int32_t fd = (f == stdout) ? 1 : 2;
     return __box_flush(fd);
+}
+
+ssize_t __wrap_writev(int fd, const struct iovec *iov, int count) {
+    size_t sum = 0;
+    for (int i = 0; i < count; i++) {
+        ssize_t res = __box_write(fd, iov[i].iov_base, iov[i].iov_len);
+        if (res < 0) {
+            return res;
+        }
+
+        sum += res;
+    }
+
+    return sum;
+}
+
+int __isatty(int fd) {
+    return true;
+}
+
+off_t __stdio_seek(FILE *f, off_t off, int whence) {
+    return -ESPIPE;
+}
+
+int __stdio_close(FILE *f) {
+    return 0;
 }
 
