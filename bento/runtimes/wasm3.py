@@ -124,20 +124,13 @@ class Wasm3Runtime(
     __arghelp__ = __doc__
     @classmethod
     def __argparse__(cls, parser, **kwargs):
-        parser.add_nestedparser('--data_stack', Section,
-            help="Size of WebAssembly-side data stack in bytes. By "
-                "default this uses the same value as --stack, but can "
-                "be assigned independently.")
         parser.add_nestedparser('--interp_stack', Section,
             help="Size of Wasm3 interpreter stack in bytes. By "
-                "default this uses the same value as --stack, but can "
-                "be assigned independently.")
+                "default this is set to be the same as --stack, but "
+                "note these are unrelated.")
 
-    def __init__(self, data_stack=None, interp_stack=None):
+    def __init__(self, interp_stack=None):
         super().__init__()
-        self._data_stack = (Section('data_stack', **data_stack.__dict__)
-            if data_stack.size is not None else
-            None)
         self._interp_stack = (Section('interp_stack', **interp_stack.__dict__)
             if interp_stack.size is not None else
             None)
@@ -168,8 +161,6 @@ class Wasm3Runtime(
 
     def box(self, box):
         super().box(box)
-        if self._data_stack is None:
-            self._data_stack = box.stack
         if self._interp_stack is None:
             self._interp_stack = box.stack
         # plugs
@@ -246,34 +237,17 @@ class Wasm3Runtime(
             "compiler, please provide either --output.mk.wasi_sdk or "
             "--output.mk.wasm_cc" % self.__argname__)
 
-        # decls for wasm
-        output.decls.append('override WASMLDFLAGS += '
-            '-Wl,-z,stack-size=%(data_stack)d',
-            data_stack=self._data_stack.size)
-
         # target rule
         output.decls.insert(0, '%(name)-16s ?= %(target)s',
             name='TARGET', target=output.get('target', '%(box)s.wasm'))
 
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES) '
-            # also depend on generated makefile because of the
-            # stack-size argument
-            '$(lastword $(MAKEFILE_LIST))')
+        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES)')
         with out.indent():
             out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
 
-        # we need to store the length somewhere, this is hacky but works
         out = output.rules.append()
-        out.printf('%%.wasm.prefixed: %%.wasm.strip')
-        with out.indent():
-            out.printf('$(strip python3 -c \'import sys, struct; \\\n'
-                '    d=open(sys.argv[1], "rb").read(); \\\n'
-                '    sys.stdout.buffer.write(struct.pack("<I", len(d))); \\\n'
-                '    sys.stdout.buffer.write(d);\' $< > $@)')
-
-        out = output.rules.append()
-        out.printf('%%.elf: %%.wasm.prefixed')
+        out.printf('%%.elf: %%.wasm.stripped.prefixed')
         with out.indent():
             out.writef('$(strip $(OBJCOPY) $< $@')
             with out.indent():
@@ -285,6 +259,13 @@ class Wasm3Runtime(
                 out.printf(')')
 
         super().build_mk(output, box)
+
+        # decls for wasm
+        out = output.decls.append()
+        out.printf('### wasm stack configuration ###')
+        out.printf('override WASMLDFLAGS += '
+            '-Wl,-z,stack-size=%(data_stack)d',
+            data_stack=box.stack.size)
 
     def build_parent_c_prologue(self, output, parent):
         super().build_parent_c_prologue(output, parent)
@@ -305,7 +286,7 @@ class Wasm3Runtime(
         out.printf('uint32_t __box_%(box)s_datasp;')
 
         output.decls.append(C_STUFF,
-            data_stack=self._data_stack.size)
+            data_stack=box.stack.size)
 
         # redirect hooks if necessary
         if not self._abort_hook.link:
@@ -391,18 +372,15 @@ class Wasm3Runtime(
                 out.printf('%(res)s = m3_FindFunction(&%(f)s,\n'
                     '        __box_%(box)s_runtime,\n'
                     '        "%(linkname)s");')
-                if import_.isfalible():
-                    out.printf('if (%(res)s || !%(f)s->compiled) '
-                        'return -ENOEXEC;')
-                else:
-                    out.printf('assert(!%(res)s && %(f)s->compiled);')
-                if import_.isfalible():
-                    out.printf('if (%(f)s->funcType->numArgs '
-                        '!= %(linkargs)d) '
-                        'return -ENOEXEC;')
-                else:
-                    out.printf('assert(%(f)s->funcType->numArgs '
-                        '== %(linkargs)d);')
+                out.printf('if (%(res)s || !%(f)s->compiled ||\n'
+                    '        %(f)s->funcType->numArgs != %(linkargs)d) {')
+                with out.indent():
+                    if import_.isfalible():
+                        out.printf('return -ENOEXEC;')
+                    else:
+                        out.printf('__box_abort(-ENOEXEC);')
+                out.printf('}')
+                out.printf()
                 out.printf('uint64_t *stack = __box_%(box)s_runtime->stack;')
                 for i, (arg, name) in enumerate(import_.zippedargsandbounds()):
                     if arg.isptr():
@@ -421,18 +399,19 @@ class Wasm3Runtime(
                     '        (m3stack_t)stack,\n'
                     '        __box_%(box)s_runtime->memory.mallocated,\n'
                     '        d_m3OpDefaultArgs);')
-                if import_.isfalible():
-                    out.printf('if (%(res)s) {')
-                    with out.indent():
+                out.printf('if (%(res)s) {')
+                with out.indent():
+                    if import_.isfalible():
                         out.printf('if (%(res)s == m3Err_trapExit) {')
                         with out.indent():
                             out.printf('return __box_%(box)s_runtime'
                                 '->exit_code;')
                         out.printf('}')
                         out.printf('return __box_wasm3_toerr(%(res)s);')
-                    out.printf('}')
-                else:
-                    out.printf('assert(!%(res)s);')
+                    else:
+                        out.printf('__box_abort('
+                            '-__box_wasm3_toerr(%(res)s));')
+                out.printf('}')
                 for ret in import_.rets:
                     if ret.isptr():
                         out.printf('return __box_%(box)s_toptr('
@@ -500,7 +479,7 @@ class Wasm3Runtime(
             out.printf('res = m3_ParseModule(\n'
                 '        __box_wasm3_environment,\n'
                 '        &__box_%(box)s_module,\n'
-                '        (uint8_t*)(&__box_%(box)s_image + 1),\n'
+                '        (const uint8_t*)(&__box_%(box)s_image + 1),\n'
                 '        __box_%(box)s_image);')
             out.printf('if (res) return __box_wasm3_toerr(res);')
             out.printf()
@@ -538,7 +517,10 @@ class Wasm3Runtime(
         out = output.decls.append()
         out.printf('int __box_%(box)s_clobber(void) {')
         with out.indent():
-            out.printf('m3_FreeRuntime(__box_%(box)s_runtime);')
+            out.printf('if (__box_%(box)s_initialized) {')
+            with out.indent():
+                out.printf('m3_FreeRuntime(__box_%(box)s_runtime);')
+            out.printf('}')
             out.printf('__box_%(box)s_initialized = false;')
             out.printf('return 0;')
         out.printf('}')

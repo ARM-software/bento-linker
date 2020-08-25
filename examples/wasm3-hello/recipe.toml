@@ -64,8 +64,8 @@ import.box3_hello = 'fn() -> err'
 
 [box.box1]
 runtime.runtime = 'wasm3'
-runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
+stack = 0x4000
 memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'
@@ -83,8 +83,8 @@ export.box1_hello = 'fn() -> err'
 
 [box.box2]
 runtime.runtime = 'wasm3'
-runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
+stack = 0x4000
 memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'
@@ -102,8 +102,8 @@ export.box2_hello = 'fn() -> err'
 
 [box.box3]
 runtime.runtime = 'wasm3'
-runtime.wasm3.data_stack = 0x4000
 runtime.wasm3.interp_stack = 0x400
+stack = 0x4000
 memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'

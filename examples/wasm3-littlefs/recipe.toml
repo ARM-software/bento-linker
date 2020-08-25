@@ -72,10 +72,10 @@ import.lfsbox_file_seek = 'fn(i32 fd, i32 off, u32 whence) -> err32'
 
 [box.lfsbox]
 runtime.runtime = 'wasm3'
-runtime.wasm3.data_stack = 0x8000
 runtime.wasm3.interp_stack = 0x1000
-memory.flash = 'rxp 0x20000'
+stack = 0x8000
 heap = 0x4000
+memory.flash = 'rxp 0x20000'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'

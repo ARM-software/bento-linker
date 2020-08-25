@@ -1039,11 +1039,6 @@ class aWsmRuntime(
             "compiler, please provide either --output.mk.wasi_sdk or "
             "--output.mk.wasm_cc." % self.__argname__)
 
-        # decls for wasm
-        output.decls.append('override WASMLDFLAGS += '
-            '-Wl,-z,stack-size=%(stack_size)d',
-            stack_size=box.stack.size)
-
         # target rule
         output.decls.insert(0, '%(name)-16s ?= %(target)s',
             name='TARGET', target=output.get('target', '%(box)s.elf'))
@@ -1071,33 +1066,16 @@ class aWsmRuntime(
             out.printf('$(AWSM) $(AWSMFLAGS) $< -o $@')
 
         out = output.rules.append()
-        out.printf('$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES) '
-            # also depend on generated makefile because of the
-            # stack-size argument
-            '$(lastword $(MAKEFILE_LIST))')
+        out.printf('$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES)')
         with out.indent():
             out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
 
-        # we need to store the length somewhere, this is hacky but works
-        out = output.rules.append()
-        out.printf('%%.wasm.prefixed: %%.wasm.strip')
-        with out.indent():
-            out.printf('$(strip python3 -c \'import sys, struct; \\\n'
-                '    d=open(sys.argv[1], "rb").read(); \\\n'
-                '    sys.stdout.buffer.write(struct.pack("<I", len(d))); \\\n'
-                '    sys.stdout.buffer.write(d);\' $< > $@)')
-
-        out = output.rules.append()
-        out.printf('%%.elf: %%.wasm.prefixed')
-        with out.indent():
-            out.writef('$(strip $(OBJCOPY) $< $@')
-            with out.indent():
-                out.writef(' \\\n-I binary')
-                out.writef(' \\\n-O elf32-littlearm')
-                out.writef(' \\\n-B arm')
-                out.writef(' \\\n--rename-section .data=.text,'
-                    'contents,alloc,load,readonly,data')
-                out.printf(')')
-
         super().build_mk(output, box)
+
+        # decls for wasm
+        out = output.decls.append()
+        out.printf('### wasm stack configuration ###')
+        out.printf('override WASMLDFLAGS += '
+            '-Wl,-z,stack-size=%(stack_size)d',
+            stack_size=box.stack.size)
 

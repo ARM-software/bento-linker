@@ -49,10 +49,10 @@ import.mandlebrot = 'fn(usize width, usize height, u32 iterations) -> err'
 
 [box.mandlebrot]
 runtime.runtime = 'wasm3'
-runtime.wasm3.data_stack = 0x8000
 runtime.wasm3.interp_stack = 0x1000
-memory.flash = 'rxp 0x8000'
+stack = 0x8000
 heap = 0x4000
+memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'

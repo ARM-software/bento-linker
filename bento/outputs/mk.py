@@ -29,6 +29,10 @@ LLVM_TRIPLES = co.defaultdict(
     lambda: 'thumbv7em-v7m-none-gnueabi'
 )
 
+WAMRC_TRIPLES = co.defaultdict(
+    lambda: 'thumb'
+)
+
 RUST_TRIPLES = co.defaultdict(
     lambda: 'thumbv7em-none-eabi',
     **{
@@ -190,6 +194,11 @@ class MkOutput(outputs.Output):
         parser.add_argument('--llvm_c_flags', type=list,
             help='Add custom LLVM C flags.')
 
+        parser.add_argument('--wamrc',
+            help='Provide the Wamr ahead-of-time compiler.')
+        parser.add_argument('--wamrc_flags', type=list,
+            help='Add custom Wamr compiler flags.')
+
     def __init__(self, path=None, target=None,
             debug=None, lto=None, asserts=None, define=None,
             cc=None, objcopy=None, objdump=None, ar=None,
@@ -208,7 +217,8 @@ class MkOutput(outputs.Output):
             awsm=None, llvm_cc=None, llvm_sysroot=None,
             llvm_link=None, llvm_opt=None, llvm_dis=None,
             llvm_srcs=None, llvm_incs=None,
-            awsm_flags=None, llvm_c_flags=None):
+            awsm_flags=None, llvm_c_flags=None,
+            wamrc=None, wamrc_flags=None):
         super().__init__(path)
 
         self._target = target
@@ -308,20 +318,32 @@ class MkOutput(outputs.Output):
         self._awsm_flags = awsm_flags if awsm_flags is not None else []
         self._llvm_c_flags = llvm_c_flags if llvm_c_flags is not None else []
 
+        self._wamrc = wamrc
+        self._wamrc_flags = wamrc_flags if wamrc_flags is not None else []
+
         # used to decide what gets emitting into Makefile
         self.no_rust = self._cargo is None
         self.no_wasm = self._wasm_cc is None
         self.no_awsm = self._awsm is None
         self.no_llvm = self._llvm_cc is None
+        self.no_wamrc = self._wamrc is None
 
         self.decls = outputs.OutputField(self)
+        self.userdecls = outputs.OutputField(self)
         self.rules = outputs.OutputField(self)
 
     def box(self, box):
         super().box(box)
         self.pushattrs(
             target=self._target,
-            TARGET='$(TARGET)' if self.no_wasm else '$(TARGET:.wasm=.elf)',
+            TARGET='$(TARGET)'
+                if self.no_wasm else
+                '$(TARGET:.wasm=.elf)'
+                # TODO handle all of this differently,
+                # take attribute from box?
+                if self.no_wamrc or not (
+                    box.runtime == 'wamr' and box.runtime._aot) else
+                '$(TARGET:.aot=.elf)',
             debug=self._debug,
             lto=self._lto,
             asserts=self._asserts,
@@ -354,7 +376,9 @@ class MkOutput(outputs.Output):
             llvm_link=self._llvm_link,
             llvm_opt=self._llvm_opt,
             llvm_dis=self._llvm_dis,
-            llvm_triple=LLVM_TRIPLES[self._cpu])
+            llvm_triple=LLVM_TRIPLES[self._cpu],
+            wamrc=self._wamrc,
+            wamrc_triple=WAMRC_TRIPLES[self._cpu])
 
     def build_prologue(self, box):
         out = self.decls.append()
@@ -390,6 +414,8 @@ class MkOutput(outputs.Output):
             out.printf('LLVMLINK         = %(llvm_link)s')
             out.printf('LLVMOPT          = %(llvm_opt)s')
             out.printf('LLVMDIS          = %(llvm_dis)s')
+        if not self.no_wamrc:
+            out.printf('WAMRC            = %(wamrc)s')
 
     def build(self, box):
         out = self.decls.append()
@@ -577,6 +603,10 @@ class MkOutput(outputs.Output):
             out.printf('override LLVMCFLAGS += -fshort-enums')
             out.printf('override LLVMCFLAGS += $(patsubst %%,-I%%,$(LLVMINC))')
 
+        if not self.no_wamrc:
+            out = self.decls.append()
+            out.printf('override WAMRCFLAGS += --target=%(wamrc_triple)s')
+
         out = self.decls.append()
         out.printf('override ASMFLAGS += $(CFLAGS)')
 
@@ -677,13 +707,12 @@ class MkOutput(outputs.Output):
         out = self.rules.append(phony=True)
         out.printf('tags:')
         with out.indent():
-            out.writef('$(strip ctags')
+            out.writef('$(strip ctags --totals')
             with out.indent():
-                out.writef(' \\\n$(shell find -L $(INC) -name \'*.h\')')
+                out.writef(' \\\n$(shell find -H $(INC) -name \'*.h\')')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.c,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.s,$(SRC)))')
                 out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.S,$(SRC)))')
-                out.writef(' \\\n$(wildcard $(patsubst %%,%%/*.h,$(INC)))')
                 out.writef(')')
 
         for child in box.boxes:
@@ -763,10 +792,21 @@ class MkOutput(outputs.Output):
                 out.printf('$(WASMWASM2WAT) $< -o $@')
 
             out = self.rules.append()
-            out.printf('%%.wasm.strip: %%.wasm')
+            out.printf('%%.wasm.stripped: %%.wasm')
             with out.indent():
                 out.printf('cp $< $@')
                 out.printf('$(WASMSTRIP) $@')
+
+            # the family of wasm formats expects to know the file size, which
+            # when storing images in flash means we need to get a bit hacky
+            out = self.rules.append()
+            out.printf('%%.prefixed: %%')
+            with out.indent():
+                out.printf('$(strip python3 -c \'import sys, struct; \\\n'
+                    '    d=open(sys.argv[1], "rb").read(); \\\n'
+                    '    sys.stdout.buffer.write('
+                            'struct.pack("<I", len(d))); \\\n'
+                    '    sys.stdout.buffer.write(d);\' $< > $@)')
 
         if not self.no_llvm:
             out = self.rules.append()
@@ -798,63 +838,64 @@ class MkOutput(outputs.Output):
                     '$(TARGET:.elf=.awsm.o)')
             if not self.no_llvm:
                 out.printf('rm -f $(LLVMOBJ)')
+            if not self.no_wamrc:
+                out.printf('rm -f $(TARGET:.aot=.elf) '
+                    '$(TARGET:.aot=.wasm)')
             for child in box.boxes:
                 path = os.path.relpath(child.path, box.path)
                 out.printf('$(MAKE) -C %(path)s clean', path=path)
 
     def build_epilogue(self, box):
         # we put these at the end so they have precedence
-        if any([self._defines,
-                self._c_flags,
-                self._asm_flags,
-                self._ld_flags,
-                self._awsm_flags,
-                self._wasm_c_flags,
-                self._wasm_ld_flags,
-                self._llvm_c_flags]):
-            self.decls.append('### user provided flags ###')
-
         if self._defines:
-            out = self.decls.append()
+            out = self.userdecls.append()
             for k, v in self._defines.items():
                 out.printf('override CFLAGS += -D%s=%r' % (k, v))
                 if not self.no_wasm:
                     out.printf('override WASMCFLAGS += -D%s=%r' % (k, v))
 
         if self._c_flags:
-            out = self.decls.append()
-            for cflag in self._c_flags:
-                out.printf('override CFLAGS += %s' % cflag)
+            out = self.userdecls.append()
+            for flag in self._c_flags:
+                out.printf('override CFLAGS += %s' % flag)
 
         if self._asm_flags:
-            out = self.decls.append()
-            for asmflag in self._asm_flags:
-                out.printf('override ASMFLAGS += %s' % asmflag)
+            out = self.userdecls.append()
+            for flag in self._asm_flags:
+                out.printf('override ASMFLAGS += %s' % flag)
 
         if self._ld_flags:
-            out = self.decls.append()
-            for lflag in self._ld_flags:
-                out.printf('override LDFLAGS += %s' % lflag)
+            out = self.userdecls.append()
+            for flag in self._ld_flags:
+                out.printf('override LDFLAGS += %s' % flag)
 
         if self._awsm_flags:
-            out = self.decls.append()
-            for lflag in self._awsm_flags:
-                out.printf('override AWSMFLAGS += %s' % lflag)
+            out = self.userdecls.append()
+            for flag in self._awsm_flags:
+                out.printf('override AWSMFLAGS += %s' % flag)
 
         if self._wasm_c_flags:
-            out = self.decls.append()
-            for cflag in self._wasm_c_flags:
-                out.printf('override WASMCFLAGS += %s' % cflag)
+            out = self.userdecls.append()
+            for flag in self._wasm_c_flags:
+                out.printf('override WASMCFLAGS += %s' % flag)
 
         if self._wasm_ld_flags:
-            out = self.decls.append()
-            for lflag in self._wasm_ld_flags:
-                out.printf('override WASMLDFLAGS += %s' % lflag)
+            out = self.userdecls.append()
+            for flag in self._wasm_ld_flags:
+                out.printf('override WASMLDFLAGS += %s' % flag)
 
         if self._llvm_c_flags:
-            out = self.decls.append()
-            for cflag in self._llvm_c_flags:
-                out.printf('override LLVMCFLAGS += %s' % cflag)
+            out = self.userdecls.append()
+            for flag in self._llvm_c_flags:
+                out.printf('override LLVMCFLAGS += %s' % flag)
+
+        if self._wamrc_flags:
+            out = self.userdecls.append()
+            for flag in self._wamrc_flags:
+                out.printf('override WAMRCFLAGS += %s' % flag)
+
+        if self.userdecls:
+            self.userdecls.insert(0, '### user provided flags ###')
 
     def getvalue(self):
         self.seek(0)
@@ -863,6 +904,14 @@ class MkOutput(outputs.Output):
 
         if self.decls:
             for decl in self.decls:
+                if 'doc' in decl:
+                    for line in textwrap.wrap(decl['doc'], width=78-2):
+                        self.print('# %s' % line)
+                self.print(decl.getvalue().strip())
+                self.print()
+
+        if self.userdecls:
+            for decl in self.userdecls:
                 if 'doc' in decl:
                     for line in textwrap.wrap(decl['doc'], width=78-2):
                         self.print('# %s' % line)

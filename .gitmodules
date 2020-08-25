@@ -19,3 +19,6 @@
 [submodule "extra/littlefs"]
 	path = extra/littlefs
 	url = git@github.com:armmbed/littlefs
+[submodule "extra/wasm-micro-runtime"]
+	path = extra/wasm-micro-runtime
+	url = https://github.com/bytecodealliance/wasm-micro-runtime

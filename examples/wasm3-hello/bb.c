@@ -1040,8 +1040,11 @@ int box1_hello(void) {
     res = m3_FindFunction(&f,
             __box_box1_runtime,
             "box1_hello");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box1_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1071,8 +1074,11 @@ int32_t box1_ping(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box1_runtime,
             "box1_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box1_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1103,8 +1109,11 @@ int32_t box1_ping_abort(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box1_runtime,
             "box1_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box1_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1135,8 +1144,11 @@ int32_t box1_ping_import(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box1_runtime,
             "box1_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box1_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1188,7 +1200,7 @@ int __box_box1_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_box1_module,
-            (uint8_t*)(&__box_box1_image + 1),
+            (const uint8_t*)(&__box_box1_image + 1),
             __box_box1_image);
     if (res) return __box_wasm3_toerr(res);
 
@@ -1339,8 +1351,11 @@ int box2_hello(void) {
     res = m3_FindFunction(&f,
             __box_box2_runtime,
             "box2_hello");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box2_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1370,8 +1385,11 @@ int32_t box2_ping(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box2_runtime,
             "box2_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box2_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1402,8 +1420,11 @@ int32_t box2_ping_abort(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box2_runtime,
             "box2_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box2_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1434,8 +1455,11 @@ int32_t box2_ping_import(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box2_runtime,
             "box2_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box2_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1487,7 +1511,7 @@ int __box_box2_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_box2_module,
-            (uint8_t*)(&__box_box2_image + 1),
+            (const uint8_t*)(&__box_box2_image + 1),
             __box_box2_image);
     if (res) return __box_wasm3_toerr(res);
 
@@ -1638,8 +1662,11 @@ int box3_hello(void) {
     res = m3_FindFunction(&f,
             __box_box3_runtime,
             "box3_hello");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box3_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1669,8 +1696,11 @@ int32_t box3_ping(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box3_runtime,
             "box3_ping");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box3_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1701,8 +1731,11 @@ int32_t box3_ping_abort(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box3_runtime,
             "box3_ping_abort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box3_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1733,8 +1766,11 @@ int32_t box3_ping_import(int32_t a0) {
     res = m3_FindFunction(&f,
             __box_box3_runtime,
             "box3_ping_import");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_box3_runtime->stack;
     *(int32_t*)&stack[0] = a0;
     m3StackCheckInit();
@@ -1786,7 +1822,7 @@ int __box_box3_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_box3_module,
-            (uint8_t*)(&__box_box3_image + 1),
+            (const uint8_t*)(&__box_box3_image + 1),
             __box_box3_image);
     if (res) return __box_wasm3_toerr(res);
 

@@ -1165,7 +1165,7 @@ class Box:
             # apply all
             allargs = parser.parse_dict(args.all)
             allargs = argstuff.nsmerge(parentallargs, allargs)
-            args = argstuff.nsmerge(allargs, args)
+            args = argstuff.nsmerge(args, allargs)
 
             # create the box!
             # note that name may be in recipe.toml (root only)

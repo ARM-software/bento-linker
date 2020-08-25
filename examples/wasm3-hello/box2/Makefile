@@ -136,13 +136,7 @@ override WASMLDFLAGS += -Wl,--wrap,fflush
 $(TARGET): $(WASMOBJ) $(WASMBOXES) $(lastword $(MAKEFILE_LIST))
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
-%.wasm.prefixed: %.wasm.strip
-	$(strip python3 -c 'import sys, struct; \
-	    d=open(sys.argv[1], "rb").read(); \
-	    sys.stdout.buffer.write(struct.pack("<I", len(d))); \
-	    sys.stdout.buffer.write(d);' $< > $@)
-
-%.elf: %.wasm.prefixed
+%.elf: %.wasm.stripped.prefixed
 	$(strip $(OBJCOPY) $< $@ \
 	    -I binary \
 	    -O elf32-littlearm \
@@ -206,12 +200,11 @@ cat:
 
 .PHONY: tags
 tags:
-	$(strip ctags \
-	    $(shell find -L $(INC) -name '*.h') \
+	$(strip ctags --totals \
+	    $(shell find -H $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.h,$(INC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
 
 # header dependencies
 -include $(DEP)
@@ -243,9 +236,15 @@ tags:
 %.wat: %.wo
 	$(WASMWASM2WAT) $< -o $@
 
-%.wasm.strip: %.wasm
+%.wasm.stripped: %.wasm
 	cp $< $@
 	$(WASMSTRIP) $@
+
+%.prefixed: %
+	$(strip python3 -c 'import sys, struct; \
+	    d=open(sys.argv[1], "rb").read(); \
+	    sys.stdout.buffer.write(struct.pack("<I", len(d))); \
+	    sys.stdout.buffer.write(d);' $< > $@)
 
 .PHONY: clean
 clean:
