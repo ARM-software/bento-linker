@@ -23,14 +23,6 @@ int32_t box2_ping_abort(int32_t a0);
 
 int32_t box2_ping_import(int32_t a0);
 
-int box3_hello(void);
-
-int32_t box3_ping(int32_t a0);
-
-int32_t box3_ping_abort(int32_t a0);
-
-int32_t box3_ping_import(int32_t a0);
-
 //// box exports ////
 
 extern void POWER_CLOCK_IRQHandler(void);
@@ -70,20 +62,6 @@ void *__box_box2_push(size_t size);
 
 // Deallocate size bytes on the box's data stack.
 void __box_box2_pop(size_t size);
-
-// Initialize box box3. Resets the box to its initial state if already
-// initialized.
-int __box_box3_init(void);
-
-// Mark the box box3 as needing to be reinitialized.
-int __box_box3_clobber(void);
-
-// Allocate size bytes on the box's data stack. May return NULL if a stack
-// overflow would occur.
-void *__box_box3_push(size_t size);
-
-// Deallocate size bytes on the box's data stack.
-void __box_box3_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be

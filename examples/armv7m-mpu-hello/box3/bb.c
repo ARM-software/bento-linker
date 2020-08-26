@@ -10,16 +10,6 @@
 
 int32_t sys_ping(int32_t a0);
 
-//// box exports ////
-
-extern int box3_hello(void);
-
-extern int32_t box3_ping(int32_t a0);
-
-extern int32_t box3_ping_abort(int32_t a0);
-
-extern int32_t box3_ping_import(int32_t a0);
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not
@@ -478,9 +468,5 @@ __attribute__((used, section(".jumptable")))
 const uint32_t __box_jumptable[] = {
     (uint32_t)&__stack_end,
     (uint32_t)__box_init,
-    (uint32_t)box3_hello,
-    (uint32_t)box3_ping,
-    (uint32_t)box3_ping_abort,
-    (uint32_t)box3_ping_import,
 };
 

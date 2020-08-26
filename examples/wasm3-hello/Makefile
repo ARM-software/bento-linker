@@ -38,7 +38,6 @@ DEP := $(patsubst %.o,%.d,$(OBJ))
 LDSCRIPT := $(firstword $(wildcard $(patsubst %,%/*.ld,$(SRC))))
 BOXES += box1/box1.box
 BOXES += box2/box2.box
-BOXES += box3/box3.box
 
 override CFLAGS += -g
 ifneq ($(DEBUG),0)
@@ -110,7 +109,7 @@ $(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region
-%.box: %.elf %.box.flash %.box.box.box1.flash %.box.box.box2.flash %.box.box.box3.flash
+%.box: %.elf %.box.flash %.box.box.box1.flash %.box.box.box2.flash
 	$(strip $(OBJCOPY) $< $@ \
 	    -I binary \
 	    -O elf32-littlearm \
@@ -125,10 +124,7 @@ $(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	    --set-section-flags .box.sys.box.box1.flash=contents,alloc,load,readonly,data \
 	    --add-section .box.sys.box.box2.flash=$(word 4,$^) \
 	    --change-section-address .box.sys.box.box2.flash=0x000f0000 \
-	    --set-section-flags .box.sys.box.box2.flash=contents,alloc,load,readonly,data \
-	    --add-section .box.sys.box.box3.flash=$(word 5,$^) \
-	    --change-section-address .box.sys.box.box3.flash=0x000e8000 \
-	    --set-section-flags .box.sys.box.box3.flash=contents,alloc,load,readonly,data)
+	    --set-section-flags .box.sys.box.box2.flash=contents,alloc,load,readonly,data)
 
 %.box.flash: %.elf
 	$(strip $(OBJCOPY) $< $@ \
@@ -147,11 +143,6 @@ $(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
 	    --only-section .box.box2.flash \
 	    -O binary)
 
-%.box.box.box3.flash: %.elf
-	$(strip $(OBJCOPY) $< $@ \
-	    --only-section .box.box3.flash \
-	    -O binary)
-
 ### rules ###
 
 # default rule
@@ -164,16 +155,15 @@ all build: $(TARGET)
 size: $(TARGET) $(BOXES)
 	$(strip ( $(SIZE) $^ ; \
 	    $(MAKE) -s --no-print-directory -C box1 size ; \
-	    $(MAKE) -s --no-print-directory -C box2 size ; \
-	    $(MAKE) -s --no-print-directory -C box3 size ) | awk '\
+	    $(MAKE) -s --no-print-directory -C box2 size ) | awk '\
 	        function f(t, d, b, n) { \
 	            printf "%7d %7d %7d %7d %7x %s\n", \
 	            t, d, b, t+d+b, t+d+b, n} \
 	        NR==1 {print} \
 	        NR==2 {t=$$1; d=$$2; b=$$3; n=$$6} \
-	        NR>=3 && NR<6 {bt+=$$1} \
-	        NR>=6 && /^([ \t]+[0-9]+){3,}/ && !/TOTALS/ { \
-	            l[NR-6]=$$0; bd+=$$2; bb+=$$3} \
+	        NR>=3 && NR<5 {bt+=$$1} \
+	        NR>=5 && /^([ \t]+[0-9]+){3,}/ && !/TOTALS/ { \
+	            l[NR-5]=$$0; bd+=$$2; bb+=$$3} \
 	        END {f(t-bt, d, b, n)} \
 	        END {for (i in l) print l[i]} \
 	        END {f(t, d, b+bd+bb, "(TOTALS)")}')
@@ -224,12 +214,6 @@ box2/box2.box:
 	$(MAKE) --no-print-directory -C box2 box2.box
 	@echo "================================================"
 
-.PHONY: $(shell make -s -C box3 box3.box -q || echo box3/box3.box)
-box3/box3.box:
-	@echo "================= make -C box3 ================="
-	$(MAKE) --no-print-directory -C box3 box3.box
-	@echo "================================================"
-
 # header dependencies
 -include $(DEP)
 
@@ -255,5 +239,4 @@ clean:
 	rm -f $(DEP)
 	$(MAKE) -C box1 clean
 	$(MAKE) -C box2 clean
-	$(MAKE) -C box3 clean
 

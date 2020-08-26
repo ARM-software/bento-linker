@@ -7,8 +7,7 @@ __stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00008000;
 __heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00032000;
 
 MEMORY {
-    FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000e8000
-    BOX_BOX3_FLASH   (RX ) : ORIGIN = 0x000e8000, LENGTH = 0x00008000
+    FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000f0000
     BOX_BOX2_FLASH   (RX ) : ORIGIN = 0x000f0000, LENGTH = 0x00008000
     BOX_BOX1_FLASH   (RX ) : ORIGIN = 0x000f8000, LENGTH = 0x00008000
     RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00040000
@@ -82,17 +81,6 @@ SECTIONS {
 
     . = ALIGN(4);
     __data_init_start = .;
-
-    /* BOX_BOX3_FLASH sections */
-    . = ORIGIN(BOX_BOX3_FLASH);
-    __box_box3_flash_start = .;
-    .box.box3.flash . : {
-        KEEP(*(.box.box3.flash*))
-    } > BOX_BOX3_FLASH
-    . = ORIGIN(BOX_BOX3_FLASH) + LENGTH(BOX_BOX3_FLASH);
-    __box_box3_flash_end = .;
-
-    __box_box3_image = __box_box3_flash_start;
 
     /* BOX_BOX2_FLASH sections */
     . = ORIGIN(BOX_BOX2_FLASH);

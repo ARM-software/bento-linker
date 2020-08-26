@@ -23,14 +23,6 @@ int32_t box2_ping_abort(int32_t a0);
 
 int32_t box2_ping_import(int32_t a0);
 
-int box3_hello(void);
-
-int32_t box3_ping(int32_t a0);
-
-int32_t box3_ping_abort(int32_t a0);
-
-int32_t box3_ping_import(int32_t a0);
-
 //// box exports ////
 
 extern void POWER_CLOCK_IRQHandler(void);

@@ -57,11 +57,6 @@ import.box2_ping_import = 'fn(i32) -> err32'
 import.box2_ping_abort = 'fn(i32) -> err32'
 import.box2_hello = 'fn() -> err'
 
-import.box3_ping = 'fn(i32) -> err32'
-import.box3_ping_import = 'fn(i32) -> err32'
-import.box3_ping_abort = 'fn(i32) -> err32'
-import.box3_hello = 'fn() -> err'
-
 [box.box1]
 runtime.runtime = 'wasm3'
 runtime.wasm3.interp_stack = 0x400
@@ -99,23 +94,3 @@ export.box2_ping = 'fn(i32) -> err32'
 export.box2_ping_import = 'fn(i32) -> err32'
 export.box2_ping_abort = 'fn(i32) -> err32'
 export.box2_hello = 'fn() -> err'
-
-[box.box3]
-runtime.runtime = 'wasm3'
-runtime.wasm3.interp_stack = 0x400
-stack = 0x4000
-memory.flash = 'rxp 0x8000'
-
-output.wasm_h = 'bb.h'
-output.wasm_c = 'bb.c'
-output.mk.path = 'Makefile'
-output.mk.wasi_sdk = '../wasi-sdk'
-output.mk.wabt = '../wabt'
-
-import.sys_ping  = 'fn(i32) -> err32'
-
-export.box3_ping = 'fn(i32) -> err32'
-export.box3_ping_import = 'fn(i32) -> err32'
-export.box3_ping_abort = 'fn(i32) -> err32'
-export.box3_hello = 'fn() -> err'
-

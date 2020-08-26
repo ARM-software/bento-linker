@@ -45,11 +45,6 @@ import.box2_ping_import = 'fn(i32) -> err32'
 import.box2_ping_abort = 'fn(i32) -> err32'
 import.box2_hello = 'fn() -> err'
 
-import.box3_ping = 'fn(i32) -> err32'
-import.box3_ping_import = 'fn(i32) -> err32'
-import.box3_ping_abort = 'fn(i32) -> err32'
-import.box3_hello = 'fn() -> err'
-
 [box.box1]
 runtime.runtime = 'awsm'
 runtime.awsm.memory.size = 0x10000
@@ -105,32 +100,3 @@ export.box2_ping = 'fn(i32) -> err32'
 export.box2_ping_import = 'fn(i32) -> err32'
 export.box2_ping_abort = 'fn(i32) -> err32'
 export.box2_hello = 'fn() -> err'
-
-[box.box3]
-runtime.runtime = 'awsm'
-runtime.awsm.memory.size = 0x10000
-runtime.awsm.table.size = 0x200
-stack = 0x4000
-memory.flash = 'rxp 0x2000'
-memory.ram = 'rw 0x12000'
-
-output.wasm_h = 'bb.h'
-output.wasm_c = 'bb.c'
-output.h = 'runtime/bb.h'
-output.c = 'runtime/bb.c'
-output.ld = 'runtime/bb.ld'
-output.mk.path = 'Makefile'
-output.mk.awsm = '../awsm/target/debug/awsm'
-output.mk.llvm_cc = 'clang'
-output.mk.llvm_srcs = ['runtime']
-output.mk.srcs = ['runtime'] # for linkerscript
-output.mk.wasi_sdk = '../wasi-sdk'
-output.mk.wabt = '../wabt'
-
-import.sys_ping  = 'fn(i32) -> err32'
-
-export.box3_ping = 'fn(i32) -> err32'
-export.box3_ping_import = 'fn(i32) -> err32'
-export.box3_ping_abort = 'fn(i32) -> err32'
-export.box3_hello = 'fn() -> err'
-

@@ -464,109 +464,73 @@ uint32_t from_ptr(const void *ptr) {
 
 __attribute__((always_inline))
 int8_t get_i8(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int8_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(int8_t*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 int16_t get_i16(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int16_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(int16_t*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 int32_t get_i32(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int32_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(int32_t*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 int64_t get_i64(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int64_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(int64_t*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 float get_f32(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(float), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(float*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 double get_f64(uint32_t off) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(double), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     return *(double*)to_ptr(off);
 }
 
 __attribute__((always_inline))
 void set_i8(uint32_t off, int8_t v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int8_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(int8_t*)to_ptr(off) = v;
 }
 
 __attribute__((always_inline))
 void set_i16(uint32_t off, int16_t v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int16_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(int16_t*)to_ptr(off) = v;
 }
 
 __attribute__((always_inline))
 void set_i32(uint32_t off, int32_t v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int32_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(int32_t*)to_ptr(off) = v;
 }
 
 __attribute__((always_inline))
 void set_i64(uint32_t off, int64_t v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(int64_t), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(int64_t*)to_ptr(off) = v;
 }
 
 __attribute__((always_inline))
 void set_f32(uint32_t off, float v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(float), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(float*)to_ptr(off) = v;
 }
 
 __attribute__((always_inline))
 void set_f64(uint32_t off, double v) {
-    if (__builtin_expect(off > MEMORY_SIZE - sizeof(double), false)) {
-        __box_abort(-EFAULT);
-    }
-
+    off = off % MEMORY_SIZE;
     *(double*)to_ptr(off) = v;
 }
 
@@ -646,8 +610,12 @@ __attribute__((weak)) void populate_globals(void) {}
 __attribute__((weak)) void populate_memory(void) {}
 __attribute__((weak)) void wasmf___wasm_call_ctors(void) {}
 
-// data stack manipulation
-uint8_t *__box_datasp = &__memory_start;
+// data stack manipulation, note we start at 4 since
+// 0 is considered a NULL address
+#define __stack_start *(&__memory_start + 4)
+#define __stack_end *(&__memory_start + 16384)
+
+uint8_t *__box_datasp = &__stack_start;
 
 void *__box_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
@@ -658,13 +626,10 @@ void *__box_push(size_t size) {
     }
 
     __box_datasp = psp + size;
-    return psp + size;
+    return psp;
 }
 
 void __box_pop(size_t size) {
-    if (__builtin_expect(__box_datasp - size < &__memory_start, false)) {
-        __box_abort(-EFAULT);
-    }
     __box_datasp -= size;
 }
 

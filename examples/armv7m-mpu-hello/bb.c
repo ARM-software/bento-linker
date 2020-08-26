@@ -25,14 +25,6 @@ int32_t box2_ping_abort(int32_t a0);
 
 int32_t box2_ping_import(int32_t a0);
 
-int box3_hello(void);
-
-int32_t box3_ping(int32_t a0);
-
-int32_t box3_ping_abort(int32_t a0);
-
-int32_t box3_ping_import(int32_t a0);
-
 //// box exports ////
 
 extern void POWER_CLOCK_IRQHandler(void);
@@ -1247,54 +1239,6 @@ const struct __box_mpuregions __box_box3_mpuregions = {
 };
 
 //// box3 exports ////
-
-int box3_hello(void) {
-    if (!__box_box3_state.initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    extern int __box_import_box3_hello(void);
-    return __box_import_box3_hello();
-}
-
-int32_t box3_ping(int32_t a0) {
-    if (!__box_box3_state.initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    extern int32_t __box_import_box3_ping(int32_t a0);
-    return __box_import_box3_ping(a0);
-}
-
-int32_t box3_ping_abort(int32_t a0) {
-    if (!__box_box3_state.initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    extern int32_t __box_import_box3_ping_abort(int32_t a0);
-    return __box_import_box3_ping_abort(a0);
-}
-
-int32_t box3_ping_import(int32_t a0) {
-    if (!__box_box3_state.initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    extern int32_t __box_import_box3_ping_import(int32_t a0);
-    return __box_import_box3_ping_import(a0);
-}
 
 //// box3 imports ////
 

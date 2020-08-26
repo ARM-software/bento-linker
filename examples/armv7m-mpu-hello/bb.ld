@@ -31,10 +31,6 @@ __box_import_box2_ping   = __box_callregion + 4*(2 + 3*2 + 1) + 2*1 + 1;
 __box_import_box2_ping_abort = __box_callregion + 4*(2 + 3*3 + 1) + 2*1 + 1;
 __box_import_box2_ping_import = __box_callregion + 4*(2 + 3*4 + 1) + 2*1 + 1;
 __box_box3_postinit      = __box_callregion + 4*(2 + 3*0 + 2) + 2*1 + 1;
-__box_import_box3_hello  = __box_callregion + 4*(2 + 3*1 + 2) + 2*1 + 1;
-__box_import_box3_ping   = __box_callregion + 4*(2 + 3*2 + 2) + 2*1 + 1;
-__box_import_box3_ping_abort = __box_callregion + 4*(2 + 3*3 + 2) + 2*1 + 1;
-__box_import_box3_ping_import = __box_callregion + 4*(2 + 3*4 + 2) + 2*1 + 1;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000fa000

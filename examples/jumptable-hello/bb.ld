@@ -7,12 +7,10 @@ __stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00000800;
 __heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00000800;
 
 MEMORY {
-    FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000fa000
-    BOX_BOX3_FLASH   (RX ) : ORIGIN = 0x000fa000, LENGTH = 0x00002000
+    FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000fc000
     BOX_BOX2_FLASH   (RX ) : ORIGIN = 0x000fc000, LENGTH = 0x00002000
     BOX_BOX1_FLASH   (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x0003a000
-    BOX_BOX3_RAM     (RW ) : ORIGIN = 0x2003a000, LENGTH = 0x00002000
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x0003c000
     BOX_BOX2_RAM     (RW ) : ORIGIN = 0x2003c000, LENGTH = 0x00002000
     BOX_BOX1_RAM     (RW ) : ORIGIN = 0x2003e000, LENGTH = 0x00002000
 }
@@ -86,17 +84,6 @@ SECTIONS {
     . = ALIGN(4);
     __data_init_start = .;
 
-    /* BOX_BOX3_FLASH sections */
-    . = ORIGIN(BOX_BOX3_FLASH);
-    __box_box3_flash_start = .;
-    .box.box3.flash . : {
-        KEEP(*(.box.box3.flash*))
-    } > BOX_BOX3_FLASH
-    . = ORIGIN(BOX_BOX3_FLASH) + LENGTH(BOX_BOX3_FLASH);
-    __box_box3_flash_end = .;
-
-    __box_box3_jumptable = __box_box3_flash_start;
-
     /* BOX_BOX2_FLASH sections */
     . = ORIGIN(BOX_BOX2_FLASH);
     __box_box2_flash_start = .;
@@ -167,15 +154,6 @@ SECTIONS {
 
     ASSERT(__heap_end - __heap_start > __heap_min,
         "Not enough memory in RAM for heap")
-
-    /* BOX_BOX3_RAM sections */
-    . = ORIGIN(BOX_BOX3_RAM);
-    __box_box3_ram_start = .;
-    .box.box3.ram . (NOLOAD): {
-        KEEP(*(.box.box3.ram*))
-    } > BOX_BOX3_RAM
-    . = ORIGIN(BOX_BOX3_RAM) + LENGTH(BOX_BOX3_RAM);
-    __box_box3_ram_end = .;
 
     /* BOX_BOX2_RAM sections */
     . = ORIGIN(BOX_BOX2_RAM);

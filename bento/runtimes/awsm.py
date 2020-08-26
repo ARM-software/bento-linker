@@ -408,7 +408,10 @@ __attribute__((weak)) void wasmf___wasm_call_ctors(void) {}
 
 // data stack manipulation, note we start at 4 since
 // 0 is considered a NULL address
-uint8_t *__box_datasp = &__memory_start + 4;
+#define __stack_start *(&__memory_start + 4)
+#define __stack_end *(&__memory_start + %(stack_size)d)
+
+uint8_t *__box_datasp = &__stack_start;
 
 void *__box_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
@@ -423,12 +426,10 @@ void *__box_push(size_t size) {
 }
 
 void __box_pop(size_t size) {
-    if (__builtin_expect(__box_datasp - size < &__memory_start, false)) {
-        __box_abort(-EFAULT);
-    }
     __box_datasp -= size;
 }
 """
+
 
 @runtimes.runtime
 class aWsmRuntime(
@@ -858,7 +859,8 @@ class aWsmRuntime(
         out.printf('//// awsm glue ////')
 
         output.decls.append(BOUNDS_CHECKS[self._bounds_check])
-        output.decls.append(COMMON)
+        output.decls.append(COMMON,
+            stack_size=box.stack.size)
 
         out = output.decls.append()
         out.printf('//// jumptable implementation ////')

@@ -26,14 +26,6 @@ int32_t box2_ping_abort(int32_t a0);
 
 int32_t box2_ping_import(int32_t a0);
 
-int box3_hello(void);
-
-int32_t box3_ping(int32_t a0);
-
-int32_t box3_ping_abort(int32_t a0);
-
-int32_t box3_ping_import(int32_t a0);
-
 //// box exports ////
 
 extern void POWER_CLOCK_IRQHandler(void);
@@ -73,20 +65,6 @@ void *__box_box2_push(size_t size);
 
 // Deallocate size bytes on the box's data stack.
 void __box_box2_pop(size_t size);
-
-// Initialize box box3. Resets the box to its initial state if already
-// initialized.
-int __box_box3_init(void);
-
-// Mark the box box3 as needing to be reinitialized.
-int __box_box3_clobber(void);
-
-// Allocate size bytes on the box's data stack. May return NULL if a stack
-// overflow would occur.
-void *__box_box3_push(size_t size);
-
-// Deallocate size bytes on the box's data stack.
-void __box_box3_pop(size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
@@ -1187,8 +1165,9 @@ int __box_box1_init(void) {
         __box_box1_exec_env,
         &__box_box1_err);
 
-    // setup data stack
-    __box_box1_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_box1_datasp = 4;
 
     __box_box1_initialized = true;
     return 0;
@@ -1516,8 +1495,9 @@ int __box_box2_init(void) {
         __box_box2_exec_env,
         &__box_box2_err);
 
-    // setup data stack
-    __box_box2_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_box2_datasp = 4;
 
     __box_box2_initialized = true;
     return 0;
@@ -1549,334 +1529,5 @@ void *__box_box2_push(size_t size) {
 void __box_box2_pop(size_t size) {
     assert(__box_box2_datasp - size >= 0);
     __box_box2_datasp -= size;
-}
-
-//// box3 loading ////
-
-static int __box_box3_load(void) {
-    // default loader does nothing
-    return 0;
-}
-
-//// box3 state ////
-bool __box_box3_initialized = false;
-uint32_t __box_box3_datasp;
-wasm_module_t __box_box3_module;
-wasm_module_inst_t __box_box3_module_inst;
-wasm_exec_env_t __box_box3_exec_env;
-int __box_box3_err;
-
-// default __box_abort implementation
-void __box_box3_import___box_box3_abort(
-        wasm_exec_env_t env, int err) {
-    wasm_module_inst_t module = wasm_runtime_get_module_inst(env);
-    int *perr = wasm_runtime_get_user_data(env);
-    *perr = err;
-    wasm_runtime_set_exception(module, "__box_abort");
-}
-
-// redirect __box_box3_write -> __box_write
-#define __box_box3_write __box_write
-
-// redirect __box_box3_flush -> __box_flush
-#define __box_box3_flush __box_flush
-
-//// box3 imports ////
-
-ssize_t __box_box3_import___box_box3_write(wasm_exec_env_t env, int32_t a0, const void *a1, size_t a2) {
-    return __box_box3_write(a0, a1, a2);
-}
-
-int __box_box3_import___box_box3_flush(wasm_exec_env_t env, int32_t a0) {
-    return __box_box3_flush(a0);
-}
-
-int32_t __box_box3_import_sys_ping(wasm_exec_env_t env, int32_t a0) {
-    return sys_ping(a0);
-}
-
-const NativeSymbol __box_box3_native_symbols[] = {
-    {
-        "__box_abort",
-        __box_box3_import___box_box3_abort,
-        "(i)",
-        &__box_box3_err,
-    },
-    {
-        "__box_write",
-        __box_box3_import___box_box3_write,
-        "(i*i)i",
-        NULL,
-    },
-    {
-        "__box_flush",
-        __box_box3_import___box_box3_flush,
-        "(i)i",
-        NULL,
-    },
-    {
-        "sys_ping",
-        __box_box3_import_sys_ping,
-        "(i)i",
-        NULL,
-    },
-};
-
-//// box3 exports ////
-
-int box3_hello(void) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    wasm_function_inst_t f;
-    f = wasm_runtime_lookup_function(
-        __box_box3_module_inst,
-        "box3_hello",
-        "()i");
-    if (!f) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_err = 0;
-
-    __attribute__((aligned(4)))
-    uint8_t frame[4*1];
-    bool res = wasm_runtime_call_wasm(
-        __box_box3_exec_env,
-        f,
-        0,
-        (uint32_t*)frame);
-    if (!res) {
-        if (__box_box3_err) {
-            wasm_runtime_set_exception(
-                __box_box3_module_inst,
-                NULL);
-            return __box_box3_err;
-        }
-        return -EFAULT;
-    }
-
-    return *(int*)&frame[4*0];
-}
-
-int32_t box3_ping(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    wasm_function_inst_t f;
-    f = wasm_runtime_lookup_function(
-        __box_box3_module_inst,
-        "box3_ping",
-        "(i)i");
-    if (!f) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_err = 0;
-
-    __attribute__((aligned(4)))
-    uint8_t frame[4*1];
-    *(int32_t*)&frame[4*0] = a0;
-    bool res = wasm_runtime_call_wasm(
-        __box_box3_exec_env,
-        f,
-        1,
-        (uint32_t*)frame);
-    if (!res) {
-        if (__box_box3_err) {
-            wasm_runtime_set_exception(
-                __box_box3_module_inst,
-                NULL);
-            return __box_box3_err;
-        }
-        return -EFAULT;
-    }
-
-    return *(int32_t*)&frame[4*0];
-}
-
-int32_t box3_ping_abort(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    wasm_function_inst_t f;
-    f = wasm_runtime_lookup_function(
-        __box_box3_module_inst,
-        "box3_ping_abort",
-        "(i)i");
-    if (!f) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_err = 0;
-
-    __attribute__((aligned(4)))
-    uint8_t frame[4*1];
-    *(int32_t*)&frame[4*0] = a0;
-    bool res = wasm_runtime_call_wasm(
-        __box_box3_exec_env,
-        f,
-        1,
-        (uint32_t*)frame);
-    if (!res) {
-        if (__box_box3_err) {
-            wasm_runtime_set_exception(
-                __box_box3_module_inst,
-                NULL);
-            return __box_box3_err;
-        }
-        return -EFAULT;
-    }
-
-    return *(int32_t*)&frame[4*0];
-}
-
-int32_t box3_ping_import(int32_t a0) {
-    if (!__box_box3_initialized) {
-        int err = __box_box3_init();
-        if (err) {
-            return err;
-        }
-    }
-
-    wasm_function_inst_t f;
-    f = wasm_runtime_lookup_function(
-        __box_box3_module_inst,
-        "box3_ping_import",
-        "(i)i");
-    if (!f) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_err = 0;
-
-    __attribute__((aligned(4)))
-    uint8_t frame[4*1];
-    *(int32_t*)&frame[4*0] = a0;
-    bool res = wasm_runtime_call_wasm(
-        __box_box3_exec_env,
-        f,
-        1,
-        (uint32_t*)frame);
-    if (!res) {
-        if (__box_box3_err) {
-            wasm_runtime_set_exception(
-                __box_box3_module_inst,
-                NULL);
-            return __box_box3_err;
-        }
-        return -EFAULT;
-    }
-
-    return *(int32_t*)&frame[4*0];
-}
-
-//// box3 init ////
-
-int __box_box3_init(void) {
-    int err;
-    if (__box_box3_initialized) {
-        return 0;
-    }
-
-    // load the box if unloaded
-    err = __box_box3_load();
-    if (err) {
-        return err;
-    }
-
-    // bring up common runtime
-    if (!__box_wamr_runtime_initialized) {
-        bool success = wasm_runtime_init();
-        if (!success) {
-            return -EGENERAL;
-        }
-        __box_wamr_runtime_initialized = true;
-    }
-
-    if (!__box_box3_module) {
-        bool success = wasm_runtime_register_natives(
-            "env",
-            (NativeSymbol*)__box_box3_native_symbols,
-            sizeof(__box_box3_native_symbols) / sizeof(NativeSymbol));
-        if (!success) {
-            return -EGENERAL;
-        }
-    }
-
-    extern uint32_t __box_box3_image;
-    __box_box3_module = wasm_runtime_load(
-        (const uint8_t*)(&__box_box3_image + 1),
-        __box_box3_image,
-        NULL, 0);
-    if (!__box_box3_module) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_module_inst = wasm_runtime_instantiate(
-        __box_box3_module,
-        1024,
-        0,
-        NULL, 0);
-    if (!__box_box3_module_inst) {
-        return -ENOEXEC;
-    }
-
-    __box_box3_exec_env = wasm_runtime_create_exec_env(
-        __box_box3_module_inst,
-        1024);
-    if (!__box_box3_exec_env) {
-        return -ENOEXEC;
-    }
-
-    wasm_runtime_set_user_data(
-        __box_box3_exec_env,
-        &__box_box3_err);
-
-    // setup data stack
-    __box_box3_datasp = 0;
-
-    __box_box3_initialized = true;
-    return 0;
-}
-
-int __box_box3_clobber(void) {
-    if (__box_box3_initialized) {
-        wasm_runtime_destroy_exec_env(__box_box3_exec_env);
-        wasm_runtime_deinstantiate(__box_box3_module_inst);
-        wasm_runtime_unload(__box_box3_module);
-    }
-    __box_box3_initialized = false;
-    return 0;
-}
-
-void *__box_box3_push(size_t size) {
-    // we maintain a separate stack in the wasm memory space,
-    // sharing the stack space of the wasm-side libc
-    uint32_t psp = __box_box3_datasp;
-    if (psp + size > 16384) {
-        return NULL;
-    }
-
-    __box_box3_datasp = psp + size;
-    return wasm_runtime_addr_app_to_native(
-            __box_box3_module_inst, psp);
-}
-
-void __box_box3_pop(size_t size) {
-    assert(__box_box3_datasp - size >= 0);
-    __box_box3_datasp -= size;
 }
 

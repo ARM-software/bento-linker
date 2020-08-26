@@ -66,7 +66,6 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     }
 }
 
-
 // timer hooks for nrfx
 nrfx_timer_t timer0 = {
     .p_reg = NRF_TIMER0,
@@ -93,7 +92,6 @@ void timer0_handler(nrf_timer_event_t event, void *p) {
 uint64_t timer_getns(void) {
     return timer_hi + nrfx_timer_capture(&timer0, NRF_TIMER_CC_CHANNEL1);
 }
-
 
 // used to debug box imports
 int32_t sys_ping(int32_t a) {
@@ -122,30 +120,26 @@ void main(void) {
     printf("hi from nrf52840!\n");
     uint64_t start = timer_getns();
 
-    int32_t x1, x2, x3;
+    int32_t x1, x2;
     printf("testing box ping\n");
     x1 = box1_ping(0);
     x2 = box2_ping(0);
-    x3 = box3_ping(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
+    printf("results: %d %d\n", x1, x2);
 
     printf("testing box import ping\n");
     x1 = box1_ping_import(0);
     x2 = box2_ping_import(0);
-    x3 = box3_ping_import(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
+    printf("results: %d %d\n", x1, x2);
 
     printf("testing box abort ping\n");
     x1 = box1_ping_abort(0);
     x2 = box2_ping_abort(0);
-    x3 = box3_ping_abort(0);
-    printf("results: %d %d %d\n", x1, x2, x3);
+    printf("results: %d %d\n", x1, x2);
 
     printf("testing box printf\n");
     x1 = box1_hello();
     x2 = box2_hello();
-    x3 = box3_hello();
-    printf("return values: %d %d %d\n", x1, x2, x3);
+    printf("return values: %d %d\n", x1, x2);
 
     uint64_t stop = timer_getns();
     printf("done\n");
