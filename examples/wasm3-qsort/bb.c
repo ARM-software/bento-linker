@@ -919,7 +919,7 @@ void *__box_qsort_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
     uint32_t psp = __box_qsort_datasp;
-    if (psp + size > 32768) {
+    if (psp + size > 49152) {
         return NULL;
     }
 
@@ -1070,8 +1070,9 @@ int __box_qsort_init(void) {
         return __box_wasm3_toerr(res);
     }
 
-    // setup data stack
-    __box_qsort_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_qsort_datasp = 4;
 
     __box_qsort_initialized = true;
     return 0;

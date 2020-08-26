@@ -902,7 +902,7 @@ const struct __box_mpuregions __box_qsort_mpuregions = {
     .count = 2,
     .regions = {
         {0x000fe000, 0x02000019},
-        {0x20038000, 0x1300001d},
+        {0x20030000, 0x1300001f},
     },
 };
 

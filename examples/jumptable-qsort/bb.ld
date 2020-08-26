@@ -9,8 +9,8 @@ __heap_min       = DEFINED(__heap_min) ? __heap_min : 0x00000800;
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000fe000
     BOX_QSORT_FLASH  (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x0003a000
-    BOX_QSORT_RAM    (RW ) : ORIGIN = 0x2003a000, LENGTH = 0x00006000
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00030000
+    BOX_QSORT_RAM    (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
 }
 
 SECTIONS {

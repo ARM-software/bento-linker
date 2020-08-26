@@ -8,11 +8,11 @@ __box_write              = __box_callregion + 4*2 + 2*1 + 1;
 __box_flush              = __box_callregion + 4*3 + 2*1 + 1;
 
 /* overridable constants */
-__stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00004000;
+__stack_min      = DEFINED(__stack_min) ? __stack_min : 0x0000c000;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
-    RAM              (RW ) : ORIGIN = 0x20038000, LENGTH = 0x00008000
+    RAM              (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
 }
 
 SECTIONS {

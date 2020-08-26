@@ -42,7 +42,7 @@ import.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 [box.qsort]
 runtime.runtime = 'wasm3'
 runtime.wasm3.interp_stack = 0x1000
-stack = 0x8000
+stack = 0xc000
 memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'

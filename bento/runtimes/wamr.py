@@ -548,8 +548,9 @@ class WamrRuntime(
                 '    &__box_%(box)s_err);')
             out.printf()
             # just a few other state things
-            out.printf('// setup data stack')
-            out.printf('__box_%(box)s_datasp = 0;')
+            out.printf('// setup data stack, note address 0 is NULL')
+            out.printf('// so we can\'t start there!')
+            out.printf('__box_%(box)s_datasp = 4;')
             out.printf()
             out.printf('__box_%(box)s_initialized = true;')
             out.printf('return 0;')

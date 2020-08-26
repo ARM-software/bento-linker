@@ -38,8 +38,8 @@ import.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 [box.qsort]
 runtime.runtime = 'jumptable'
 memory.flash = 'rxp 0x2000'
-memory.ram = 'rw 0x6000'
-stack = 0x4000 # used for array allocation
+memory.ram = 'rw 0x10000'
+stack = 0xc000 # used for array allocation
 
 output.h = 'bb.h'
 output.c = 'bb.c'

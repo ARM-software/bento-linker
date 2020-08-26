@@ -406,8 +406,9 @@ __attribute__((weak)) void populate_globals(void) {}
 __attribute__((weak)) void populate_memory(void) {}
 __attribute__((weak)) void wasmf___wasm_call_ctors(void) {}
 
-// data stack manipulation
-uint8_t *__box_datasp = &__memory_start;
+// data stack manipulation, note we start at 4 since
+// 0 is considered a NULL address
+uint8_t *__box_datasp = &__memory_start + 4;
 
 void *__box_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
@@ -418,7 +419,7 @@ void *__box_push(size_t size) {
     }
 
     __box_datasp = psp + size;
-    return psp + size;
+    return psp;
 }
 
 void __box_pop(size_t size) {

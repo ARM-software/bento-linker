@@ -131,7 +131,7 @@ override WASMLDFLAGS += -Wl,--wrap,writev
 override WASMLDFLAGS += -Wl,--wrap,fflush
 
 ### wasm stack configuration ###
-override WASMLDFLAGS += -Wl,-z,stack-size=32768
+override WASMLDFLAGS += -Wl,-z,stack-size=49152
 
 # target rule
 $(TARGET): $(WASMOBJ) $(WASMBOXES)

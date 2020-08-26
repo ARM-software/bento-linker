@@ -39,7 +39,7 @@ import.box_qsort = 'fn(mut u32 buffer[size], usize size) -> err'
 runtime.runtime = 'awsm'
 runtime.awsm.memory.size = 0x10000
 runtime.awsm.table.size = 0x200
-stack = 0x8000
+stack = 0xc000
 memory.flash = 'rxp 0x2000'
 memory.ram = 'rw 0x12000'
 

@@ -98,7 +98,7 @@ override LDFLAGS += -Wl,--wrap,vfprintf
 override LDFLAGS += -Wl,--wrap,fflush
 
 ### defines for interpreter behavior ###
-override CFLAGS += -D__BOX_WAMR_INTERP=1
+override CFLAGS += -D__BOX_WAMR_AOT=1
 
 ### user provided flags ###
 

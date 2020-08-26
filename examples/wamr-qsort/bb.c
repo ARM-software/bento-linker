@@ -987,7 +987,7 @@ int __box_qsort_init(void) {
 
     __box_qsort_module_inst = wasm_runtime_instantiate(
         __box_qsort_module,
-        32768,
+        49152,
         0,
         NULL, 0);
     if (!__box_qsort_module_inst) {
@@ -996,7 +996,7 @@ int __box_qsort_init(void) {
 
     __box_qsort_exec_env = wasm_runtime_create_exec_env(
         __box_qsort_module_inst,
-        32768);
+        49152);
     if (!__box_qsort_exec_env) {
         return -ENOEXEC;
     }
@@ -1005,8 +1005,9 @@ int __box_qsort_init(void) {
         __box_qsort_exec_env,
         &__box_qsort_err);
 
-    // setup data stack
-    __box_qsort_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_qsort_datasp = 4;
 
     __box_qsort_initialized = true;
     return 0;
@@ -1026,7 +1027,7 @@ void *__box_qsort_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
     uint32_t psp = __box_qsort_datasp;
-    if (psp + size > 32768) {
+    if (psp + size > 49152) {
         return NULL;
     }
 

@@ -20,8 +20,8 @@ __box_import_box_qsort   = __box_callregion + 4*(2 + 1*1 + 0) + 2*1 + 1;
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000fe000
     BOX_QSORT_FLASH  (RX ) : ORIGIN = 0x000fe000, LENGTH = 0x00002000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00038000
-    BOX_QSORT_RAM    (RW ) : ORIGIN = 0x20038000, LENGTH = 0x00008000
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00030000
+    BOX_QSORT_RAM    (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
 }
 
 SECTIONS {

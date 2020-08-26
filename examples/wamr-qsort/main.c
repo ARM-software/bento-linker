@@ -119,7 +119,7 @@ void testqsort(uint32_t N) {
     printarray(array, N);
     printf("\n");
 
-    printf("calling qsort... N=%d\n", N);
+    printf("calling qsort N=%d...\n", N);
     int err = box_qsort(array, N);
 
     printf("result: %d\n", err);
@@ -142,6 +142,7 @@ void main(void) {
     testqsort(10);
     testqsort(100);
     testqsort(1000);
+    testqsort(10000);
 
     printf("done\n");
 
