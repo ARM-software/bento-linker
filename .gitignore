@@ -4,3 +4,8 @@ extra/wasi-sdk*
 !extra/wasi-sdk-source
 extra/wabt*
 !extra/wabt-source
+tags
+*.o
+*.d
+*.wo
+*.bc

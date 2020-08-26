@@ -7,6 +7,7 @@
 
 #define R_ARM_THM_CALL  10  /* PC relative (Thumb BL and ARMv5 Thumb BLX). */
 #define R_ARM_THM_JMP24 30  /* B.W */
+#define R_ARM_ABS32      2  /* ??? why is this getting emitted? */
 
 void __divdi3();
 void __udivdi3();
@@ -22,10 +23,25 @@ void __fixsfdi();
 void __fixunssfdi();
 void __fixdfdi();
 void __fixunsdfdi();
+void __floatunsidf();
 void __floatdisf();
 void __floatundisf();
 void __floatdidf();
 void __floatundidf();
+void __floatunsisf();
+void __ltsf2();
+void __unordsf2();
+void __lesf2();
+void __gesf2();
+void __fixsfsi();
+void __extendsfdf2();
+void __muldf3();
+void __adddf3();
+void __divdf3();
+void __truncdfsf2();
+void __addsf3();
+void __subsf3();
+void __mulsf3();
 void __aeabi_l2f();
 void __aeabi_f2lz();
 void __aeabi_ul2f();
@@ -71,10 +87,25 @@ static SymbolMap target_sym_map[] = {
     REG_SYM(__fixunssfdi),
     REG_SYM(__fixdfdi),
     REG_SYM(__fixunsdfdi),
+    REG_SYM(__floatunsidf),
     REG_SYM(__floatdisf),
     REG_SYM(__floatundisf),
     REG_SYM(__floatdidf),
     REG_SYM(__floatundidf),
+    REG_SYM(__floatunsisf),
+    REG_SYM(__ltsf2),
+    REG_SYM(__unordsf2),
+    REG_SYM(__lesf2),
+    REG_SYM(__gesf2),
+    REG_SYM(__fixsfsi),
+    REG_SYM(__extendsfdf2),
+    REG_SYM(__muldf3),
+    REG_SYM(__adddf3),
+    REG_SYM(__divdf3),
+    REG_SYM(__truncdfsf2),
+    REG_SYM(__addsf3),
+    REG_SYM(__subsf3),
+    REG_SYM(__mulsf3),
     REG_SYM(__aeabi_l2f),
     REG_SYM(__aeabi_f2lz),
     REG_SYM(__aeabi_ul2f),
@@ -275,6 +306,10 @@ apply_relocation(AOTModule *module,
             *(reloc_addr + 1) = (*(reloc_addr + 1) & ~0x7FF) | initial_addend_1;
             break;
         }
+
+        case R_ARM_ABS32:
+            // .text??
+            break;
 
         default:
             if (error_buf != NULL)

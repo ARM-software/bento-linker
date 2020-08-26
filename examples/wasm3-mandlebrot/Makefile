@@ -186,12 +186,11 @@ cat:
 
 .PHONY: tags
 tags:
-	$(strip ctags \
-	    $(shell find -L $(INC) -name '*.h') \
+	$(strip ctags --totals \
+	    $(shell find -H $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.h,$(INC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
 
 .PHONY: $(shell make -s -C mandlebrot mandlebrot.box -q || echo mandlebrot/mandlebrot.box)
 mandlebrot/mandlebrot.box:

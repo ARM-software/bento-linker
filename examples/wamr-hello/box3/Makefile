@@ -21,7 +21,7 @@ WASMSTRIP        = ../wabt/bin/wasm-strip
 WASMOBJDUMP      = ../wabt/bin/wasm-objdump
 WASMWASM2WAT     = ../wabt/bin/wasm2wat
 WASMWAT2WASM     = ../wabt/bin/wat2wasm
-WAMRC            = ../wamr/wamr-compiler/build/wamrc
+WAMRC            = ../wamr/wamrc
 
 SRC += .
 INC += .

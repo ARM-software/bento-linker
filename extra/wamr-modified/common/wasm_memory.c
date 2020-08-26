@@ -126,9 +126,15 @@ wasm_runtime_memory_pool_size()
         return 1 * BH_GB;
 }
 
+bool big_saved_page_avail = false;
+void *big_saved_page;
+size_t big_saved_page_size;
+
 void *
 wasm_runtime_malloc(unsigned int size)
 {
+
+
     if (memory_mode == MEMORY_MODE_UNKNOWN) {
         LOG_WARNING("wasm_runtime_malloc failed: memory hasn't been initialize.\n");
         return NULL;
@@ -136,7 +142,19 @@ wasm_runtime_malloc(unsigned int size)
 //        return mem_allocator_malloc(pool_allocator, size);
         return NULL;
     } else {
-        return malloc_func(size);
+        uint32_t *p;
+        if (big_saved_page_avail && size == big_saved_page_size) {
+            p = big_saved_page;
+            big_saved_page_avail = false;
+        } else {
+            p = malloc_func(size + 4);
+            if (p && size >= 64*1024) {
+                big_saved_page = p;
+                big_saved_page_size = size;
+                big_saved_page_avail = false;
+            }
+        }
+        return p;
     }
 }
 
@@ -165,7 +183,11 @@ wasm_runtime_free(void *ptr)
     } else if (memory_mode == MEMORY_MODE_POOL) {
 //        mem_allocator_free(pool_allocator, ptr);
     } else {
-        free_func(ptr);
+        if (ptr == big_saved_page) {
+            big_saved_page_avail = true;
+        } else {
+            free_func(ptr);
+        }
     }
 }
 

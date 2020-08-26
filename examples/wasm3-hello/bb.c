@@ -1253,7 +1253,9 @@ int __box_box1_init(void) {
 }
 
 int __box_box1_clobber(void) {
-    m3_FreeRuntime(__box_box1_runtime);
+    if (__box_box1_initialized) {
+        m3_FreeRuntime(__box_box1_runtime);
+    }
     __box_box1_initialized = false;
     return 0;
 }
@@ -1564,7 +1566,9 @@ int __box_box2_init(void) {
 }
 
 int __box_box2_clobber(void) {
-    m3_FreeRuntime(__box_box2_runtime);
+    if (__box_box2_initialized) {
+        m3_FreeRuntime(__box_box2_runtime);
+    }
     __box_box2_initialized = false;
     return 0;
 }
@@ -1875,7 +1879,9 @@ int __box_box3_init(void) {
 }
 
 int __box_box3_clobber(void) {
-    m3_FreeRuntime(__box_box3_runtime);
+    if (__box_box3_initialized) {
+        m3_FreeRuntime(__box_box3_runtime);
+    }
     __box_box3_initialized = false;
     return 0;
 }

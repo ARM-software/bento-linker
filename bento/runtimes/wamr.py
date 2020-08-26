@@ -18,79 +18,7 @@ C_COMMON = """
 bool __box_wamr_runtime_initialized = false;
 """
 
-#_C_COMMON = """
-#// wams3 supports sharing of the M3Environment state
-#IM3Environment __box_wasm3_environment;
-#
-#__attribute__((unused))
-#static int __box_wasm3_toerr(M3Result res) {
-#    // note we can't use switch/case here because these are pointers
-#    if      (res == m3Err_none)                             return 0;
-#    // general errors
-#    else if (res == m3Err_typeListOverflow)                 return -ENOMEM;
-#    else if (res == m3Err_mallocFailed)                     return -ENOMEM;
-#    // parse errors
-#    else if (res == m3Err_incompatibleWasmVersion)          return -ENOEXEC;
-#    else if (res == m3Err_wasmMalformed)                    return -ENOEXEC;
-#    else if (res == m3Err_misorderedWasmSection)            return -ENOEXEC;
-#    else if (res == m3Err_wasmUnderrun)                     return -ENOEXEC;
-#    else if (res == m3Err_wasmOverrun)                      return -ENOEXEC;
-#    else if (res == m3Err_wasmMissingInitExpr)              return -ENOEXEC;
-#    else if (res == m3Err_lebOverflow)                      return -ENOEXEC;
-#    else if (res == m3Err_missingUTF8)                      return -ENOEXEC;
-#    else if (res == m3Err_wasmSectionUnderrun)              return -ENOEXEC;
-#    else if (res == m3Err_wasmSectionOverrun)               return -ENOEXEC;
-#    else if (res == m3Err_invalidTypeId)                    return -ENOEXEC;
-#    else if (res == m3Err_tooManyMemorySections)            return -ENOEXEC;
-#    // link errors
-#    else if (res == m3Err_moduleAlreadyLinked)              return -ENOEXEC;
-#    else if (res == m3Err_functionLookupFailed)             return -ENOEXEC;
-#    else if (res == m3Err_functionImportMissing)            return -ENOEXEC;
-#    else if (res == m3Err_malformedFunctionSignature)       return -ENOEXEC;
-#    else if (res == m3Err_funcSignatureMissingReturnType)   return -ENOEXEC;
-#    // compilation errors
-#    else if (res == m3Err_noCompiler)                       return -ENOEXEC;
-#    else if (res == m3Err_unknownOpcode)                    return -ENOEXEC;
-#    else if (res == m3Err_functionStackOverflow)            return -EOVERFLOW;
-#    else if (res == m3Err_functionStackUnderrun)            return -ENOEXEC;
-#    else if (res == m3Err_mallocFailedCodePage)             return -ENOMEM;
-#    else if (res == m3Err_settingImmutableGlobal)           return -ENOEXEC;
-#    else if (res == m3Err_optimizerFailed)                  return -ENOEXEC;
-#    // runtime errors
-#    else if (res == m3Err_missingCompiledCode)              return -ENOEXEC;
-#    else if (res == m3Err_wasmMemoryOverflow)               return -ENOEXEC;
-#    else if (res == m3Err_globalMemoryNotAllocated)         return -ENOEXEC;
-#    else if (res == m3Err_globaIndexOutOfBounds)            return -ENOEXEC;
-#    else if (res == m3Err_argumentCountMismatch)            return -ENOEXEC;
-#    // traps
-#    else if (res == m3Err_trapOutOfBoundsMemoryAccess)      return -EFAULT;
-#    else if (res == m3Err_trapDivisionByZero)               return -EDOM;
-#    else if (res == m3Err_trapIntegerOverflow)              return -ERANGE;
-#    else if (res == m3Err_trapIntegerConversion)            return -ERANGE;
-#    else if (res == m3Err_trapIndirectCallTypeMismatch)     return -ENOEXEC;
-#    else if (res == m3Err_trapTableIndexOutOfRange)         return -EFAULT;
-#    else if (res == m3Err_trapTableElementIsNull)           return -EFAULT;
-#    else if (res == m3Err_trapExit)                         return -ECANCELED;
-#    else if (res == m3Err_trapAbort)                        return -ECANCELED;
-#    else if (res == m3Err_trapUnreachable)                  return -EFAULT;
-#    else if (res == m3Err_trapStackOverflow)                return -EOVERFLOW;
-#    // fallback to general error?
-#    else                                                    return -EGENERAL;
-#}
-#"""
-
 C_STUFF = """
-__attribute__((unused))
-static uint32_t __box_%(box)s_fromptr(const void *ptr) {
-    return (uint32_t)((const uint8_t*)ptr
-        - m3MemData(__box_%(box)s_runtime->memory.mallocated));
-}
-
-__attribute__((unused))
-static void *__box_%(box)s_toptr(uint32_t ptr) {
-    return m3MemData(__box_%(box)s_runtime->memory.mallocated) + ptr;
-}
-
 void *__box_%(box)s_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
     // sharing the stack space of the wasm-side libc
@@ -100,7 +28,8 @@ void *__box_%(box)s_push(size_t size) {
     }
 
     __box_%(box)s_datasp = psp + size;
-    return __box_%(box)s_toptr(psp);
+    return wasm_runtime_addr_app_to_native(
+            __box_%(box)s_module_inst, psp);
 }
 
 void __box_%(box)s_pop(size_t size) {
@@ -120,13 +49,6 @@ void __box_%(box)s_import___box_%(box)s_abort(
 }
 """
 
-#ABORT_HOOK = """
-#m3ApiRawFunction(__box_%(box)s_import___box_%(box)s_abort) {
-#    m3ApiGetArg(int, err);
-#    __box_%(box)s_runtime->exit_code = err;
-#    m3ApiTrap(m3Err_trapExit);
-#}
-#"""
 
 @runtimes.runtime
 class WamrRuntime(
@@ -486,12 +408,20 @@ class WamrRuntime(
                     out.printf('uint8_t frame[4*%(framesize)d];')
                     i = 0
                     for arg, value in import_.zippedargsandbounds():
-                        out.printf('*(%(arg)s*)&%(frame)s[4*%(i)d] '
-                            '= %(value)s;',
-                            arg=output.repr_arg(arg, name=''),
-                            value=value,
-                            i=i)
-                        i += arg.size()
+                        if arg.isptr():
+                            out.printf('*(int32_t*)&%(frame)s[4*%(i)d] '
+                                '= wasm_runtime_addr_native_to_app(\n'
+                                '    __box_%(box)s_module_inst,\n'
+                                '    (void*)%(value)s);',
+                                value=value,
+                                i=i)
+                        else:
+                            out.printf('*(%(arg)s*)&%(frame)s[4*%(i)d] '
+                                '= %(value)s;',
+                                arg=output.repr_arg(arg, name=''),
+                                value=value,
+                                i=i)
+                        i += arg.size() // 4
                 out.printf('bool %(res)s = wasm_runtime_call_wasm(\n'
                     '    __box_%(box)s_exec_env,\n'
                     '    %(f)s,\n'
@@ -513,8 +443,13 @@ class WamrRuntime(
                 out.printf('}')
                 for ret in import_.rets:
                     out.printf()
-                    out.printf('return *(%(ret)s*)&frame[4*0];',
-                        ret=output.repr_arg(ret, name=''))
+                    if ret.isptr():
+                        out.printf('return wasm_runtime_addr_app_to_native(\n'
+                            '    __box_%(box)s_module_inst,\n'
+                            '    *(int32_t*)&frame[4*0]);')
+                    else:
+                        out.printf('return *(%(ret)s*)&frame[4*0];',
+                            ret=output.repr_arg(ret, name=''))
                 if import_.isnoreturn():
                     # kinda wish we could apply noreturn to C types...
                     out.printf('__builtin_unreachable();')
@@ -561,14 +496,19 @@ class WamrRuntime(
                 out.printf('__box_wamr_runtime_initialized = true;')
             out.printf('}')
             out.printf()
-            out.printf('bool success = wasm_runtime_register_natives(\n'
-                '    "env",\n'
-                '    (NativeSymbol*)__box_%(box)s_native_symbols,\n'
-                '    sizeof(__box_%(box)s_native_symbols) / '
-                        'sizeof(NativeSymbol));')
-            out.printf('if (!success) {')
+            # hook in native functions
+            # TODO isolate per box somehow?
+            out.printf('if (!__box_%(box)s_module) {')
             with out.indent():
-                out.printf('return -EGENERAL;')
+                out.printf('bool success = wasm_runtime_register_natives(\n'
+                    '    "env",\n'
+                    '    (NativeSymbol*)__box_%(box)s_native_symbols,\n'
+                    '    sizeof(__box_%(box)s_native_symbols) / '
+                            'sizeof(NativeSymbol));')
+                out.printf('if (!success) {')
+                with out.indent():
+                    out.printf('return -EGENERAL;')
+                out.printf('}')
             out.printf('}')
             out.printf()
             # wasm image parsing
@@ -592,7 +532,7 @@ class WamrRuntime(
             with out.indent():
                 out.printf('return -ENOEXEC;')
             out.printf('}')
-
+            out.printf()
             out.printf('__box_%(box)s_exec_env = '
                 'wasm_runtime_create_exec_env(\n'
                 '    __box_%(box)s_module_inst,\n'
@@ -630,6 +570,10 @@ class WamrRuntime(
             out.printf('__box_%(box)s_initialized = false;')
             out.printf('return 0;')
         out.printf('}')
+
+        output.includes.append('assert.h')
+        output.decls.append(C_STUFF,
+            data_stack=box.stack.size)
 
     def build_parent_ld(self, output, parent, box):
         super().build_parent_ld(output, parent, box)

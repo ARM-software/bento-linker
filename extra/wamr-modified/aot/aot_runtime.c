@@ -171,8 +171,9 @@ memories_deinstantiate(AOTModuleInstance *module_inst)
                     continue;
             }
 #endif
-            if (memory_inst->heap_handle.ptr)
+            if (memory_inst->heap_handle.ptr) {
                 //mem_allocator_destroy(memory_inst->heap_handle.ptr);
+            }
 
             if (memory_inst->heap_data.ptr) {
 #ifndef OS_ENABLE_HW_BOUND_CHECK

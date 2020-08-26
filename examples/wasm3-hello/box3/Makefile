@@ -22,8 +22,6 @@ WASMOBJDUMP      = ../wabt/bin/wasm-objdump
 WASMWASM2WAT     = ../wabt/bin/wasm2wat
 WASMWAT2WASM     = ../wabt/bin/wat2wasm
 
-override WASMLDFLAGS += -Wl,-z,stack-size=16384
-
 SRC += .
 INC += .
 LIB += m
@@ -132,8 +130,11 @@ override WASMLDFLAGS += -Wl,--wrap,vfprintf
 override WASMLDFLAGS += -Wl,--wrap,writev
 override WASMLDFLAGS += -Wl,--wrap,fflush
 
+### wasm stack configuration ###
+override WASMLDFLAGS += -Wl,-z,stack-size=16384
+
 # target rule
-$(TARGET): $(WASMOBJ) $(WASMBOXES) $(lastword $(MAKEFILE_LIST))
+$(TARGET): $(WASMOBJ) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 %.elf: %.wasm.stripped.prefixed

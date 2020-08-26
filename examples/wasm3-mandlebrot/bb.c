@@ -981,8 +981,11 @@ int mandlebrot(size_t width, size_t height, uint32_t iterations) {
     res = m3_FindFunction(&f,
             __box_mandlebrot_runtime,
             "mandlebrot");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 3) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 3) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_mandlebrot_runtime->stack;
     *(size_t*)&stack[0] = width;
     *(size_t*)&stack[1] = height;
@@ -1036,7 +1039,7 @@ int __box_mandlebrot_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_mandlebrot_module,
-            (uint8_t*)(&__box_mandlebrot_image + 1),
+            (const uint8_t*)(&__box_mandlebrot_image + 1),
             __box_mandlebrot_image);
     if (res) return __box_wasm3_toerr(res);
 
@@ -1080,7 +1083,9 @@ int __box_mandlebrot_init(void) {
 }
 
 int __box_mandlebrot_clobber(void) {
-    m3_FreeRuntime(__box_mandlebrot_runtime);
+    if (__box_mandlebrot_initialized) {
+        m3_FreeRuntime(__box_mandlebrot_runtime);
+    }
     __box_mandlebrot_initialized = false;
     return 0;
 }

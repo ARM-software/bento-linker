@@ -18,11 +18,11 @@ output.mk.c_flags = ['-include wasm_config.h']
 output.mk.srcs = [
     '.',
     'nrfx/drivers/src',
-    'wamr-core',
-    'wamr-core/utils',
-    'wamr-core/common',
-    'wamr-core/interpreter',
-    'wamr-core/aot',
+    'wamr',
+    'wamr/utils',
+    'wamr/common',
+    'wamr/interpreter',
+    'wamr/aot',
 ]
 output.mk.incs = [
     '.',
@@ -31,12 +31,12 @@ output.mk.incs = [
     'nrfx/drivers/include',
     'nrfx/mdk',
     'nrfx/templates',
-    'wamr-core',
-    'wamr-core/include',
-    'wamr-core/utils',
-    'wamr-core/common',
-    'wamr-core/interpreter',
-    'wamr-core/aot',
+    'wamr',
+    'wamr/include',
+    'wamr/utils',
+    'wamr/common',
+    'wamr/interpreter',
+    'wamr/aot',
 ]
 
 export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
@@ -72,7 +72,7 @@ memory.flash = 'rxp 0x8000'
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'
 output.mk.path = 'Makefile'
-output.mk.wamrc = '../wamr/wamr-compiler/build/wamrc'
+output.mk.wamrc = '../wamr/wamrc'
 output.mk.wasi_sdk = '../wasi-sdk'
 output.mk.wabt = '../wabt'
 
@@ -93,7 +93,7 @@ memory.flash = 'rxp 0x8000'
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'
 output.mk.path = 'Makefile'
-output.mk.wamrc = '../wamr/wamr-compiler/build/wamrc'
+output.mk.wamrc = '../wamr/wamrc'
 output.mk.wasi_sdk = '../wasi-sdk'
 output.mk.wabt = '../wabt'
 
@@ -113,7 +113,7 @@ memory.flash = 'rxp 0x8000'
 
 output.wasm_h = 'bb.h'
 output.wasm_c = 'bb.c'
-output.mk.wamrc = '../wamr/wamr-compiler/build/wamrc'
+output.mk.wamrc = '../wamr/wamrc'
 output.mk.path = 'Makefile'
 output.mk.wasi_sdk = '../wasi-sdk'
 output.mk.wabt = '../wabt'

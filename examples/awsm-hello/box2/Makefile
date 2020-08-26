@@ -207,7 +207,7 @@ $(TARGET:.elf=.awsm.bc): $(TARGET:.elf=.bc) $(LLVMOBJ)
 $(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)
 	$(AWSM) $(AWSMFLAGS) $< -o $@
 
-$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES) $(lastword $(MAKEFILE_LIST))
+$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region

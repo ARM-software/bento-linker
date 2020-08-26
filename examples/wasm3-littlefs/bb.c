@@ -1054,8 +1054,11 @@ int lfsbox_file_close(int32_t fd) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_file_close");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 1) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 1) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(int32_t*)&stack[0] = fd;
     m3StackCheckInit();
@@ -1086,8 +1089,11 @@ int32_t lfsbox_file_open(const char *path, uint32_t flags) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_file_open");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 2) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 2) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(uint32_t*)&stack[0] = __box_lfsbox_fromptr(path);
     *(uint32_t*)&stack[1] = flags;
@@ -1119,8 +1125,11 @@ ssize_t lfsbox_file_read(int32_t fd, void *buffer, size_t size) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_file_read");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 3) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 3) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(int32_t*)&stack[0] = fd;
     *(uint32_t*)&stack[1] = __box_lfsbox_fromptr(buffer);
@@ -1153,8 +1162,11 @@ int32_t lfsbox_file_seek(int32_t fd, int32_t off, uint32_t whence) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_file_seek");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 3) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 3) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(int32_t*)&stack[0] = fd;
     *(int32_t*)&stack[1] = off;
@@ -1187,8 +1199,11 @@ ssize_t lfsbox_file_write(int32_t fd, const void *buffer, size_t size) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_file_write");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 3) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 3) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(int32_t*)&stack[0] = fd;
     *(uint32_t*)&stack[1] = __box_lfsbox_fromptr(buffer);
@@ -1221,8 +1236,11 @@ int lfsbox_format(void) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_format");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1252,8 +1270,11 @@ int lfsbox_mount(void) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_mount");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1283,8 +1304,11 @@ int lfsbox_rename(const char *oldpath, const char *newpath) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_rename");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 2) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 2) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     *(uint32_t*)&stack[0] = __box_lfsbox_fromptr(oldpath);
     *(uint32_t*)&stack[1] = __box_lfsbox_fromptr(newpath);
@@ -1316,8 +1340,11 @@ int lfsbox_unmount(void) {
     res = m3_FindFunction(&f,
             __box_lfsbox_runtime,
             "lfsbox_unmount");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 0) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 0) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_lfsbox_runtime->stack;
     m3StackCheckInit();
     res = (M3Result)Call(
@@ -1368,7 +1395,7 @@ int __box_lfsbox_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_lfsbox_module,
-            (uint8_t*)(&__box_lfsbox_image + 1),
+            (const uint8_t*)(&__box_lfsbox_image + 1),
             __box_lfsbox_image);
     if (res) return __box_wasm3_toerr(res);
 
@@ -1466,7 +1493,9 @@ int __box_lfsbox_init(void) {
 }
 
 int __box_lfsbox_clobber(void) {
-    m3_FreeRuntime(__box_lfsbox_runtime);
+    if (__box_lfsbox_initialized) {
+        m3_FreeRuntime(__box_lfsbox_runtime);
+    }
     __box_lfsbox_initialized = false;
     return 0;
 }

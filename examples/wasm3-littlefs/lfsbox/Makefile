@@ -22,8 +22,6 @@ WASMOBJDUMP      = ../wabt/bin/wasm-objdump
 WASMWASM2WAT     = ../wabt/bin/wasm2wat
 WASMWAT2WASM     = ../wabt/bin/wat2wasm
 
-override WASMLDFLAGS += -Wl,-z,stack-size=32768
-
 SRC += .
 INC += .
 LIB += m
@@ -134,17 +132,14 @@ override WASMLDFLAGS += -Wl,--wrap,vfprintf
 override WASMLDFLAGS += -Wl,--wrap,writev
 override WASMLDFLAGS += -Wl,--wrap,fflush
 
+### wasm stack configuration ###
+override WASMLDFLAGS += -Wl,-z,stack-size=32768
+
 # target rule
-$(TARGET): $(WASMOBJ) $(WASMBOXES) $(lastword $(MAKEFILE_LIST))
+$(TARGET): $(WASMOBJ) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
-%.wasm.prefixed: %.wasm.strip
-	$(strip python3 -c 'import sys, struct; \
-	    d=open(sys.argv[1], "rb").read(); \
-	    sys.stdout.buffer.write(struct.pack("<I", len(d))); \
-	    sys.stdout.buffer.write(d);' $< > $@)
-
-%.elf: %.wasm.prefixed
+%.elf: %.wasm.stripped.prefixed
 	$(strip $(OBJCOPY) $< $@ \
 	    -I binary \
 	    -O elf32-littlearm \
@@ -208,12 +203,11 @@ cat:
 
 .PHONY: tags
 tags:
-	$(strip ctags \
-	    $(shell find -L $(INC) -name '*.h') \
+	$(strip ctags --totals \
+	    $(shell find -H $(INC) -name '*.h') \
 	    $(wildcard $(patsubst %,%/*.c,$(SRC))) \
 	    $(wildcard $(patsubst %,%/*.s,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.S,$(SRC))) \
-	    $(wildcard $(patsubst %,%/*.h,$(INC))))
+	    $(wildcard $(patsubst %,%/*.S,$(SRC))))
 
 # header dependencies
 -include $(DEP)
@@ -245,9 +239,15 @@ tags:
 %.wat: %.wo
 	$(WASMWASM2WAT) $< -o $@
 
-%.wasm.strip: %.wasm
+%.wasm.stripped: %.wasm
 	cp $< $@
 	$(WASMSTRIP) $@
+
+%.prefixed: %
+	$(strip python3 -c 'import sys, struct; \
+	    d=open(sys.argv[1], "rb").read(); \
+	    sys.stdout.buffer.write(struct.pack("<I", len(d))); \
+	    sys.stdout.buffer.write(d);' $< > $@)
 
 .PHONY: clean
 clean:

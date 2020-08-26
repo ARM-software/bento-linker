@@ -977,8 +977,11 @@ int box_qsort(uint32_t *buffer, size_t size) {
     res = m3_FindFunction(&f,
             __box_qsort_runtime,
             "box_qsort");
-    if (res || !f->compiled) return -ENOEXEC;
-    if (f->funcType->numArgs != 2) return -ENOEXEC;
+    if (res || !f->compiled ||
+            f->funcType->numArgs != 2) {
+        return -ENOEXEC;
+    }
+
     uint64_t *stack = __box_qsort_runtime->stack;
     *(uint32_t*)&stack[0] = __box_qsort_fromptr(buffer);
     *(size_t*)&stack[1] = size;
@@ -1031,7 +1034,7 @@ int __box_qsort_init(void) {
     res = m3_ParseModule(
             __box_wasm3_environment,
             &__box_qsort_module,
-            (uint8_t*)(&__box_qsort_image + 1),
+            (const uint8_t*)(&__box_qsort_image + 1),
             __box_qsort_image);
     if (res) return __box_wasm3_toerr(res);
 
@@ -1075,7 +1078,9 @@ int __box_qsort_init(void) {
 }
 
 int __box_qsort_clobber(void) {
-    m3_FreeRuntime(__box_qsort_runtime);
+    if (__box_qsort_initialized) {
+        m3_FreeRuntime(__box_qsort_runtime);
+    }
     __box_qsort_initialized = false;
     return 0;
 }
