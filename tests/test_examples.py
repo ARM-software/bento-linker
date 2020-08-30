@@ -15,12 +15,6 @@ for name in os.listdir(EXAMPLES_PATH):
 EXAMPLES = sorted(EXAMPLES)
 EXAMPLES_IDS = list(zip(*EXAMPLES))[0]
 
-def test_sanity():
-    subprocess.check_call(['bento'])
-
-def test_options():
-    subprocess.check_call(['bento', 'options'])
-
 @pytest.mark.parametrize('name, path', EXAMPLES, ids=EXAMPLES_IDS)
 def test_boxes_scan(name, path):
     os.chdir(path)
