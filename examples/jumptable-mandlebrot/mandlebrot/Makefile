@@ -80,7 +80,7 @@ override LDFLAGS += -Wl,--wrap,vfprintf
 override LDFLAGS += -Wl,--wrap,fflush
 
 # target rule
-$(TARGET): $(OBJ) $(BOXES) $(LDSCRIPT)
+$(TARGET): $(OBJ) $(CRATES) $(BOXES) $(LDSCRIPT)
 	$(CC) $(OBJ) $(BOXES) $(LDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region

@@ -1,0 +1,24 @@
+[package]
+name = "maze-builder"
+version = "0.1.0"
+edition = "2018"
+autobins = false
+
+[profile.release]
+opt-level = 'z'
+lto = true
+debug = true
+debug-assertions = false
+
+[profile.dev]
+opt-level = 'z'
+lto = false
+debug = true
+debug-assertions = true
+
+[lib]
+crate-type = ["staticlib"]
+path = "src/main.rs"
+
+[dependencies]
+bb = { path = "bb" }

@@ -81,7 +81,7 @@ class RustLibOutput(outputs.Output):
         name = name if name is not None else arg.name
         return ''.join([
             (name if name else '_') + ': ' if name != '' else '',
-            ('*mut ' if arg.ismut() else '*') if arg.isptr() else '',
+            ('*mut ' if arg.ismut() else '*const ') if arg.isptr() else '',
             'bool'     if arg.prim() == 'bool' else
             'isize'    if arg.prim() == 'errsize' else
             'i64'      if arg.prim() == 'err64' else
@@ -118,7 +118,7 @@ class RustLibOutput(outputs.Output):
                     if arg.prim() == 'err':
                         out.printf('true => Ok(()),')
                     else:
-                        out.printf('false => Ok('
+                        out.printf('true => Ok('
                             'u%(width)s::try_from(%(name)s).unwrap()),',
                             width=arg.prim()[3:])
                     out.printf('false => Err(Error::new('

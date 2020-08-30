@@ -907,6 +907,8 @@ class aWsmRuntime(
             out.printf('__libc_init_array();')
             out.printf()
             out.printf('// populate wasm state')
+            out.printf('memset(&__memory_start, 0,\n'
+                '    &__memory_end-&__memory_start);')
             out.printf('populate_table();')
             out.printf('populate_globals();')
             out.printf('populate_memory();')
@@ -1064,12 +1066,13 @@ class aWsmRuntime(
             out.printf('$(LLVMOPT) $(LLVMOPTFLAGS) $@ -o $@')
 
         out = output.rules.append()
-        out.printf('$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)')
+        out.printf('$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm.stripped)')
         with out.indent():
             out.printf('$(AWSM) $(AWSMFLAGS) $< -o $@')
 
         out = output.rules.append()
-        out.printf('$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES)')
+        out.printf('$(TARGET:.elf=.wasm): '
+            '$(WASMOBJ) $(WASMCRATES) $(WASMBOXES)')
         with out.indent():
             out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
 
@@ -1081,4 +1084,10 @@ class aWsmRuntime(
         out.printf('override WASMLDFLAGS += '
             '-Wl,-z,stack-size=%(stack_size)d',
             stack_size=box.stack.size)
+        for i, export in enumerate(
+                export.prebound() for export in box.exports
+                if export.source == box):
+            out.printf('override WASMLDFLAGS += '
+                '-Wl,--export=%(export)s',
+                export=export.name)
 

@@ -135,9 +135,10 @@ override WASMLDFLAGS += -Wl,--wrap,fflush
 
 ### wasm stack configuration ###
 override WASMLDFLAGS += -Wl,-z,stack-size=32768
+override WASMLDFLAGS += -Wl,--export=mandlebrot
 
 # target rule
-$(TARGET): $(WASMOBJ) $(WASMBOXES)
+$(TARGET): $(WASMOBJ) $(WASMCRATES) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 %.elf: %.wasm.stripped.prefixed
@@ -241,7 +242,12 @@ tags:
 	$(WASMWASM2WAT) $< -o $@
 
 %.wasm.stripped: %.wasm
-	cp $< $@
+	# remove zero data elements, you would expect this
+	# from lld but it's not currently supported
+	$(WASMWASM2WAT) $< -o $@
+	sed -i 's/(data[^"]*"\(\\00\)*")//g' $@
+	$(WASMWAT2WASM) $@ -o $@
+	# and remove symbols
 	$(WASMSTRIP) $@
 
 %.prefixed: %

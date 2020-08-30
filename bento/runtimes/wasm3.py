@@ -242,7 +242,7 @@ class Wasm3Runtime(
             name='TARGET', target=output.get('target', '%(box)s.wasm'))
 
         out = output.rules.append(doc='target rule')
-        out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES)')
+        out.printf('$(TARGET): $(WASMOBJ) $(WASMCRATES) $(WASMBOXES)')
         with out.indent():
             out.printf('$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
 
@@ -266,6 +266,12 @@ class Wasm3Runtime(
         out.printf('override WASMLDFLAGS += '
             '-Wl,-z,stack-size=%(data_stack)d',
             data_stack=box.stack.size)
+        for i, export in enumerate(
+                export.prebound() for export in box.exports
+                if export.source == box):
+            out.printf('override WASMLDFLAGS += '
+                '-Wl,--export=%(export)s',
+                export=export.name)
 
     def build_parent_c_prologue(self, output, parent):
         super().build_parent_c_prologue(output, parent)
@@ -473,7 +479,10 @@ class Wasm3Runtime(
                 '        NULL);',
                 interp_stack=self._interp_stack.size)
             # TODO use this pointer for initialized state?
-            out.printf('if (!__box_%(box)s_runtime) return -ENOMEM;')
+            out.printf('if (!__box_%(box)s_runtime) {')
+            with out.indent():
+                out.printf('return -ENOMEM;')
+            out.printf('}')
             out.printf('extern uint32_t __box_%(box)s_image;')
             out.printf('M3Result res;')
             out.printf('res = m3_ParseModule(\n'
@@ -481,11 +490,17 @@ class Wasm3Runtime(
                 '        &__box_%(box)s_module,\n'
                 '        (const uint8_t*)(&__box_%(box)s_image + 1),\n'
                 '        __box_%(box)s_image);')
-            out.printf('if (res) return __box_wasm3_toerr(res);')
+            out.printf('if (res) {')
+            with out.indent():
+                out.printf('return __box_wasm3_toerr(res);')
+            out.printf('}')
             out.printf()
             out.printf('res = m3_LoadModule(__box_%(box)s_runtime, '
                 '__box_%(box)s_module);')
-            out.printf('if (res) return __box_wasm3_toerr(res);')
+            out.printf('if (res) {')
+            with out.indent():
+                out.printf('return __box_wasm3_toerr(res);')
+            out.printf('}')
             out.printf()
             if list(self._parentexports(parent, box)):
                 # link imports

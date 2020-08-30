@@ -1172,7 +1172,9 @@ int __box_box1_init(void) {
             __box_wasm3_environment,
             1024,
             NULL);
-    if (!__box_box1_runtime) return -ENOMEM;
+    if (!__box_box1_runtime) {
+        return -ENOMEM;
+    }
     extern uint32_t __box_box1_image;
     M3Result res;
     res = m3_ParseModule(
@@ -1180,10 +1182,14 @@ int __box_box1_init(void) {
             &__box_box1_module,
             (const uint8_t*)(&__box_box1_image + 1),
             __box_box1_image);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     res = m3_LoadModule(__box_box1_runtime, __box_box1_module);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     // link imports
     res = m3_LinkRawFunction(
@@ -1486,7 +1492,9 @@ int __box_box2_init(void) {
             __box_wasm3_environment,
             1024,
             NULL);
-    if (!__box_box2_runtime) return -ENOMEM;
+    if (!__box_box2_runtime) {
+        return -ENOMEM;
+    }
     extern uint32_t __box_box2_image;
     M3Result res;
     res = m3_ParseModule(
@@ -1494,10 +1502,14 @@ int __box_box2_init(void) {
             &__box_box2_module,
             (const uint8_t*)(&__box_box2_image + 1),
             __box_box2_image);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     res = m3_LoadModule(__box_box2_runtime, __box_box2_module);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     // link imports
     res = m3_LinkRawFunction(

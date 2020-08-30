@@ -7,7 +7,6 @@
 
 //// box exports ////
 
-__attribute__((used))
 extern int box_qsort(uint32_t *buffer, size_t size);
 
 // May be called by well-behaved code to terminate the box if execution can

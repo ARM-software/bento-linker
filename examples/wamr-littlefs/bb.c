@@ -1429,8 +1429,9 @@ int __box_lfsbox_init(void) {
         __box_lfsbox_exec_env,
         &__box_lfsbox_err);
 
-    // setup data stack
-    __box_lfsbox_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_lfsbox_datasp = 4;
 
     __box_lfsbox_initialized = true;
     return 0;

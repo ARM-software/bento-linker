@@ -1,0 +1,112 @@
+memory.flash = 'rxp 0x00000000-0x000fffff'
+memory.ram   = 'rw 0x20000000-0x2003ffff'
+stack = 0x4000
+heap = 0x800
+
+runtime = 'armv7m-sys'
+output.ld = 'bb.ld'
+output.h = 'bb.h'
+output.c = 'bb.c'
+output.mk.path = 'Makefile'
+output.mk.define.NRF52840_XXAA=1
+output.mk.define.NRFX_UARTE_ENABLED=1
+output.mk.define.NRFX_UARTE0_ENABLED=1
+output.mk.define.NRFX_CLOCK_ENABLED=1
+output.mk.define.NRFX_TIMER_ENABLED=1
+output.mk.define.NRFX_TIMER0_ENABLED=1
+output.mk.srcs = [
+    '.',
+    'nrfx/drivers/src',
+]
+output.mk.incs = [
+    '.',
+    'nrfx',
+    'cmsis',
+    'nrfx/drivers/include',
+    'nrfx/mdk',
+    'nrfx/templates',
+]
+
+export.__box_irq0_handler.alias = 'POWER_CLOCK_IRQHandler'
+export.__box_irq0_handler.type = 'fn() -> void'
+export.__box_irq8_handler.alias = 'TIMER0_IRQHandler'
+export.__box_irq8_handler.type = 'fn() -> void'
+
+export.__box_write = 'fn(i32, const u8[size], usize size) -> errsize'
+export.random_get = 'fn() -> u32'
+
+export.maze_get = 'fn(usize x, usize y) -> err32'
+export.maze_set = 'fn(usize x, usize y, u8 v) -> err'
+export.maze_getall = 'fn(mut u8[size], usize size) -> err'
+export.maze_setall = 'fn(const u8[size], usize size) -> err'
+export.maze_getwidth = 'fn() -> usize'
+export.maze_getheight = 'fn() -> usize'
+
+import.maze_generate_prim = 'fn(usize startx, usize starty) -> err'
+import.maze_reduce = 'fn(u32 iterations) -> err'
+import.maze_erode = 'fn(u32 iterations) -> err'
+import.maze_findstart = 'fn(mut usize *x, mut usize *y) -> err'
+import.maze_findend = 'fn(mut usize *x, mut usize *y) -> err'
+import.maze_solve = '''
+    fn(usize startx, usize starty, usize endx, usize endy) -> err32
+    '''
+
+[box.mazebuilder]
+runtime.runtime = 'armv7m-mpu'
+stack = 0x1000
+memory.flash = 'rxp 0x10000'
+memory.ram = 'rw 0x10000'
+
+idempotent = true
+roommates = ['mazesolver']
+
+output.h = 'bb/bb.h'
+output.c = 'bb/bb.c'
+output.ld = 'bb/bb.ld'
+output.rust_lib = 'bb/src/lib.rs'
+output.mk.path = 'Makefile'
+output.mk.cargo = 'cargo'
+output.mk.srcs = ['.', 'bb']
+
+import.random_get = 'fn() -> u32'
+import.maze_get = 'fn(usize x, usize y) -> err32'
+import.maze_set = 'fn(usize x, usize y, u8 v) -> err'
+import.maze_getall = 'fn(mut u8[size], usize size) -> err'
+import.maze_setall = 'fn(const u8[size], usize size) -> err'
+import.maze_getwidth = 'fn() -> usize'
+import.maze_getheight = 'fn() -> usize'
+
+export.maze_generate_prim = 'fn(usize startx, usize starty) -> err'
+export.maze_reduce = 'fn(u32 iterations) -> err'
+export.maze_erode = 'fn(u32 iterations) -> err'
+export.maze_findstart = 'fn(mut usize *x, mut usize *y) -> err'
+export.maze_findend = 'fn(mut usize *x, mut usize *y) -> err'
+
+[box.mazesolver]
+runtime.runtime = 'armv7m-mpu'
+stack = 0x1000
+memory.flash = 'rxp 0x10000'
+memory.ram = 'rw 0x10000'
+
+idempotent = true
+roommates = ['mazebuilder']
+
+output.h = 'bb/bb.h'
+output.c = 'bb/bb.c'
+output.ld = 'bb/bb.ld'
+output.rust_lib = 'bb/src/lib.rs'
+output.mk.path = 'Makefile'
+output.mk.cargo = 'cargo'
+output.mk.srcs = ['.', 'bb']
+
+import.random_get = 'fn() -> u32'
+import.maze_get = 'fn(usize x, usize y) -> err32'
+import.maze_set = 'fn(usize x, usize y, u8 v) -> err'
+import.maze_getall = 'fn(mut u8[size], usize size) -> err'
+import.maze_setall = 'fn(const u8[size], usize size) -> err'
+import.maze_getwidth = 'fn() -> usize'
+import.maze_getheight = 'fn() -> usize'
+
+export.maze_solve = '''
+    fn(usize startx, usize starty, usize endx, usize endy) -> err32
+    '''

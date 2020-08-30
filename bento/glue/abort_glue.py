@@ -161,8 +161,14 @@ class AbortGlue(glue.Glue):
             out.printf('override WASMLDFLAGS += -Wl,--wrap,abort')
             out.printf('override WASMLDFLAGS += -Wl,--wrap,exit')
 
-    def build_rust_lib(self, output, box):
-        super().build_rust_lib(output, box)
-        # TODO doc
+    def __build_common_rust_lib(self, output, box):
         output.uses.append('core::panic')
         output.decls.append(RUST_HOOKS)
+
+    def build_rust_lib(self, output, box):
+        super().build_rust_lib(output, box)
+        self.__build_common_rust_lib(output, box)
+
+    def build_wasm_rust_lib(self, output, box):
+        super().build_wasm_rust_lib(output, box)
+        self.__build_common_rust_lib(output, box)

@@ -5,6 +5,9 @@ import io
 import textwrap
 import itertools as it
 
+
+# These basically only exist to allow specialization in glue/runtimes
+
 @outputs.output
 class WasmHOutput(outputs.HOutput):
     """
@@ -12,19 +15,6 @@ class WasmHOutput(outputs.HOutput):
     """
     __argname__ = "wasm_h"
     __arghelp__ = __doc__
-
-    @override(outputs.HOutput)
-    def _build_exports(self, box):
-        for i, export in enumerate(
-                export.prebound() for export in box.exports
-                if export.source == box):
-            if i == 0:
-                self.decls.append('//// box exports ////')
-            self.decls.append('%(fn)s;',
-                fn=self.repr_fn(export,
-                    attrs=['__attribute__((used))', 'extern']),
-                doc=export.doc)
-
 
 @outputs.output
 class WasmCOutput(outputs.COutput):
@@ -34,3 +24,11 @@ class WasmCOutput(outputs.COutput):
     __argname__ = "wasm_c"
     __arghelp__ = __doc__
 
+@outputs.output
+class WasmRustLibOutput(outputs.RustLibOutput):
+    """
+    Path of Rust file to place the generated bento-box library
+    for WebAssembly boxes.
+    """
+    __argname__ = "wasm_rust_lib"
+    __arghelp__ = __doc__

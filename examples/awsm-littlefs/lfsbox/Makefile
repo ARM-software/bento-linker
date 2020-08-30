@@ -194,6 +194,15 @@ override WASMLDFLAGS += -Wl,--wrap,fflush
 
 ### wasm stack configuration ###
 override WASMLDFLAGS += -Wl,-z,stack-size=16384
+override WASMLDFLAGS += -Wl,--export=lfsbox_file_close
+override WASMLDFLAGS += -Wl,--export=lfsbox_file_open
+override WASMLDFLAGS += -Wl,--export=lfsbox_file_read
+override WASMLDFLAGS += -Wl,--export=lfsbox_file_seek
+override WASMLDFLAGS += -Wl,--export=lfsbox_file_write
+override WASMLDFLAGS += -Wl,--export=lfsbox_format
+override WASMLDFLAGS += -Wl,--export=lfsbox_mount
+override WASMLDFLAGS += -Wl,--export=lfsbox_rename
+override WASMLDFLAGS += -Wl,--export=lfsbox_unmount
 
 ### user provided flags ###
 
@@ -211,10 +220,10 @@ $(TARGET:.elf=.awsm.bc): $(TARGET:.elf=.bc) $(LLVMOBJ)
 	$(LLVMLINK) $^ -o $@
 	$(LLVMOPT) $(LLVMOPTFLAGS) $@ -o $@
 
-$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)
+$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm.stripped)
 	$(AWSM) $(AWSMFLAGS) $< -o $@
 
-$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES)
+$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMCRATES) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region
@@ -313,7 +322,12 @@ tags:
 	$(WASMWASM2WAT) $< -o $@
 
 %.wasm.stripped: %.wasm
-	cp $< $@
+	# remove zero data elements, you would expect this
+	# from lld but it's not currently supported
+	$(WASMWASM2WAT) $< -o $@
+	sed -i 's/(data[^"]*"\(\\00\)*")//g' $@
+	$(WASMWAT2WASM) $@ -o $@
+	# and remove symbols
 	$(WASMSTRIP) $@
 
 %.prefixed: %

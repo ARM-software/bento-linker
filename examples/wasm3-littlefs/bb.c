@@ -1389,7 +1389,9 @@ int __box_lfsbox_init(void) {
             __box_wasm3_environment,
             4096,
             NULL);
-    if (!__box_lfsbox_runtime) return -ENOMEM;
+    if (!__box_lfsbox_runtime) {
+        return -ENOMEM;
+    }
     extern uint32_t __box_lfsbox_image;
     M3Result res;
     res = m3_ParseModule(
@@ -1397,10 +1399,14 @@ int __box_lfsbox_init(void) {
             &__box_lfsbox_module,
             (const uint8_t*)(&__box_lfsbox_image + 1),
             __box_lfsbox_image);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     res = m3_LoadModule(__box_lfsbox_runtime, __box_lfsbox_module);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     // link imports
     res = m3_LinkRawFunction(
@@ -1485,8 +1491,9 @@ int __box_lfsbox_init(void) {
         return __box_wasm3_toerr(res);
     }
 
-    // setup data stack
-    __box_lfsbox_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_lfsbox_datasp = 4;
 
     __box_lfsbox_initialized = true;
     return 0;

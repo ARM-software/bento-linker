@@ -357,7 +357,7 @@ class Arg:
         'u8', 'u16', 'u32', 'u64', 'usize',
         'i8', 'i16', 'i32', 'i64', 'isize',
         'f32', 'f64',
-        'err', 'err8', 'err16', 'err32', 'err64', 'errsize']
+        'err', 'err32', 'err64', 'errsize']
     @staticmethod
     def parsetype(s):
         namepattern = r'[a-zA-Z_][a-zA-Z_0-9]*'
@@ -909,6 +909,11 @@ class Box:
                 'indicates if it is ok to lose state between box calls. '
                 'Idempotent boxes can share RAM with a performance penalty. '
                 'Defaults to false.')
+        parser.add_argument('--roommates', type=list,
+            help='List of explicit roommates to clobber if we need to '
+                'initialize this box. Normally roommates are automatically '
+                'determined by overlapping memory regions, but can be explicit '
+                'added if non-memory resources are shared.')
 
         from .outputs import OUTPUTS
         outputparser = parser.add_nestedparser('--output')
@@ -928,7 +933,8 @@ class Box:
         parser.add_set(Export, metavar='BOX.EXPORT', depth=2)
 
     def __init__(self, name=None, parent=None, path=None, recipe=None,
-            runtime=None, loader=None, init=None, idempotent=None,
+            runtime=None, loader=None,
+            init=None, idempotent=None, roommates=None,
             output=None, debug=None, lto=None,
             srcs=None, incs=None, define={},
             memory=None, stack=None, heap=None,
@@ -955,6 +961,7 @@ class Box:
         self.init = (init if init is not None else 'lazy')
         self.idempotent = (
             idempotent if idempotent is not None else False)
+        self.explicit_roommates = roommates if roommates is not None else []
         self.roommates = []
 
         from .outputs import OUTPUTS
@@ -1247,6 +1254,30 @@ class Box:
                     for memory in self.memoryslices)))
 
         if not stage or stage == 'boxes':
+            # check explicit roommates
+            for child in self.boxes:
+                for roommate in child.explicit_roommates:
+                    assert child.idempotent, (
+                        "Box `%s` declares `%s` as roommate, but is "
+                        "not idempotent. This is currently "
+                        "unsupported." % (
+                        child.name, roommate))
+                    for child2 in self.boxes:
+                        if child2.name == roommate:
+                            assert child.name in child2.explicit_roommates, (
+                                "Box `%s declares `%s` as roommate, but "
+                                "box `%s` does not have `%s` as a roommate" % (
+                                child.name, child2.name,
+                                child2.name, child.name))
+                            if child2 not in child.roommates:
+                                child.roommates.append(child2)
+                            break
+                    else:
+                        assert False, (
+                            "Box `%` declares `%s` as roommate, but "
+                            "there is no box `%s`?" % (
+                            child.name, roommate, roommate))
+
             # create memory slices for children
             for child in self.boxes:
                 for memory in child.memories:

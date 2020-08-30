@@ -7,7 +7,6 @@
 
 //// box exports ////
 
-__attribute__((used))
 extern int mandlebrot(size_t width, size_t height, uint32_t iterations);
 
 // May be called by well-behaved code to terminate the box if execution can

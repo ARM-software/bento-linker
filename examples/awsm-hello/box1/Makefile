@@ -192,6 +192,10 @@ override WASMLDFLAGS += -Wl,--wrap,fflush
 
 ### wasm stack configuration ###
 override WASMLDFLAGS += -Wl,-z,stack-size=16384
+override WASMLDFLAGS += -Wl,--export=box1_hello
+override WASMLDFLAGS += -Wl,--export=box1_ping
+override WASMLDFLAGS += -Wl,--export=box1_ping_abort
+override WASMLDFLAGS += -Wl,--export=box1_ping_import
 
 # target rule
 $(TARGET): $(TARGET:.elf=.awsm.o) $(LDSCRIPT)
@@ -204,10 +208,10 @@ $(TARGET:.elf=.awsm.bc): $(TARGET:.elf=.bc) $(LLVMOBJ)
 	$(LLVMLINK) $^ -o $@
 	$(LLVMOPT) $(LLVMOPTFLAGS) $@ -o $@
 
-$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm)
+$(TARGET:.elf=.bc): $(TARGET:.elf=.wasm.stripped)
 	$(AWSM) $(AWSMFLAGS) $< -o $@
 
-$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMBOXES)
+$(TARGET:.elf=.wasm): $(WASMOBJ) $(WASMCRATES) $(WASMBOXES)
 	$(WASMCC) $(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@
 
 # a .box is a .elf containing a single section for each loadable memory region
@@ -306,7 +310,12 @@ tags:
 	$(WASMWASM2WAT) $< -o $@
 
 %.wasm.stripped: %.wasm
-	cp $< $@
+	# remove zero data elements, you would expect this
+	# from lld but it's not currently supported
+	$(WASMWASM2WAT) $< -o $@
+	sed -i 's/(data[^"]*"\(\\00\)*")//g' $@
+	$(WASMWAT2WASM) $@ -o $@
+	# and remove symbols
 	$(WASMSTRIP) $@
 
 %.prefixed: %

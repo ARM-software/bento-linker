@@ -213,9 +213,7 @@ class ErrorGlue(glue.Glue):
         super().build_wasm_c_prologue(output, box)
         self.__build_common_prologue(output, box)
 
-    def build_rust_lib_prologue(self, output, box):
-        super().build_rust_lib_prologue(output, box)
-
+    def __build_common_rust_lib_prologue(self, output, box):
         output.uses.append('core::num')
         output.decls.append(RUST_ERROR_STRUCT)
         output.decls.append(RUST_ERROR_IMPL)
@@ -258,6 +256,11 @@ class ErrorGlue(glue.Glue):
         output.uses.append('core::result')
         output.decls.append(RUST_RESULT_TYPE)
 
+    def build_rust_lib_prologue(self, output, box):
+        super().build_rust_lib_prologue(output, box)
+        self.__build_common_rust_lib_prologue(output, box)
 
-
+    def build_wasm_rust_lib_prologue(self, output, box):
+        super().build_wasm_rust_lib_prologue(output, box)
+        self.__build_common_rust_lib_prologue(output, box)
 

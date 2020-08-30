@@ -687,6 +687,8 @@ int __box_init(const uint32_t *importjumptable) {
     __libc_init_array();
 
     // populate wasm state
+    memset(&__memory_start, 0,
+        &__memory_end-&__memory_start);
     populate_table();
     populate_globals();
     populate_memory();

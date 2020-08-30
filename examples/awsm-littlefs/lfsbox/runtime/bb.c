@@ -666,8 +666,12 @@ __attribute__((weak)) void populate_globals(void) {}
 __attribute__((weak)) void populate_memory(void) {}
 __attribute__((weak)) void wasmf___wasm_call_ctors(void) {}
 
-// data stack manipulation
-uint8_t *__box_datasp = &__memory_start;
+// data stack manipulation, note we start at 4 since
+// 0 is considered a NULL address
+#define __stack_start *(&__memory_start + 4)
+#define __stack_end *(&__memory_start + 16384)
+
+uint8_t *__box_datasp = &__stack_start;
 
 void *__box_push(size_t size) {
     // we maintain a separate stack in the wasm memory space,
@@ -678,13 +682,10 @@ void *__box_push(size_t size) {
     }
 
     __box_datasp = psp + size;
-    return psp + size;
+    return psp;
 }
 
 void __box_pop(size_t size) {
-    if (__builtin_expect(__box_datasp - size < &__memory_start, false)) {
-        __box_abort(-EFAULT);
-    }
     __box_datasp -= size;
 }
 
@@ -716,6 +717,8 @@ int __box_init(const uint32_t *importjumptable) {
     __libc_init_array();
 
     // populate wasm state
+    memset(&__memory_start, 0,
+        &__memory_end-&__memory_start);
     populate_table();
     populate_globals();
     populate_memory();

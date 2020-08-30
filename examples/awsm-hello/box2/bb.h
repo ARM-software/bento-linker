@@ -11,16 +11,12 @@ int32_t sys_ping(int32_t a0);
 
 //// box exports ////
 
-__attribute__((used))
 extern int box2_hello(void);
 
-__attribute__((used))
 extern int32_t box2_ping(int32_t a0);
 
-__attribute__((used))
 extern int32_t box2_ping_abort(int32_t a0);
 
-__attribute__((used))
 extern int32_t box2_ping_import(int32_t a0);
 
 // May be called by well-behaved code to terminate the box if execution can

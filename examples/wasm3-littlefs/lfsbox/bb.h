@@ -21,31 +21,22 @@ int bd_sync(void);
 
 //// box exports ////
 
-__attribute__((used))
 extern int lfsbox_file_close(int32_t fd);
 
-__attribute__((used))
 extern int32_t lfsbox_file_open(const char *path, uint32_t flags);
 
-__attribute__((used))
 extern ssize_t lfsbox_file_read(int32_t fd, void *buffer, size_t size);
 
-__attribute__((used))
 extern int32_t lfsbox_file_seek(int32_t fd, int32_t off, uint32_t whence);
 
-__attribute__((used))
 extern ssize_t lfsbox_file_write(int32_t fd, const void *buffer, size_t size);
 
-__attribute__((used))
 extern int lfsbox_format(void);
 
-__attribute__((used))
 extern int lfsbox_mount(void);
 
-__attribute__((used))
 extern int lfsbox_rename(const char *oldpath, const char *newpath);
 
-__attribute__((used))
 extern int lfsbox_unmount(void);
 
 // May be called by well-behaved code to terminate the box if execution can

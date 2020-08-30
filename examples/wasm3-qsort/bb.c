@@ -1028,7 +1028,9 @@ int __box_qsort_init(void) {
             __box_wasm3_environment,
             4096,
             NULL);
-    if (!__box_qsort_runtime) return -ENOMEM;
+    if (!__box_qsort_runtime) {
+        return -ENOMEM;
+    }
     extern uint32_t __box_qsort_image;
     M3Result res;
     res = m3_ParseModule(
@@ -1036,10 +1038,14 @@ int __box_qsort_init(void) {
             &__box_qsort_module,
             (const uint8_t*)(&__box_qsort_image + 1),
             __box_qsort_image);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     res = m3_LoadModule(__box_qsort_runtime, __box_qsort_module);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     // link imports
     res = m3_LinkRawFunction(

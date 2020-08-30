@@ -1033,7 +1033,9 @@ int __box_mandlebrot_init(void) {
             __box_wasm3_environment,
             4096,
             NULL);
-    if (!__box_mandlebrot_runtime) return -ENOMEM;
+    if (!__box_mandlebrot_runtime) {
+        return -ENOMEM;
+    }
     extern uint32_t __box_mandlebrot_image;
     M3Result res;
     res = m3_ParseModule(
@@ -1041,10 +1043,14 @@ int __box_mandlebrot_init(void) {
             &__box_mandlebrot_module,
             (const uint8_t*)(&__box_mandlebrot_image + 1),
             __box_mandlebrot_image);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     res = m3_LoadModule(__box_mandlebrot_runtime, __box_mandlebrot_module);
-    if (res) return __box_wasm3_toerr(res);
+    if (res) {
+        return __box_wasm3_toerr(res);
+    }
 
     // link imports
     res = m3_LinkRawFunction(
@@ -1075,8 +1081,9 @@ int __box_mandlebrot_init(void) {
         return __box_wasm3_toerr(res);
     }
 
-    // setup data stack
-    __box_mandlebrot_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_mandlebrot_datasp = 4;
 
     __box_mandlebrot_initialized = true;
     return 0;

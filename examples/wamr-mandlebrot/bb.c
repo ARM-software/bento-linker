@@ -1008,8 +1008,9 @@ int __box_mandlebrot_init(void) {
         __box_mandlebrot_exec_env,
         &__box_mandlebrot_err);
 
-    // setup data stack
-    __box_mandlebrot_datasp = 0;
+    // setup data stack, note address 0 is NULL
+    // so we can't start there!
+    __box_mandlebrot_datasp = 4;
 
     __box_mandlebrot_initialized = true;
     return 0;

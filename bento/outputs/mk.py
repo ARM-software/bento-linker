@@ -37,6 +37,7 @@ RUST_TRIPLES = co.defaultdict(
     lambda: 'thumbv7em-none-eabi',
     **{
         'cortex-m33': 'thumbv8m.main-none-eabi',
+        'wasm': 'wasm32-unknown-unknown',
     }
 )
 
@@ -166,6 +167,19 @@ class MkOutput(outputs.Output):
         parser.add_argument('--wasm_ld_flags', type=list,
             help='Add custom WebAssembly linker flags.')
 
+        parser.add_argument('--wasm_cargo',
+            help='Provide the cargo program for the makefile. This can be '
+                '--wasm_cargo=cargo if cargo can be found in your path. If not '
+                'provided, the generated makefile will error when asked to '
+                'compile Rust crates.')
+        parser.add_argument('--wasm_crates', type=list,
+            help='Supply Rust crate directories. This only needs to be the '
+                'root library crate as Rust\'s module system automatically '
+                'finds dependencies. Defaults to [\'.\'].')
+
+        parser.add_argument('--wasm_cargo_flags', type=list,
+            help='Add custom Cargo flags.')
+
         parser.add_argument('--awsm',
             help='Provide the aWsm ahead-of-time compiler.')
         parser.add_argument('--llvm_cc',
@@ -214,6 +228,8 @@ class MkOutput(outputs.Output):
             wasm_objdump=None, wasm_wasm2wat=None, wasm_wat2wasm=None,
             wasm_cpu=None, wasm_srcs=None, wasm_incs=None, wasm_libs=None,
             wasm_c_flags=None, wasm_ld_flags=None,
+            wasm_cargo=None, wasm_crates=None,
+            wasm_cargo_flags=None,
             awsm=None, llvm_cc=None, llvm_sysroot=None,
             llvm_link=None, llvm_opt=None, llvm_dis=None,
             llvm_srcs=None, llvm_incs=None,
@@ -298,6 +314,13 @@ class MkOutput(outputs.Output):
         self._wasm_c_flags = wasm_c_flags if wasm_c_flags is not None else []
         self._wasm_ld_flags = wasm_ld_flags if wasm_ld_flags is not None else []
 
+        self._wasm_cargo = wasm_cargo
+        self._wasm_crates = wasm_crates if wasm_crates is not None else ['.']
+
+        self._wasm_cargo_flags = (wasm_cargo_flags
+            if wasm_cargo_flags is not None else
+            [])
+
         self._awsm = awsm
         self._llvm_cc = llvm_cc
         self._llvm_sysroot = llvm_sysroot or '$(shell $(CC) -print-sysroot)'
@@ -324,6 +347,7 @@ class MkOutput(outputs.Output):
         # used to decide what gets emitting into Makefile
         self.no_rust = self._cargo is None
         self.no_wasm = self._wasm_cc is None
+        self.no_wasm_rust = self.no_wasm or self._wasm_cargo is None
         self.no_awsm = self._awsm is None
         self.no_llvm = self._llvm_cc is None
         self.no_wamrc = self._wamrc is None
@@ -370,6 +394,8 @@ class MkOutput(outputs.Output):
             wasm_wasm2wat=self._wasm_wasm2wat,
             wasm_wat2wasm=self._wasm_wat2wasm,
             wasm_cpu=self._wasm_cpu,
+            wasm_cargo=self._wasm_cargo,
+            wasm_rust_triple=RUST_TRIPLES['wasm'],
             awsm=self._awsm,
             llvm_cc=self._llvm_cc,
             llvm_sysroot=self._llvm_sysroot,
@@ -406,6 +432,8 @@ class MkOutput(outputs.Output):
             out.printf('WASMOBJDUMP      = %(wasm_objdump)s')
             out.printf('WASMWASM2WAT     = %(wasm_wasm2wat)s')
             out.printf('WASMWAT2WASM     = %(wasm_wat2wasm)s')
+        if not self.no_wasm_rust:
+            out.printf('WASMCARGO        = %(wasm_cargo)s')
         if not self.no_awsm:
             out.printf('AWSM             = %(awsm)s')
         if not self.no_llvm:
@@ -435,6 +463,9 @@ class MkOutput(outputs.Output):
                 out.printf('WASMINC += %(path)s', path=inc)
             for lib in self._wasm_libs:
                 out.printf('WASMLIB += %(path)s', path=lib)
+        if not self.no_wasm_rust:
+            for crate in self._wasm_crates:
+                out.printf('WASMCRATES += %(path)s', path=crate)
         if not self.no_llvm:
             for src in self._llvm_srcs:
                 out.printf('LLVMSRC += %(path)s', path=src)
@@ -452,6 +483,19 @@ class MkOutput(outputs.Output):
                                  '|.[].name'
                                  '|gsub("-";"_")\'),$\\\n'
                 '        $(crate)/target/%(rust_triple)s/$\\\n'
+                '            $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
+                '            lib$(lib).a))')
+        if not self.no_wasm_rust:
+            out = self.decls.append(doc='find crate libs in one pass')
+            out.printf('WASMCRATELIBS := $(foreach crate,$(WASMCRATES),$\\\n'
+                '    $(foreach lib,$\\\n'
+                '        $(shell $(WASMCARGO) metadata $\\\n'
+                '            --manifest-path=$(crate)/Cargo.toml $\\\n'
+                '            --format-version=1 --no-deps $\\\n'
+                '            | jq -r \'.packages'
+                                 '|.[].name'
+                                 '|gsub("-";"_")\'),$\\\n'
+                '        $(crate)/target/%(wasm_rust_triple)s/$\\\n'
                 '            $(if $(filter-out 0,$(DEBUG)),debug,release)/$\\\n'
                 '            lib$(lib).a))')
 
@@ -476,6 +520,10 @@ class MkOutput(outputs.Output):
             out.printf('WASMOBJ += $(patsubst %%.S,%%.wo,'
                 '$(wildcard $(patsubst %%,%%/*.S,$(WASMSRC))))')
             out.printf('DEP += $(patsubst %%.wo,%%.d,$(WASMOBJ))')
+        if not self.no_wasm_rust:
+            out.printf('WASMSRC += $(dir $(WASMCRATELIBS))')
+            out.printf('WASMLIB += $(patsubst lib%%.a,%%,'
+                '$(notdir $(WASMCRATELIBS)))')
         if not self.no_llvm:
             out.printf('LLVMOBJ := $(patsubst %%.c,%%.bc,'
                 '$(wildcard $(patsubst %%,%%/*.c,$(LLVMSRC))))')
@@ -553,6 +601,14 @@ class MkOutput(outputs.Output):
             out.printf('override WASMCFLAGS += -ffreestanding')
             out.printf('override WASMCFLAGS += -fno-builtin')
             out.printf('override WASMCFLAGS += $(patsubst %%,-I%%,$(WASMINC))')
+
+        if not self.no_wasm_rust:
+            out = self.decls.append()
+            out.printf('override WASMCARGOFLAGS += '
+                '--target=%(wasm_rust_triple)s')
+            out.printf('ifeq ($(DEBUG),0)')
+            out.printf('override WASMCARGOFLAGS += --release')
+            out.printf('endif')
 
         if not self.no_awsm:
             out = self.decls.append()
@@ -745,6 +801,18 @@ class MkOutput(outputs.Output):
             out.printf('endef')
             out.printf('$(foreach crate,$(CRATES),$(eval $(CRATERULE)))')
 
+        if not self.no_wasm_rust:
+            out = self.rules.append()
+            out.printf('define WASMCRATERULE')
+            out.printf('.PHONY: $(crate)')
+            out.printf('$(crate):')
+            with out.indent():
+                out.printf('$(WASMCARGO) build '
+                    '--manifest-path=$(crate)/Cargo.toml $(WASMCARGOFLAGS)')
+            out.printf('endef')
+            out.printf('$(foreach crate,$(WASMCRATES),'
+                '$(eval $(WASMCRATERULE)))')
+
         out = self.rules.append()
         out.printf('%%.bin: %%.elf')
         with out.indent():
@@ -794,7 +862,12 @@ class MkOutput(outputs.Output):
             out = self.rules.append()
             out.printf('%%.wasm.stripped: %%.wasm')
             with out.indent():
-                out.printf('cp $< $@')
+                out.printf('# remove zero data elements, you would expect this')
+                out.printf('# from lld but it\'s not currently supported')
+                out.printf('$(WASMWASM2WAT) $< -o $@')
+                out.printf('sed -i \'s/(data[^"]*"\\(\\\\00\\)*")//g\' $@')
+                out.printf('$(WASMWAT2WASM) $@ -o $@')
+                out.printf('# and remove symbols')
                 out.printf('$(WASMSTRIP) $@')
 
             # the family of wasm formats expects to know the file size, which
@@ -831,6 +904,9 @@ class MkOutput(outputs.Output):
                     '$(CARGO) clean --manifest-path=$(crate)/Cargo.toml)')
             if not self.no_wasm:
                 out.printf('rm -f $(TARGET:.wasm=.elf) $(WASMOBJ)')
+            if not self.no_wasm_rust:
+                out.printf('$(foreach crate,$(WASMCRATES),'
+                    '$(WASMCARGO) clean --manifest-path=$(crate)/Cargo.toml)')
             if not self.no_awsm:
                 out.printf('rm -f $(TARGET:.elf=.bc) '
                     '$(TARGET:.elf=.wasm) '
@@ -869,6 +945,11 @@ class MkOutput(outputs.Output):
             for flag in self._ld_flags:
                 out.printf('override LDFLAGS += %s' % flag)
 
+        if self._cargo_flags:
+            out = self.userdecls.append()
+            for flag in self._cargo_flags:
+                out.printf('override CARGOFLAGS += %s' % flag)
+
         if self._awsm_flags:
             out = self.userdecls.append()
             for flag in self._awsm_flags:
@@ -883,6 +964,11 @@ class MkOutput(outputs.Output):
             out = self.userdecls.append()
             for flag in self._wasm_ld_flags:
                 out.printf('override WASMLDFLAGS += %s' % flag)
+
+        if self._wasm_cargo_flags:
+            out = self.userdecls.append()
+            for flag in self._wasm_cargo_flags:
+                out.printf('override WASMCARGOFLAGS += %s' % flag)
 
         if self._llvm_c_flags:
             out = self.userdecls.append()

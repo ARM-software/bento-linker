@@ -234,7 +234,8 @@ class WamrRuntime(
                 out.printf('$(WAMRC) $(WAMRCFLAGS) -o $@ $<')
 
             out = output.rules.append()
-            out.printf('$(TARGET:.aot=.wasm): $(WASMOBJ) $(WASMBOXES)')
+            out.printf('$(TARGET:.aot=.wasm): '
+                '$(WASMOBJ) $(WASMCRATES) $(WASMBOXES)')
             with out.indent():
                 out.printf('$(WASMCC) '
                     '$(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
@@ -255,7 +256,7 @@ class WamrRuntime(
                 name='TARGET', target=output.get('target', '%(box)s.wasm'))
 
             out = output.rules.append(doc='target rule')
-            out.printf('$(TARGET): $(WASMOBJ) $(WASMBOXES)')
+            out.printf('$(TARGET): $(WASMOBJ) $(WASMCRATES) $(WASMBOXES)')
             with out.indent():
                 out.printf('$(WASMCC) '
                     '$(WASMOBJ) $(WASMBOXES) $(WASMLDFLAGS) -o $@')
@@ -280,6 +281,12 @@ class WamrRuntime(
         out.printf('override WASMLDFLAGS += '
             '-Wl,-z,stack-size=%(data_stack)d',
             data_stack=box.stack.size)
+        for i, export in enumerate(
+                export.prebound() for export in box.exports
+                if export.source == box):
+            out.printf('override WASMLDFLAGS += '
+                '-Wl,--export=%(export)s',
+                export=export.name)
 
     def build_parent_c_prologue(self, output, parent):
         super().build_parent_c_prologue(output, parent)
@@ -350,7 +357,6 @@ class WamrRuntime(
                             'NULL')
                 out.printf('},')
         out.printf('};')
-
 
         # box exports
         output.decls.append('//// %(box)s exports ////')
