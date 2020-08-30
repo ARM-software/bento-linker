@@ -53,9 +53,7 @@ class Runtime(Inherit(
 
 # Runtime class imports
 # These must be imported here, since they depend on the above utilities
-from .system import SystemRuntime
 from .jumptable import JumptableRuntime
-from .noop import NoOpRuntime
 from .armv7m_sys import ARMv7MSysRuntime
 from .armv8m_sys import ARMv8MSysRuntime
 from .armv7m_mpu import ARMv7MMPURuntime
