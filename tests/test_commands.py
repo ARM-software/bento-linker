@@ -13,6 +13,9 @@ def test_runtimes():
 def test_loaders():
     subprocess.check_call(['bento', 'loaders'])
 
+def test_outputs():
+    subprocess.check_call(['bento', 'outputs'])
+
 def test_errors():
     subprocess.check_call(['bento', 'errors'])
 

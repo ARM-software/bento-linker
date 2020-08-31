@@ -224,6 +224,28 @@ class LoadersCommand:
                     line=line))
 
 @command
+class OutputsCommand:
+    """
+    List the available outputs and their help text.
+    """
+    __argname__ = "outputs"
+    __arghelp__ = __doc__
+    def __init__(self):
+        from .outputs import OUTPUTS
+        print("available outputs:")
+        for Output in OUTPUTS.values():
+            if len(Output.__argname__) > 19:
+                print(4*' '+Output.__argname__)
+            for i, line in enumerate(textwrap.wrap(
+                    re.sub(r'\s+', ' ', Output.__arghelp__.strip()),
+                    width=78-24)):
+                print(4*' '+'%(name)-19s %(line)s' % dict(
+                    name=Output.__argname__
+                        if len(Output.__argname__) <= 19 and i == 0 else
+                        '',
+                    line=line))
+
+@command
 class HooksCommand:
     """
     List the hooks available for boxes. These are implicit runtime-specific
