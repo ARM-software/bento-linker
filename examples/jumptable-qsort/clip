@@ -1,0 +1,51 @@
+// pseudo-random numbers using xorshift32
+uint32_t xorshift32(uint32_t *state) {
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    *state = x;
+    return x;
+}
+
+void printarray(uint32_t *array, size_t size) {
+    bench_stop();
+    printf("[");
+    if (size > 16) {
+        printf("%d, %d, %d, ... %d, %d, %d",
+            array[0], array[1], array[2],
+            array[size-3], array[size-2], array[size-1]);
+    } else {
+        for (int i = 0; i < size; i++) {
+            printf("%d%s", array[i], (i < size-1) ? ", " : "");
+        }
+    }
+    printf("]");
+    bench_start();
+}
+
+void testqsort(uint32_t N) {
+    printf("generating random N=%d...\n", N);
+    __box_qsort_init();
+    uint32_t *array = __box_qsort_push(N*sizeof(uint32_t));
+    assert(array);
+
+    uint32_t x = 0x1234;
+    for (int i = 0; i < N; i++) {
+        // note there are duplicates
+        array[i] = xorshift32(&x) % N;
+    }
+
+    printf("array: ");
+    printarray(array, N);
+    printf("\n");
+
+    printf("calling qsort N=%d...\n", N);
+    int err = box_qsort(array, N);
+
+    printf("result: %d\n", err);
+    printf("array: ");
+    printarray(array, N);
+    printf("\n");
+    __box_qsort_pop(N*sizeof(uint32_t));
+}

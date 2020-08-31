@@ -83,17 +83,3 @@ export.box2_ping_import = 'fn(i32) -> err32'
 export.box2_ping_abort = 'fn(i32) -> err32'
 export.box2_hello = 'fn() -> err'
 
-[box.box3]
-runtime = 'armv7m-mpu'
-memory.flash = 'rxp 0x2000'
-memory.ram = 'rw 0x2000'
-heap = 0x800
-stack = 0x800
-
-output.ld = 'bb.ld'
-output.h = 'bb.h'
-output.c = 'bb.c'
-output.mk = 'Makefile'
-
-import.sys_ping  = 'fn(i32) -> err32'
-

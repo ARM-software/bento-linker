@@ -899,6 +899,13 @@ class aWsmRuntime(
                     out.printf('*d = 0;')
                 out.printf('}')
                 out.printf()
+            if not self.bss_init_hook.link:
+                out.printf('for (uint32_t *d = (uint32_t*)&__memory_start;\n'
+                    '    d < (uint32_t*)&__memory_end; d++) {')
+                with out.indent():
+                    out.printf('*d = 0;')
+                out.printf('}')
+                out.printf()
             out.printf('// set import jumptable')
             out.printf('__box_importjumptable = importjumptable;')
             out.printf()
@@ -907,8 +914,6 @@ class aWsmRuntime(
             out.printf('__libc_init_array();')
             out.printf()
             out.printf('// populate wasm state')
-            out.printf('memset(&__memory_start, 0,\n'
-                '    &__memory_end-&__memory_start);')
             out.printf('populate_table();')
             out.printf('populate_globals();')
             out.printf('populate_memory();')

@@ -6,6 +6,9 @@
 #include <nrfx_timer.h>
 #include "bb.h"
 
+void bench_start(void);
+void bench_stop(void);
+
 // uart hooks for nrfx
 nrfx_uarte_t uart = {
     .p_reg = NRF_UARTE0,
@@ -29,6 +32,8 @@ const nrfx_uarte_config_t uart_config = {
 
 // stdout hook
 ssize_t __box_write(int32_t handle, const void *p, size_t size) {
+    bench_stop();
+
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
     const char *buffer = p;
@@ -55,6 +60,7 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
         i += span;
 
         if (i >= size) {
+            bench_start();
             return size;
         }
 
@@ -94,6 +100,23 @@ uint64_t timer_getns(void) {
     return timer_hi + nrfx_timer_capture(&timer0, NRF_TIMER_CC_CHANNEL1);
 }
 
+// measurement for benchmarking
+uint64_t bench_value = 0;
+int bench_startedyet = 0;
+void bench_start(void) {
+    bench_startedyet += 1;
+    if (bench_startedyet > 0) {
+        bench_value -= timer_getns();
+    }
+}
+
+void bench_stop(void) {
+    if (bench_startedyet > 0) {
+        bench_value += timer_getns();
+    }
+    bench_startedyet -= 1;
+}
+
 
 // pseudo-random numbers using xorshift32
 uint32_t xorshift32_state = 42;
@@ -115,9 +138,11 @@ size_t maze_width;
 size_t maze_height;
 
 int maze_init(size_t width, size_t height) {
+    bench_stop();
     maze_width = width;
     maze_height = height;
     memset(maze, 1, maze_width*maze_height);
+    bench_start();
     return 0;
 }
 
@@ -130,41 +155,54 @@ size_t maze_getheight(void) {
 }
 
 int32_t maze_get(size_t x, size_t y) {
+    bench_stop();
     if (x >= maze_width || y >= maze_height) {
+        bench_start();
         return -EDOM;
     }
 
+    bench_start();
     return maze[x + y*maze_width];
 }
 
 int maze_set(size_t x, size_t y, uint8_t v) {
+    bench_stop();
     if (x >= maze_width || y >= maze_height) {
+        bench_start();
         return -EDOM;
     }
 
     maze[x + y*maze_width] = v;
+    bench_start();
     return 0;
 }
 
 int maze_getall(void *buffer, size_t size) {
+    bench_stop();
     if (size != maze_width * maze_height) {
+        bench_start();
         return -EDOM;
     }
 
     memcpy(buffer, maze, size);
+    bench_start();
     return 0;
 }
 
 int maze_setall(const void *buffer, size_t size) {
+    bench_stop();
     if (size != maze_width * maze_height) {
+        bench_start();
         return -EDOM;
     }
 
     memcpy(maze, buffer, size);
+    bench_start();
     return 0;
 }
 
 void maze_print(void) {
+    bench_stop();
     for (int y = 0; y < maze_height; y += 2) {
         for (int x = 0; x < maze_width; x++) {
             uint8_t v1 = maze[x + (y+0)*maze_width];
@@ -177,6 +215,7 @@ void maze_print(void) {
         }
         printf("\n");
     }
+    bench_start();
 }
 
 void maze_test(size_t width, size_t height) {
@@ -251,7 +290,7 @@ void main(void) {
     nrfx_timer_enable(&timer0);
 
     printf("hi from nrf52840!\n");
-    uint64_t start = timer_getns();
+    bench_start();
 
     maze_test(20-1, 20-1);
     maze_test(40-1, 40-1);
@@ -259,17 +298,21 @@ void main(void) {
     //maze_test(120-1, 120-1);
     maze_test(160-1, 160-1);
 
-    uint64_t stop = timer_getns();
+    bench_stop();
     printf("done\n");
 
     // log cycles
-    uint64_t time = stop - start;
-    if (time >> 32) {
+    if (bench_value >> 32) {
         printf("sys: %u*(2^32) + %u ns\n",
-            (uint32_t)(time >> 32), (uint32_t)time);
+            (uint32_t)(bench_value >> 32), (uint32_t)bench_value);
     } else {
-        printf("sys: %u ns\n", (uint32_t)time);
+        printf("sys: %u ns\n", (uint32_t)bench_value);
     }
+
+    // clear maze to remove it from our measurement (note
+    // there's still copies of the maze in our boxes, but
+    // we will include these)
+    memset(maze, 0, sizeof(maze));
 
     // log ram usage, and then mark it for the next run
     uint32_t *ram_start = (uint32_t*)0x20000000;

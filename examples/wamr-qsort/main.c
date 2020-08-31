@@ -2,7 +2,12 @@
 #include <string.h>
 #include <assert.h>
 #include <nrfx_uarte.h>
+#include <nrfx_clock.h>
+#include <nrfx_timer.h>
 #include "bb.h"
+
+void bench_stop(void);
+void bench_start(void);
 
 // uart hooks for nrfx
 nrfx_uarte_t uart = {
@@ -27,6 +32,8 @@ const nrfx_uarte_config_t uart_config = {
 
 // stdout hook
 ssize_t __box_write(int32_t handle, const void *p, size_t size) {
+    bench_stop();
+
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
     const char *buffer = p;
@@ -35,7 +42,9 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     while (true) {
         char *nl = memchr(&buffer[i], '\n', size-i);
         int span = nl ? nl-&buffer[i] : size-i;
-        if ((uint32_t)buffer < 0x2000000) {
+        if (span == 0) {
+            // pass
+        } else if ((uint32_t)buffer < 0x2000000) {
             // special case for flash
             for (int j = 0; j < span; j++) {
                 char c = buffer[i+j];
@@ -43,14 +52,15 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
                 assert(err == NRFX_SUCCESS);
                 (void)err;
             }
-        } else { 
+        } else {
             nrfx_err_t err = nrfx_uarte_tx(&uart, (uint8_t*)&buffer[i], span);
             assert(err == NRFX_SUCCESS);
             (void)err;
-        } 
+        }
         i += span;
 
         if (i >= size) {
+            bench_start();
             return size;
         }
 
@@ -62,22 +72,50 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
     }
 }
 
-// measure cycle counts
-#define DEMCR      ((volatile uint32_t*)0xe000edfc)
-#define DWT_CTRL   ((volatile uint32_t*)0xe0001000)
-#define DWT_CYCCNT ((volatile uint32_t*)0xe0001004)
-int cyccnt_init(void) {
-    // enable DWT
-    *DEMCR |= 0x01000000;
-    // enable CYCCNT
-    *DWT_CTRL |= 0x00000001;
-    return 0;
+// timer hooks for nrfx
+nrfx_timer_t timer0 = {
+    .p_reg = NRF_TIMER0,
+    .instance_id = NRFX_TIMER0_INST_IDX,
+    .cc_channel_count = 4,
+};
+const nrfx_timer_config_t timer0_config = {
+    .frequency = NRF_TIMER_FREQ_1MHz,
+    .mode = NRF_TIMER_MODE_TIMER,
+    .bit_width = NRF_TIMER_BIT_WIDTH_32,
+    .interrupt_priority = NRFX_TIMER_DEFAULT_CONFIG_IRQ_PRIORITY,
+    .p_context = NULL,
+};
+
+// timing things
+void clock_handler(nrfx_clock_evt_type_t event) {
 }
 
-__attribute__((always_inline))
-static inline uint32_t cyccnt_read(void) {
-    return *DWT_CYCCNT;
+uint64_t timer_hi = 0;
+void timer0_handler(nrf_timer_event_t event, void *p) {
+    timer_hi += 1000000;
 }
+
+uint64_t timer_getns(void) {
+    return timer_hi + nrfx_timer_capture(&timer0, NRF_TIMER_CC_CHANNEL1);
+}
+
+// measurement for benchmarking
+uint64_t bench_value = 0;
+int bench_startedyet = 0;
+void bench_start(void) {
+    bench_startedyet += 1;
+    if (bench_startedyet > 0) {
+        bench_value -= timer_getns();
+    }
+}
+
+void bench_stop(void) {
+    if (bench_startedyet > 0) {
+        bench_value += timer_getns();
+    }
+    bench_startedyet -= 1;
+}
+
 
 // pseudo-random numbers using xorshift32
 uint32_t xorshift32(uint32_t *state) {
@@ -90,6 +128,7 @@ uint32_t xorshift32(uint32_t *state) {
 }
 
 void printarray(uint32_t *array, size_t size) {
+    bench_stop();
     printf("[");
     if (size > 16) {
         printf("%d, %d, %d, ... %d, %d, %d",
@@ -101,6 +140,7 @@ void printarray(uint32_t *array, size_t size) {
         }
     }
     printf("]");
+    bench_start();
 }
 
 void testqsort(uint32_t N) {
@@ -130,25 +170,42 @@ void testqsort(uint32_t N) {
 }
 
 void main(void) {
-    nrfx_err_t err = nrfx_uarte_init(&uart, &uart_config, NULL);
-    assert(err == NRFX_SUCCESS);
-    (void)err;
+    nrfx_err_t err;
+    // setup LCLK
+    err = nrfx_clock_init(clock_handler);
+    (void)err; assert(err == NRFX_SUCCESS);
+    nrfx_clock_start(NRF_CLOCK_DOMAIN_LFCLK);
 
-    cyccnt_init();
-    uint32_t cyccnt = cyccnt_read();
+    // setup UART
+    err = nrfx_uarte_init(&uart, &uart_config, NULL);
+    (void)err; assert(err == NRFX_SUCCESS);
+
+    // setup TIMER0
+    err = nrfx_timer_init(&timer0, &timer0_config, &timer0_handler);
+    (void)err; assert(err == NRFX_SUCCESS);
+    nrfx_timer_extended_compare(&timer0, NRF_TIMER_CC_CHANNEL0,
+        nrfx_timer_ms_to_ticks(&timer0, 1000),
+        NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK, true);
+    nrfx_timer_enable(&timer0);
 
     printf("hi from nrf52840!\n");
+    bench_start();
 
     testqsort(10);
     testqsort(100);
     testqsort(1000);
     testqsort(10000);
 
+    bench_stop();
     printf("done\n");
 
     // log cycles
-    cyccnt = cyccnt_read() - cyccnt;
-    printf("sys: %u cycles\n", cyccnt);
+    if (bench_value >> 32) {
+        printf("sys: %u*(2^32) + %u ns\n",
+            (uint32_t)(bench_value >> 32), (uint32_t)bench_value);
+    } else {
+        printf("sys: %u ns\n", (uint32_t)bench_value);
+    }
 
     // log ram usage, and then mark it for the next run
     uint32_t *ram_start = (uint32_t*)0x20000000;

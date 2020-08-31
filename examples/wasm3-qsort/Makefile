@@ -91,6 +91,9 @@ override LDFLAGS += -Wl,--wrap,fflush
 ### user provided flags ###
 
 override CFLAGS += -DNRF52840_XXAA='1'
+override CFLAGS += -DNRFX_CLOCK_ENABLED='1'
+override CFLAGS += -DNRFX_TIMER0_ENABLED='1'
+override CFLAGS += -DNRFX_TIMER_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE0_ENABLED='1'
 override CFLAGS += -DNRFX_UARTE_ENABLED='1'
 override CFLAGS += -DPRIi64='"lli"'

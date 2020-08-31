@@ -6,6 +6,9 @@
 #include <nrfx_timer.h>
 #include "bb.h"
 
+void bench_start(void);
+void bench_stop(void);
+
 // uart hooks for nrfx
 nrfx_uarte_t uart = {
     .p_reg = NRF_UARTE0,
@@ -29,6 +32,8 @@ const nrfx_uarte_config_t uart_config = {
 
 // stdout hook
 ssize_t __box_write(int32_t handle, const void *p, size_t size) {
+    bench_stop();
+
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
     const char *buffer = p;
@@ -55,6 +60,7 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
         i += span;
 
         if (i >= size) {
+            bench_start();
             return size;
         }
 
@@ -94,6 +100,23 @@ uint64_t timer_getns(void) {
     return timer_hi + nrfx_timer_capture(&timer0, NRF_TIMER_CC_CHANNEL1);
 }
 
+// measurement for benchmarking
+uint64_t bench_value = 0;
+int bench_startedyet = 0;
+void bench_start(void) {
+    bench_startedyet += 1;
+    if (bench_startedyet > 0) {
+        bench_value -= timer_getns();
+    }
+}
+
+void bench_stop(void) {
+    if (bench_startedyet > 0) {
+        bench_value += timer_getns();
+    }
+    bench_startedyet -= 1;
+}
+
 
 // littlefs test operations
 void do_boot_count(uint8_t *buffer, size_t size) {
@@ -121,26 +144,36 @@ void do_boot_count(uint8_t *buffer, size_t size) {
 }
 
 void do_log_log(uint8_t *buffer, size_t size, int iterations) {
-    strcpy((char*)buffer, "log");
-    int32_t fd = lfsbox_file_open((char*)buffer, 0x0903);
-    assert(fd >= 0 || fd == -ENOENT);
-
-    // read most recent value
     uint32_t value = 0x12341234;
-    int32_t res = lfsbox_file_seek(fd, -4, 2);
-    assert(res >= 0 || res == -EINVAL);
-    res = lfsbox_file_read(fd, buffer, sizeof(uint32_t));
-    assert(res >= 0);
-    memcpy(&value, buffer, res);
 
-    printf("sys: log value = 0x%08x\n", value);
+    // read most recent value from rotated log
+    strcpy((char*)buffer, "log.0");
+    int32_t fd = lfsbox_file_open((char*)buffer, 0x0001);
+    assert(fd >= 0 || fd == -ENOENT);
+    if (fd != -ENOENT) {
+        int32_t res = lfsbox_file_seek(fd, -4, 2);
+        assert(res >= 0 || res == -EINVAL);
+        res = lfsbox_file_read(fd, buffer, sizeof(uint32_t));
+        assert(res >= 0);
+        memcpy(&value, buffer, res);
+
+        printf("sys: log value = 0x%08x\n", value);
+
+        int err = lfsbox_file_close(fd);
+        assert(!err);
+    }
+
+    // create new log
+    strcpy((char*)buffer, "log");
+    fd = lfsbox_file_open((char*)buffer, 0x0902);
+    assert(fd >= 0);
 
     for (int i = 0; i < iterations; i++) {
         // append new value to log
         value = (value << 1) | (value >> 31);
 
         memcpy(buffer, &value, sizeof(uint32_t));
-        res = lfsbox_file_write(fd, buffer, sizeof(uint32_t));
+        int32_t res = lfsbox_file_write(fd, buffer, sizeof(uint32_t));
         assert(res == sizeof(uint32_t));
     }
 
@@ -179,7 +212,7 @@ void main(void) {
     nrfx_timer_enable(&timer0);
 
     printf("hi from nrf52840!\n");
-    uint64_t start = timer_getns();
+    bench_start();
 
     int err = lfsbox_format();
     printf("lfsbox_format: %d\n", err);
@@ -187,7 +220,10 @@ void main(void) {
 
     for (int i = 0; i < 10; i++) {
         // reset state
+        // don't count takedown cost, in theory we lost power
+        bench_stop();
         __box_lfsbox_clobber();
+        bench_start();
         __box_lfsbox_init();
         uint8_t *buffer = __box_lfsbox_push(128);
         assert(buffer);
@@ -197,24 +233,25 @@ void main(void) {
         assert(!err);
 
         do_boot_count(buffer, 128);
-        do_log_log(buffer, 128, 1000);
-        do_log_rotate(buffer, 128);
+        for (int i = 0; i < 10; i++) {
+            do_log_log(buffer, 128, 1000);
+            do_log_rotate(buffer, 128);
+        }
 
         err = lfsbox_mount();
         printf("lfsbox_unmount: %d\n", err);
         assert(!err);
     }
 
-    uint64_t stop = timer_getns();
+    bench_stop();
     printf("done\n");
 
     // log cycles
-    uint64_t time = stop - start;
-    if (time >> 32) {
+    if (bench_value >> 32) {
         printf("sys: %u*(2^32) + %u ns\n",
-            (uint32_t)(time >> 32), (uint32_t)time);
+            (uint32_t)(bench_value >> 32), (uint32_t)bench_value);
     } else {
-        printf("sys: %u ns\n", (uint32_t)time);
+        printf("sys: %u ns\n", (uint32_t)bench_value);
     }
 
     // remove block device from RAM measurement

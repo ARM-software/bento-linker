@@ -7,6 +7,8 @@ target/
 *.wo
 *.bc
 *.wasm
+*.stripped
+*.prefixed
 *.aot
 *.elf
 *.bin

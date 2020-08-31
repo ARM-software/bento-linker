@@ -6,6 +6,9 @@
 #include <nrfx_timer.h>
 #include "bb.h"
 
+void bench_stop(void);
+void bench_start(void);
+
 // uart hooks for nrfx
 nrfx_uarte_t uart = {
     .p_reg = NRF_UARTE0,
@@ -29,6 +32,8 @@ const nrfx_uarte_config_t uart_config = {
 
 // stdout hook
 ssize_t __box_write(int32_t handle, const void *p, size_t size) {
+    bench_stop();
+
     // stdout or stderr only
     assert(handle == 1 || handle == 2);
     const char *buffer = p;
@@ -55,6 +60,7 @@ ssize_t __box_write(int32_t handle, const void *p, size_t size) {
         i += span;
 
         if (i >= size) {
+            bench_start();
             return size;
         }
 
@@ -93,6 +99,24 @@ uint64_t timer_getns(void) {
     return timer_hi + nrfx_timer_capture(&timer0, NRF_TIMER_CC_CHANNEL1);
 }
 
+// measurement for benchmarking
+uint64_t bench_value = 0;
+int bench_startedyet = 0;
+void bench_start(void) {
+    bench_startedyet += 1;
+    if (bench_startedyet > 0) {
+        bench_value -= timer_getns();
+    }
+}
+
+void bench_stop(void) {
+    if (bench_startedyet > 0) {
+        bench_value += timer_getns();
+    }
+    bench_startedyet -= 1;
+}
+
+
 // used to debug box imports
 int32_t sys_ping(int32_t a) {
     return a + 3;
@@ -118,7 +142,7 @@ void main(void) {
     nrfx_timer_enable(&timer0);
 
     printf("hi from nrf52840!\n");
-    uint64_t start = timer_getns();
+    bench_start();
 
     int32_t x1, x2;
     printf("testing box ping\n");
@@ -141,16 +165,15 @@ void main(void) {
     x2 = box2_hello();
     printf("return values: %d %d\n", x1, x2);
 
-    uint64_t stop = timer_getns();
+    bench_stop();
     printf("done\n");
 
     // log cycles
-    uint64_t time = stop - start;
-    if (time >> 32) {
+    if (bench_value >> 32) {
         printf("sys: %u*(2^32) + %u ns\n",
-            (uint32_t)(time >> 32), (uint32_t)time);
+            (uint32_t)(bench_value >> 32), (uint32_t)bench_value);
     } else {
-        printf("sys: %u ns\n", (uint32_t)time);
+        printf("sys: %u ns\n", (uint32_t)bench_value);
     }
 
     // log ram usage, and then mark it for the next run

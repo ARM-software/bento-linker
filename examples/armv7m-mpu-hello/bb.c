@@ -65,20 +65,6 @@ void *__box_box2_push(size_t size);
 // Deallocate size bytes on the box's data stack.
 void __box_box2_pop(size_t size);
 
-// Initialize box box3. Resets the box to its initial state if already
-// initialized.
-int __box_box3_init(void);
-
-// Mark the box box3 as needing to be reinitialized.
-int __box_box3_clobber(void);
-
-// Allocate size bytes on the box's data stack. May return NULL if a stack
-// overflow would occur.
-void *__box_box3_push(size_t size);
-
-// Deallocate size bytes on the box's data stack.
-void __box_box3_pop(size_t size);
-
 // May be called by well-behaved code to terminate the box if execution can
 // not continue. Notably used for asserts. Note that __box_abort may be
 // skipped if the box is killed because of an illegal operation. Must not
@@ -236,7 +222,7 @@ static void __box_mpu_switch(const struct __box_mpuregions *regions) {
     __asm__ volatile ("msr control, %0" :: "r"(control));
 }
 
-#define __BOX_COUNT 3
+#define __BOX_COUNT 2
 
 struct __box_state {
     bool initialized;
@@ -1218,113 +1204,15 @@ void __box_box2_pop(size_t size) {
     __box_box2_state.sp += size;
 }
 
-//// box3 loading ////
-
-static int __box_box3_load(void) {
-    // default loader does nothing
-    return 0;
-}
-
-//// box3 state ////
-struct __box_state __box_box3_state;
-extern uint32_t __box_box3_jumptable[];
-
-const struct __box_mpuregions __box_box3_mpuregions = {
-    .control = 1,
-    .count = 2,
-    .regions = {
-        {0x000fa000, 0x02000019},
-        {0x2003a000, 0x13000019},
-    },
-};
-
-//// box3 exports ////
-
-//// box3 imports ////
-
-// redirect __box_box3_write -> __box_write
-#define __box_box3_write __box_write
-
-// redirect __box_box3_flush -> __box_flush
-#define __box_box3_flush __box_flush
-
-const uint32_t __box_box3_sys_jumptable[] = {
-    (uint32_t)__box_box3_write,
-    (uint32_t)__box_box3_flush,
-    (uint32_t)sys_ping,
-};
-
-//// box3 init ////
-
-int __box_box3_init(void) {
-    int err;
-    if (__box_box3_state.initialized) {
-        return 0;
-    }
-
-    // make sure that the MPU is initialized
-    err = __box_mpu_init();
-    if (err) {
-        return err;
-    }
-
-    // prepare the box's stack
-    // must use PSP, otherwise boxes could overflow the ISR stack
-    __box_box3_state.lr = 0xfffffffd; // TODO determine fp?
-    __box_box3_state.sp = (void*)__box_box3_jumptable[0];
-
-    // load the box if unloaded
-    err = __box_box3_load();
-    if (err) {
-        return err;
-    }
-
-    // call box's init
-    extern int __box_box3_postinit(void);
-    err = __box_box3_postinit();
-    if (err) {
-        return err;
-    }
-
-    __box_box3_state.initialized = true;
-    return 0;
-}
-
-int __box_box3_clobber(void) {
-    __box_box3_state.initialized = false;
-    return 0;
-}
-
-void *__box_box3_push(size_t size) {
-    size = (size+3)/4;
-    extern uint8_t __box_box3_ram_start;
-    if (__box_box3_state.sp - size < (uint32_t*)&__box_box3_ram_start) {
-        return NULL;
-    }
-
-    __box_box3_state.sp -= size;
-    return __box_box3_state.sp;
-}
-
-void __box_box3_pop(size_t size) {
-    size = (size+3)/4;
-    __attribute__((unused))
-    extern uint8_t __box_box3_ram_end;
-    assert(__box_box3_state.sp + size <= (uint32_t*)&__box_box3_ram_end);
-    __box_box3_state.sp += size;
-}
-
 struct __box_state __box_sys_state;
 
 struct __box_state *const __box_state[__BOX_COUNT+1] = {
     &__box_sys_state,
     &__box_box1_state,
     &__box_box2_state,
-    &__box_box3_state,
 };
 
 void (*const __box_aborts[])(int err) = {
-    NULL,
     NULL,
     NULL,
     NULL,
@@ -1340,19 +1228,16 @@ const struct __box_mpuregions *const __box_mpuregions[__BOX_COUNT+1] = {
     &__box_sys_mpuregions,
     &__box_box1_mpuregions,
     &__box_box2_mpuregions,
-    &__box_box3_mpuregions,
 };
 
 const uint32_t *const __box_jumptables[__BOX_COUNT] = {
     __box_box1_jumptable,
     __box_box2_jumptable,
-    __box_box3_jumptable,
 };
 
 const uint32_t *const __box_sys_jumptables[__BOX_COUNT] = {
     __box_box1_sys_jumptable,
     __box_box2_sys_jumptable,
-    __box_box3_sys_jumptable,
 };
 
 struct __box_frame {
