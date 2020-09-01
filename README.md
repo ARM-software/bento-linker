@@ -151,9 +151,9 @@ memory.ram   = 'rw-- 0x2003e000-0x2003ffff'
 ```
 
 Each box has a set of memory regions. These are described by a set of mode
-flags and address range. In additional to the traditional read (r), write (w),
-and execute (x) flags, there is an additiona persist (p) flag used to indicate
-if a memory is persistant across power-cycles.
+flags and address range. In additional to the traditional read (`r`),
+write (`w`), and execute (`x`) flags, there is an additiona persist (`p`)
+flag used to indicate if a memory is persistant across power-cycles.
 
 Note, if you only provide a size (`r-xp 0x2000`), the bento-linker will
 automatically allocate the appropriate memory from the containing box. However
@@ -369,6 +369,13 @@ bento build && make build flash reset
 - **&lt;runtime&gt;-hello** - A simple hello world example that brings up
   two boxes that each print a hello world message.
 
+  ```
+  testing box printf
+  box1 says hello!
+  box2 says hello!
+  return values: 0 0
+  ```
+
   This example also tests a simple export, import, and an abort.
 
   This is the best example to start with when adding a new runtime.
@@ -379,6 +386,13 @@ bento build && make build flash reset
 
 - **&lt;runtime&gt;-qsort** - This examples performas quick-sort on an
   array on integers.
+
+  ```
+  array: [5255, 850, 974, ... 586, 336, 7677]
+  calling qsort N=10000...
+  result: 0
+  array: [2, 3, 4, ... 9998, 9998, 9998]
+  ```
 
   It's a fairly simple example, but a good showcase of performance in
   tight loops with memory accesses.
@@ -392,6 +406,89 @@ bento build && make build flash reset
   set to the serial output as ascii art, shading each pixel based on the
   number of iterations until divergence, up until 100 iterations.
 
+  ```
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx======= xx%%%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx===-==xxxx%%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-==xxxxxx%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-.==xxxxxxx%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.--==xxxxxxxx%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx====-  -====xxxxxx%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx==.==--  --===xxxxxxxx%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx===--      =-=xxxxxxxxx%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==.        -=xxxxxxxxxxx%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxx= .       -==xxxxxxxxxxxx%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx==-        ..=xxxxxxxxxxxxx%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxx====.       .===xxxxxxxxxxxxxx%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx-xxxxx======        -=====xxxxxxxxx-xx%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxx====-=====-=====-       === ====xxxxxxx=-xx%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.===== .-= -  .       -.. =-.=xxxxx===xxx%
+  %%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==-..- ===   .              .  -===-======xxx
+  %%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx===.  -=--.                    -====.===-=xxx
+  %%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxx== .   -                         ==. . --=xxx
+  %%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxx==-                               -   .-==xxx
+  %%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx===-                                   -=xxxx
+  %%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx====..                                  --=xxxx
+  %%%%%%%%%xxxxxxxxxxxxxxxxxxxxxxx-=.==                                   -==xxxxx
+  %%%%%%%xxxxxxxxxxxxxxxxxxxxxxxx=-. .-                                   .===xxxx
+  %%%%%%xxx=xxxxxxxxxxxxxxxxxxxxx==-  .                                    -.=xxxx
+  %%%%xxxxx==xxxxxxxxxxxxxxxxxxxx===-.                                      -===-x
+  %%%xxxxxx==xxxxxxx==xxxxxxxxxxx=--                                        --.=-x
+  %xxxxxxxx======xx=====xxxxxxx==-                                             --x
+  xxxxxxxxx=-========-============-                                            ==x
+  xxxxxxxxxx===---===-.==-=======--                                          -==xx
+  xxxxxxxxxx===- -=.-- .-.-======                                            .==xx
+  xxxxxxxxxx===.  -.      --=====                                             ==xx
+  xxxxxxxxx====.            -====-                                             -=x
+  xxxxxxxxx===--             -===.                                            --xx
+  xxxxxxx===-.-               .--                                             ==xx
+  xxx=-=====-.                 --                                             -xxx
+  xxx=-=====-.                 .-                                            -=xxx
+  xxx====-==-                   .                                            -xxxx
+  xx===-.---.                   .                                            =xxxx
+  x====-    .                   .                                           =xxxxx
+  ====.-                                                                   ==xxxxx
+                                                                         -==xxxxxx
+  ====.-                                                                   ==xxxxx
+  x====-    .                   .                                           =xxxxx
+  xx===-.---.                   .                                            =xxxx
+  xxx====-==-                   .                                            -xxxx
+  xxx=-=====-.                 .-                                            -=xxx
+  xxx=-=====-.                 --                                             -xxx
+  xxxxxxx===-.-               .--                                             ==xx
+  xxxxxxxxx===--             -===.                                            --xx
+  xxxxxxxxx====.            -====-                                             -=x
+  xxxxxxxxxx===.  -.      --=====                                             ==xx
+  xxxxxxxxxx===- -=.-- .-.-======                                            .==xx
+  xxxxxxxxxx===---===-.==-=======--                                          -==xx
+  xxxxxxxxx=-========-============-                                            ==x
+  %xxxxxxxx======xx=====xxxxxxx==-                                             --x
+  %%%xxxxxx==xxxxxxx==xxxxxxxxxxx=--                                        --.=-x
+  %%%%xxxxx==xxxxxxxxxxxxxxxxxxxx===-.                                      -===-x
+  %%%%%%xxx=xxxxxxxxxxxxxxxxxxxxx==-  .                                    -.=xxxx
+  %%%%%%%xxxxxxxxxxxxxxxxxxxxxxxx=-. .-                                   .===xxxx
+  %%%%%%%%%xxxxxxxxxxxxxxxxxxxxxxx-=.==                                   -==xxxxx
+  %%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx====..                                  --=xxxx
+  %%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx===-                                   -=xxxx
+  %%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxx==-                               -   .-==xxx
+  %%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxx== .   -                         ==. . --=xxx
+  %%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx===.  -=--.                    -====.===-=xxx
+  %%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==-..- ===   .              .  -===-======xxx
+  %%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.===== .-= -  .       -.. =-.=xxxxx===xxx%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxx====-=====-=====-       === ====xxxxxxx=-xx%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx-xxxxx======        -=====xxxxxxxxx-xx%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxx====.       .===xxxxxxxxxxxxxx%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx==-        ..=xxxxxxxxxxxxx%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxx= .       -==xxxxxxxxxxxx%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==.        -=xxxxxxxxxxx%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx===--      =-=xxxxxxxxx%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx==.==--  --===xxxxxxxx%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx====-  -====xxxxxx%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.--==xxxxxxxx%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-.==xxxxxxx%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-==xxxxxx%%%%%%%%%%%%%%%
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx===-==xxxx%%%%%%%%%%%%%%%%
+  ```
+
   It's a good showcase of floating-point operations in a tight loop.
 
 - **&lt;runtime&gt;-maze** - This example generates and solves mazes.
@@ -403,26 +500,46 @@ bento build && make build flash reset
   https://kairumagames.com/blog/cavetutorial
 
   ```
-  ::::'''::::::::::::::::::::::::::::::::
-  :'xx x   '''''''''''':''''''''''':'':::
-  :  .x:xx     ...                     ::
-  :..::'  xx .::::::..   .    .::.    .::
-  :::'      xx''::::::::::::::::::.   :::
-  :::  .::.   xx :::'''''''::::::::.   ::
-  :::..::::     xx     xx    '''':::.   :
-  :::::::::       xx xx::xx     .::::   :
-  :::'''''      .::.x ::::.xx..::::::..::
-  ::             :::..::::: x::::::::::::
-  :               :::::::::  xx:::::'''::
-  :     .::        :::::::   xx:''    .::
-  :    .:::    :     '''      xx    .::::
-  :   .::::.         ...       xx    ''':
-  ::::::::::        .:::.    xx:::::..  :
-  ::::::''     ::    ::::     x::::::::::
-  :::'                 '::::.  xx''''':::
-  :::.    .::.     ...   :::::.. xx  .:::
-  ::::.   ::::...:::::.   ::::::.  xx::::
-  '''''''''''''''''''''''''''''''''''''''
+  :'''':::::'''''''::::::::::::::'''':::::::::::::::::'''':::''':::::::::::::::::
+  : xx   '        .:::''''''''''       ''''':::::'''      ::    ::::'''''':::::::
+  ::. xx           '     ...        .::::.   ':::                '      .::::::::
+  :::   xx              .:::.  .     '':::     '       ..:::..          ':'''':::
+  ::     xx:.   ::::.    ::::::::.                    ::::::::.   ::.        .:::
+  ::::::  x::.   ::::     ':::::::.      ..:.          ''::::::::::'          :::
+  :::'     x::.   :::        ''':::::.  .::::    :::..     ''':::::   .:..   .:::
+  :'        x:::::::: .:.    .  ::::::..:::::      ''':.      :::::    '::.   :::
+  :          xx::::::  '   .:::::::::::::::::         ::.    .::::::..   ':.  :::
+  :::   .::.   xx::::       ':''''''''''''::::::.  ::::::     :::::::::.  ::. :::
+  ::   .::::  xx.::::.           ...       ':::::    ':::     :::::::::   :::::::
+  :     ::    x:::::::.      ..:::::. .:::.  ''::.   .:::      ''':::::..::::::::
+  ::::::::.    xx''::::    .:::::::::  :::::.         ::::..      :::::::::::::::
+  ::::::::'     xx.::::    ::::::::::    '''::::::.  ::::::::.     '''  :::::::::
+  ::::''     x  x:::::::.    ''''':::    .   '':::  ::::::::::.          ''''::::
+  ::       xx:xxxx '''''::::::..  ::::::::::.        ''''':::::.    ..         ':
+  ::::::.   x:::::::.    '':::::::::::::::::::::.         ::::::.    '::..     .:
+  ::::::'    xx::::::        ''''''''''''::::::::    ..:::''::::::..   :::.   .::
+  :::'       xx::::::           ..      .:::::::    ::''    ::::::::.   :::.  :::
+  :::  ...    xx::::::::...:.   ::::.    ''''''          ..::''':::::    '::..:::
+  ::::::::      xx'::::::::::   :::::.   ...     ...     :::   .::::::..   ::::::
+  :::'''    .::.  xx ''':::::.  ::::::...::::.  ::::           ''':::::::::::::::
+  :::  ...  ::::.   xx   :::::.  '  ::::::::::.  ::                '''''':::  :::
+  :::..:::   ::::  .::xx   ':::      ''''':::::   :.          ..              :::
+  :::::::     ::: .:::: xx  ::::.         ::::::::::...:::.   ::::.      .    :::
+  :::::'    .:::  ::::    xx::::::::..     ::::::::::::::::::::::::::::::::::::::
+  :::'      :::   ::::.     xx:::::::'':::::::::::::::::::::::'':::::::::::::::::
+  ::        :::   :::::      x::::''     ''''::::::::'''''''     '':::::::::  :::
+  ::.   .:.  '    ::::        xx            .:::''''   ..     ..     '''''    :::
+  :::   :::        '    .:::.   xxxxxxxxxxxx '        .::     ''    .:..     .:::
+  :::  .::::.        ..::'''       '':::::::xxxx      ::             '''::.   :::
+  :::  ::::::.       ::::              '::::::::xxx        :::.     ..  :::::::::
+  :::    '::::.       ::::.              '''  :::::xx  xx   ::::.   ':::::'''':::
+  ::       ::::.      ::::::::.    .::.        :::::.xx::xx  :::::.    '      :::
+  :       .:::::. .::::::::'':'   .::::         :::::::::: xx  '::::::..   ..::::
+  :  .     ':::::  :::::::       .::::: .:.      ::::::::    xx  ':::::::::::::::
+  ::::::.   :::::   ::::::::.    :::::  :::        '::::::.  ..xx  '''::::::'':::
+  :::::::   ::::     '':'':::      ''   ::::::.      ::::::::::: xx    '''    :::
+  ::::::  .::::    .      ::::..   ..:::::::::::..    :::::::::    xxxxxxxxxxx:::
+  '''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
   ```
 
   Also, the maze generation/solver are written in Rust, and the kernel in C.
