@@ -320,19 +320,19 @@ determine how each box is executed.
   that provides software enforced memory isolation at near-native performance
   as long as you can ensure the binary has not been tampered.
 
-  More info here:
+  More info here:  
   https://github.com/gwsystems/awsm
 
 - **wamr** - Wamr is a [WebAssembly][WebAssembly] interpreter with an optional
   Ahead-of-Time compiler.
 
-  More info here:
+  More info here:  
   https://github.com/bytecodealliance/wasm-micro-runtime
 
 - **wasm3** - Wasm3 is a [WebAssembly][WebAssembly] interpreter built on
   continuation passing, which allows for very few dependencies.
 
-  More info
+  More info here:  
   https://github.com/wasm3/wasm3
 
 ### Loaders
@@ -575,7 +575,7 @@ put together measurements of some the above examples:
 Runtime (in ns):
 
 |             | hello  | qsort   | mbrot   | maze      | littlefs  |
-|-------------|--------|---------|---------|-----------|-----------|
+|-------------|-------:|--------:|--------:|----------:|----------:|
 | native      |    271 |   84287 | 2186562 |   3118464 |   3850311 |
 | mpu         |    463 |   84851 | 2275587 |   3203449 |   6654519 |
 | awsm (wrap) |   9527 |   75256 | 1979281 |   5106498 |   5320550 |
@@ -584,12 +584,12 @@ Runtime (in ns):
 | wamr        |  93229 | 1551582 | 6608421 | 121541011 | 103575732 |
 | wasm3       | 101678 | 2079359 | 8844360 | 157946032 | 114494192 |
 
-![runtime-comparison](../gh-images/runtime-comparison.png)
+![runtime-comparison](images/runtime-comparison.png)
 
 Code size (in bytes):
 
 |             | hello | qsort | mbrot | maze   | littlefs |
-|-------------|-------|-------|-------|--------|----------|
+|-------------|------:|------:|------:|-------:|---------:|
 | native      |  7616 |  5228 |  8532 |  16052 |    22944 |
 | mpu         |  7900 |  5896 |  9216 |  16340 |    23228 |
 | awsm (wrap) | 14152 |  5268 | 12368 |  25672 |    43428 |
@@ -598,12 +598,12 @@ Code size (in bytes):
 | wamr        | 53160 | 47567 | 50117 |  63582 |    77792 |
 | wasm3       | 72000 | 66143 | 68725 |  82382 |    96512 |
 
-![codesize-comparison](../gh-images/codesize-comparison.png)
+![codesize-comparison](images/codesize-comparison.png)
 
 RAM lower-bound (in bytes):
 
 |             | hello | qsort | mbrot | maze  | littlefs |
-|-------------|-------|-------|-------|-------|----------|
+|-------------|------:|------:|------:|------:|---------:|
 | native      |   304 | 40772 |  6772 | 43940 |     1468 |
 | mpu         |   540 | 40860 |  6908 | 44240 |     1496 |
 | awsm (wrap) |   504 | 40692 |  7000 | 44652 |     3712 |
@@ -612,7 +612,7 @@ RAM lower-bound (in bytes):
 | wamr        | 19028 | 43660 | 19564 | 48116 |    91668 |
 | wasm3       | 18588 | 45968 | 19048 | 49188 |    94176 |
 
-![ram-comparison](../gh-images/ram-comparison.png)
+![ram-comparison](images/ram-comparison.png)
 
 Some notes:
 
@@ -654,8 +654,6 @@ Additionally, there are a set of glue classes in [bento/glue](bento/glue),
 which provide some of the generic glue code that is common across all
 runtimes.
 
-
-## Thanks for reading!
 
 [WebAssembly]: https://webassembly.org/
 [nrf52840]: https://www.nordicsemi.com/Software-and-Tools/Development-Kits/nRF52840-DK
