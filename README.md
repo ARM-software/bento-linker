@@ -406,89 +406,6 @@ bento build && make build flash reset
   set to the serial output as ascii art, shading each pixel based on the
   number of iterations until divergence, up until 100 iterations.
 
-  ```
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx======= xx%%%%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx===-==xxxx%%%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-==xxxxxx%%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-.==xxxxxxx%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.--==xxxxxxxx%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx====-  -====xxxxxx%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx==.==--  --===xxxxxxxx%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx===--      =-=xxxxxxxxx%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==.        -=xxxxxxxxxxx%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxx= .       -==xxxxxxxxxxxx%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx==-        ..=xxxxxxxxxxxxx%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxx====.       .===xxxxxxxxxxxxxx%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx-xxxxx======        -=====xxxxxxxxx-xx%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxx====-=====-=====-       === ====xxxxxxx=-xx%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.===== .-= -  .       -.. =-.=xxxxx===xxx%
-  %%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==-..- ===   .              .  -===-======xxx
-  %%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx===.  -=--.                    -====.===-=xxx
-  %%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxx== .   -                         ==. . --=xxx
-  %%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxx==-                               -   .-==xxx
-  %%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx===-                                   -=xxxx
-  %%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx====..                                  --=xxxx
-  %%%%%%%%%xxxxxxxxxxxxxxxxxxxxxxx-=.==                                   -==xxxxx
-  %%%%%%%xxxxxxxxxxxxxxxxxxxxxxxx=-. .-                                   .===xxxx
-  %%%%%%xxx=xxxxxxxxxxxxxxxxxxxxx==-  .                                    -.=xxxx
-  %%%%xxxxx==xxxxxxxxxxxxxxxxxxxx===-.                                      -===-x
-  %%%xxxxxx==xxxxxxx==xxxxxxxxxxx=--                                        --.=-x
-  %xxxxxxxx======xx=====xxxxxxx==-                                             --x
-  xxxxxxxxx=-========-============-                                            ==x
-  xxxxxxxxxx===---===-.==-=======--                                          -==xx
-  xxxxxxxxxx===- -=.-- .-.-======                                            .==xx
-  xxxxxxxxxx===.  -.      --=====                                             ==xx
-  xxxxxxxxx====.            -====-                                             -=x
-  xxxxxxxxx===--             -===.                                            --xx
-  xxxxxxx===-.-               .--                                             ==xx
-  xxx=-=====-.                 --                                             -xxx
-  xxx=-=====-.                 .-                                            -=xxx
-  xxx====-==-                   .                                            -xxxx
-  xx===-.---.                   .                                            =xxxx
-  x====-    .                   .                                           =xxxxx
-  ====.-                                                                   ==xxxxx
-                                                                         -==xxxxxx
-  ====.-                                                                   ==xxxxx
-  x====-    .                   .                                           =xxxxx
-  xx===-.---.                   .                                            =xxxx
-  xxx====-==-                   .                                            -xxxx
-  xxx=-=====-.                 .-                                            -=xxx
-  xxx=-=====-.                 --                                             -xxx
-  xxxxxxx===-.-               .--                                             ==xx
-  xxxxxxxxx===--             -===.                                            --xx
-  xxxxxxxxx====.            -====-                                             -=x
-  xxxxxxxxxx===.  -.      --=====                                             ==xx
-  xxxxxxxxxx===- -=.-- .-.-======                                            .==xx
-  xxxxxxxxxx===---===-.==-=======--                                          -==xx
-  xxxxxxxxx=-========-============-                                            ==x
-  %xxxxxxxx======xx=====xxxxxxx==-                                             --x
-  %%%xxxxxx==xxxxxxx==xxxxxxxxxxx=--                                        --.=-x
-  %%%%xxxxx==xxxxxxxxxxxxxxxxxxxx===-.                                      -===-x
-  %%%%%%xxx=xxxxxxxxxxxxxxxxxxxxx==-  .                                    -.=xxxx
-  %%%%%%%xxxxxxxxxxxxxxxxxxxxxxxx=-. .-                                   .===xxxx
-  %%%%%%%%%xxxxxxxxxxxxxxxxxxxxxxx-=.==                                   -==xxxxx
-  %%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx====..                                  --=xxxx
-  %%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxxxxx===-                                   -=xxxx
-  %%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxxxx==-                               -   .-==xxx
-  %%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxxxx== .   -                         ==. . --=xxx
-  %%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx===.  -=--.                    -====.===-=xxx
-  %%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==-..- ===   .              .  -===-======xxx
-  %%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.===== .-= -  .       -.. =-.=xxxxx===xxx%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxx====-=====-=====-       === ====xxxxxxx=-xx%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx-xxxxx======        -=====xxxxxxxxx-xx%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxxx====.       .===xxxxxxxxxxxxxx%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxxx==-        ..=xxxxxxxxxxxxx%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxxx= .       -==xxxxxxxxxxxx%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxxxx==.        -=xxxxxxxxxxx%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx===--      =-=xxxxxxxxx%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxx==.==--  --===xxxxxxxx%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx====-  -====xxxxxx%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxx==-.--==xxxxxxxx%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-.==xxxxxxx%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx==-==xxxxxx%%%%%%%%%%%%%%%
-  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%xxxxxxxxxx===-==xxxx%%%%%%%%%%%%%%%%
-  ```
-
   It's a good showcase of floating-point operations in a tight loop.
 
 - **&lt;runtime&gt;-maze** - This example generates and solves mazes.
@@ -558,7 +475,9 @@ bento build && make build flash reset
   a simulated block device.
 
   The example itself does a few things:
+
   1. Updates a boot count.
+
   2. Logs a value to a rotate-based log, renaming the log file
      every 1000 updates.
 
