@@ -118,7 +118,7 @@ class Wasm3Runtime(
         HeapGlue,
         runtimes.Runtime):
     """
-    A bento-box runtime using wasm3, a wasm interpreter
+    A bento-box runtime using Wasm3, a wasm interpreter
     """
     __argname__ = "wasm3"
     __arghelp__ = __doc__

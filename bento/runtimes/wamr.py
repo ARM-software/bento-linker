@@ -58,7 +58,7 @@ class WamrRuntime(
         HeapGlue,
         runtimes.Runtime):
     """
-    A bento-box runtime using wasm3, a wasm interpreter
+    A bento-box runtime using Wamr, a wasm interpreter
     """
     __argname__ = "wamr"
     __arghelp__ = __doc__
