@@ -1,6 +1,3 @@
-[submodule "extra/glz"]
-	path = extra/glz
-	url = git@gitlab.com:arm-research/security/bento-box/glz.git
 [submodule "extra/mbedtls"]
 	path = extra/mbedtls
 	url = git@github.com:armmbed/mbedtls
