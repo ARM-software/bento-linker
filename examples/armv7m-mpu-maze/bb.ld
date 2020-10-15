@@ -30,9 +30,9 @@ MEMORY {
     FLASH            (RX ) : ORIGIN = 0x00000000, LENGTH = 0x000e0000
     BOX_MAZESOLVER_FLASH (RX ) : ORIGIN = 0x000e0000, LENGTH = 0x00010000
     BOX_MAZEBUILDER_FLASH (RX ) : ORIGIN = 0x000f0000, LENGTH = 0x00010000
-    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00020000
-    BOX_MAZESOLVER_RAM (RW ) : ORIGIN = 0x20020000, LENGTH = 0x00010000
+    RAM              (RW ) : ORIGIN = 0x20000000, LENGTH = 0x00030000
     BOX_MAZEBUILDER_RAM (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
+    BOX_MAZESOLVER_RAM (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
 }
 
 SECTIONS {
@@ -171,15 +171,6 @@ SECTIONS {
     ASSERT(__heap_end - __heap_start > __heap_min,
         "Not enough memory in RAM for heap")
 
-    /* BOX_MAZESOLVER_RAM sections */
-    . = ORIGIN(BOX_MAZESOLVER_RAM);
-    __box_mazesolver_ram_start = .;
-    .box.mazesolver.ram . (NOLOAD): {
-        KEEP(*(.box.mazesolver.ram*))
-    } > BOX_MAZESOLVER_RAM
-    . = ORIGIN(BOX_MAZESOLVER_RAM) + LENGTH(BOX_MAZESOLVER_RAM);
-    __box_mazesolver_ram_end = .;
-
     /* BOX_MAZEBUILDER_RAM sections */
     . = ORIGIN(BOX_MAZEBUILDER_RAM);
     __box_mazebuilder_ram_start = .;
@@ -188,5 +179,14 @@ SECTIONS {
     } > BOX_MAZEBUILDER_RAM
     . = ORIGIN(BOX_MAZEBUILDER_RAM) + LENGTH(BOX_MAZEBUILDER_RAM);
     __box_mazebuilder_ram_end = .;
+
+    /* BOX_MAZESOLVER_RAM sections */
+    . = ORIGIN(BOX_MAZESOLVER_RAM);
+    __box_mazesolver_ram_start = .;
+    .box.mazesolver.ram . (NOLOAD): {
+        KEEP(*(.box.mazesolver.ram*))
+    } > BOX_MAZESOLVER_RAM
+    . = ORIGIN(BOX_MAZESOLVER_RAM) + LENGTH(BOX_MAZESOLVER_RAM);
+    __box_mazesolver_ram_end = .;
 }
 

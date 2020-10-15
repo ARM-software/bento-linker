@@ -1109,7 +1109,7 @@ const struct __box_mpuregions __box_mazesolver_mpuregions = {
     .count = 2,
     .regions = {
         {0x000e0000, 0x0200001f},
-        {0x20020000, 0x1300001f},
+        {0x20030000, 0x1300001f},
     },
 };
 

@@ -5,7 +5,7 @@ __stack_min      = DEFINED(__stack_min) ? __stack_min : 0x00001000;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x000e0000, LENGTH = 0x00010000
-    RAM              (RW ) : ORIGIN = 0x20020000, LENGTH = 0x00010000
+    RAM              (RW ) : ORIGIN = 0x20030000, LENGTH = 0x00010000
 }
 
 SECTIONS {

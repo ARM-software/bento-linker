@@ -58,7 +58,7 @@ runtime.awsm.table.size = 0x400
 stack = 0x1000
 heap = 0x800
 memory.flash = 'rxp 0x10000'
-memory.ram = 'rw 0x12000'
+memory.ram = 'rw 0x2002e000-0x2003ffff'
 
 idempotent = true
 roommates = ['mazesolver']
@@ -100,7 +100,7 @@ runtime.awsm.table.size = 0x400
 stack = 0x1000
 heap = 0x800
 memory.flash = 'rxp 0x10000'
-memory.ram = 'rw 0x12000'
+memory.ram = 'rw 0x2002e000-0x2003ffff'
 
 idempotent = true
 roommates = ['mazebuilder']

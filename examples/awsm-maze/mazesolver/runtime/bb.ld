@@ -8,7 +8,7 @@ __table_min      = DEFINED(__table_min) ? __table_min : 0x00000400;
 
 MEMORY {
     FLASH            (RX ) : ORIGIN = 0x000e0000, LENGTH = 0x00010000
-    RAM              (RW ) : ORIGIN = 0x2001c000, LENGTH = 0x00012000
+    RAM              (RW ) : ORIGIN = 0x2002e000, LENGTH = 0x00012000
 }
 
 SECTIONS {

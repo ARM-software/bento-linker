@@ -55,7 +55,7 @@ import.maze_solve = '''
 runtime.runtime = 'armv7m-mpu'
 stack = 0x1000
 memory.flash = 'rxp 0x10000'
-memory.ram = 'rw 0x10000'
+memory.ram = 'rw 0x20030000-0x2003ffff'
 
 idempotent = true
 roommates = ['mazesolver']
@@ -86,7 +86,7 @@ export.maze_findend = 'fn(mut usize *x, mut usize *y) -> err'
 runtime.runtime = 'armv7m-mpu'
 stack = 0x1000
 memory.flash = 'rxp 0x10000'
-memory.ram = 'rw 0x10000'
+memory.ram = 'rw 0x20030000-0x2003ffff'
 
 idempotent = true
 roommates = ['mazebuilder']
