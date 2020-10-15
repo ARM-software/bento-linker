@@ -1,21 +1,28 @@
 [submodule "extra/mbedtls"]
 	path = extra/mbedtls
 	url = git@github.com:armmbed/mbedtls
+    ignore = dirty
 [submodule "extra/wasm3"]
 	path = extra/wasm3
 	url = https://github.com/wasm3/wasm3
+    ignore = dirty
 [submodule "extra/wasi-sdk-source"]
 	path = extra/wasi-sdk-source
 	url = https://github.com/WebAssembly/wasi-sdk
+    ignore = dirty
 [submodule "extra/wabt-source"]
 	path = extra/wabt-source
 	url = https://github.com/WebAssembly/wabt
+    ignore = dirty
 [submodule "extra/awsm"]
 	path = extra/awsm
 	url = git@github.com:geky/awsm
+    ignore = dirty
 [submodule "extra/littlefs"]
 	path = extra/littlefs
 	url = git@github.com:armmbed/littlefs
+    ignore = dirty
 [submodule "extra/wasm-micro-runtime"]
 	path = extra/wasm-micro-runtime
 	url = https://github.com/bytecodealliance/wasm-micro-runtime
+    ignore = dirty
