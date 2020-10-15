@@ -67,7 +67,15 @@ Note that the bento-linker does not actually replace the build system's linker
 or even the build system itself. Our goal is for it to be easy to add the
 bento-linker to existing build systems without disruptive changes.
 
-### Commands and ocnfiguration
+### Commands and configuration
+
+The bento-linker is a python3 program and can be installed using `pip`.
+Note that there has been very little testing outside of a Linux environment.
+
+``` bash
+pip install -e .
+bento -h
+```
 
 Once installed, you should be able to run `bento` to see a list of commands.
 
