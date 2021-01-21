@@ -3,13 +3,20 @@
 This is the home of the bento-linker, a tool for generating glue for
 bento-boxes.
 
-Note! This project is very expiremental and only provided as is.
+**!! Note: This project is an expirement with no promise of support.
+Use at your own risk. !!**
 
-## What are bento-boxes?
+## What are Bento-boxes?
 
 Bento-boxes are independently-linked, memory-isolated pieces of code that are
 designed to work together. You can think of them as a light-weight alternative
 to processes for microcontrollers.
+
+<br/>
+
+![bento-boxes](images/bb.svg)
+
+<br/>
 
 Unlike processes, Bento-boxes don't require mutlithreading or virtual memory.
 Instead of files and pipes, boxes communicate using type-rich
@@ -618,43 +625,43 @@ put together measurements of some the above examples:
 
 Runtime (in ns):
 
-|             | hello  | qsort   | mbrot   | maze      | littlefs  |
-|-------------|-------:|--------:|--------:|----------:|----------:|
-| native      |    271 |   84287 | 2186562 |   3118464 |   3850311 |
-| mpu         |    463 |   84851 | 2275587 |   3203449 |   6654519 |
-| awsm (wrap) |   9527 |   75256 | 1979281 |   5106498 |   5320550 |
-| awsm        |   8508 |   78896 | 1988887 |   6823538 |   6150274 |
-| wamr (aot)  |  28440 |  132688 | 5733677 |  12368716 |  17249899 |
-| wamr        |  93229 | 1551582 | 6608421 | 121541011 | 103575732 |
-| wasm3       | 101678 | 2079359 | 8844360 | 157946032 | 114494192 |
+|             | hello     | qsort      | mbrot      | maze         | littlefs     |
+|:------------|----------:|-----------:|-----------:|-------------:|-------------:|
+| native      |    271 ns |   84287 ns | 2186562 ns |   3118464 ns |   3850311 ns |
+| mpu         |    463 ns |   84851 ns | 2275587 ns |   3203449 ns |   6654519 ns |
+| awsm (wrap) |   9527 ns |   75256 ns | 1979281 ns |   5106498 ns |   5320550 ns |
+| awsm        |   8508 ns |   78896 ns | 1988887 ns |   6823538 ns |   6150274 ns |
+| wamr (aot)  |  28440 ns |  132688 ns | 5733677 ns |  12368716 ns |  17249899 ns |
+| wamr        |  93229 ns | 1551582 ns | 6608421 ns | 121541011 ns | 103575732 ns |
+| wasm3       | 101678 ns | 2079359 ns | 8844360 ns | 157946032 ns | 114494192 ns |
 
 ![runtime-comparison](images/runtime-comparison.png)
 
 Code size (in bytes):
 
-|             | hello | qsort | mbrot | maze   | littlefs |
-|-------------|------:|------:|------:|-------:|---------:|
-| native      |  7616 |  5228 |  8532 |  16052 |    22944 |
-| mpu         |  7900 |  5896 |  9216 |  16340 |    23228 |
-| awsm (wrap) | 14152 |  5268 | 12368 |  25672 |    43428 |
-| awsm        | 14664 |  5280 | 12240 |  27208 |    47524 |
-| wamr (aot)  | 39772 | 30828 | 36816 | 176156 |   102848 |
-| wamr        | 53160 | 47567 | 50117 |  63582 |    77792 |
-| wasm3       | 72000 | 66143 | 68725 |  82382 |    96512 |
+|             | hello   | qsort   | mbrot   | maze     | littlefs |
+|:------------|--------:|--------:|--------:|---------:|---------:|
+| native      |  7616 B |  5228 B |  8532 B |  16052 B |  22944 B |
+| mpu         |  7900 B |  5896 B |  9216 B |  16340 B |  23228 B |
+| awsm (wrap) | 14152 B |  5268 B | 12368 B |  25672 B |  43428 B |
+| awsm        | 14664 B |  5280 B | 12240 B |  27208 B |  47524 B |
+| wamr (aot)  | 39772 B | 30828 B | 36816 B | 176156 B | 102848 B |
+| wamr        | 53160 B | 47567 B | 50117 B |  63582 B |  77792 B |
+| wasm3       | 72000 B | 66143 B | 68725 B |  82382 B |  96512 B |
 
 ![codesize-comparison](images/codesize-comparison.png)
 
 RAM lower-bound (in bytes):
 
-|             | hello | qsort | mbrot | maze  | littlefs |
-|-------------|------:|------:|------:|------:|---------:|
-| native      |   304 | 40772 |  6772 | 43940 |     1468 |
-| mpu         |   540 | 40860 |  6908 | 44240 |     1496 |
-| awsm (wrap) |   504 | 40692 |  7000 | 44652 |     3712 |
-| awsm        |   500 | 40692 |  7000 | 44672 |     3664 |
-| wamr (aot)  | 15348 | 44700 | 17796 | 43084 |    77988 |
-| wamr        | 19028 | 43660 | 19564 | 48116 |    91668 |
-| wasm3       | 18588 | 45968 | 19048 | 49188 |    94176 |
+|             | hello   | qsort   | mbrot   | maze    | littlefs |
+|:------------|--------:|--------:|--------:|--------:|---------:|
+| native      |   304 B | 40772 B |  6772 B | 43940 B |   1468 B |
+| mpu         |   540 B | 40860 B |  6908 B | 44240 B |   1496 B |
+| awsm (wrap) |   504 B | 40692 B |  7000 B | 44652 B |   3712 B |
+| awsm        |   500 B | 40692 B |  7000 B | 44672 B |   3664 B |
+| wamr (aot)  | 15348 B | 44700 B | 17796 B | 43084 B |  77988 B |
+| wamr        | 19028 B | 43660 B | 19564 B | 48116 B |  91668 B |
+| wasm3       | 18588 B | 45968 B | 19048 B | 49188 B |  94176 B |
 
 ![ram-comparison](images/ram-comparison.png)
 
