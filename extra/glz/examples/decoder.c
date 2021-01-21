@@ -1,6 +1,10 @@
 /*
  * Minimal implementation of a GLZ decoder, operates in
  * constant RAM and linear time.
+ *
+ * Copyright (c) 2020, Arm Limited. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  */
 #include <sys/types.h>
 #include <stdint.h>

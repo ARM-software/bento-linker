@@ -1,3 +1,9 @@
+#
+# Default loader that doesn't do anything special
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
 from .. import loaders
 import os
 

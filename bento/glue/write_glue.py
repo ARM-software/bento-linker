@@ -1,3 +1,10 @@
+#
+# stdout/stderr glue, mostly a small printf
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 from .. import glue
 
 C_MINIMAL_PRINTF = """

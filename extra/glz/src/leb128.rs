@@ -1,3 +1,10 @@
+//!
+//! GLZ leb128 encoding
+//!
+//! Copyright (c) 2020, Arm Limited. All rights reserved.
+//! SPDX-License-Identifier: BSD-3-Clause
+//!
+
 use crate::bits::*;
 use crate::errors::*;
 

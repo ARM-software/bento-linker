@@ -1,3 +1,10 @@
+//!
+//! GLZ, granular compression
+//!
+//! Copyright (c) 2020, Arm Limited. All rights reserved.
+//! SPDX-License-Identifier: BSD-3-Clause
+//!
+
 use std::collections::HashMap;
 
 use crate::bits::*;

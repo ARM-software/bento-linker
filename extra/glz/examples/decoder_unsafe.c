@@ -4,6 +4,10 @@
  *
  * Does not provide bounds checking! So should not be used
  * unless you reaaaaally need the code size.
+ *
+ * Copyright (c) 2020, Arm Limited. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  */
 #include <sys/types.h>
 #include <stdint.h>

@@ -5,6 +5,10 @@
  * This version uses both a write callback for output, and
  * read/seek callbacks for input. This isn't the most efficient
  * implementation but at least proves the feasibility.
+ *
+ * Copyright (c) 2020, Arm Limited. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  */
 #include <sys/types.h>
 #include <stdint.h>

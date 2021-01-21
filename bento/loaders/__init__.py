@@ -1,3 +1,10 @@
+#
+# Loader utils
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 import collections as co
 import itertools as it
 from ..glue import Inherit

@@ -1,3 +1,10 @@
+//!
+//! Macros for Rust Bento-boxes
+//!
+//! Copyright (c) 2020, Arm Limited. All rights reserved.
+//! SPDX-License-Identifier: BSD-3-Clause
+//!
+
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;

@@ -1,3 +1,12 @@
+#
+# Set of box-description classes that map to config options in
+# the bento-linker, in some ways this is the core of the
+# bento-linker
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 import re
 import collections as co
 import itertools as it

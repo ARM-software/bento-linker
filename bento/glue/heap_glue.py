@@ -1,3 +1,10 @@
+#
+# Heap/memory allocation glue
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 from .. import glue
 
 GCC_HOOKS = """

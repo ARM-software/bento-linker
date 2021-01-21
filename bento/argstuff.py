@@ -1,3 +1,11 @@
+#
+# Modified (butchered) argparse to provide tree-like
+# extendable configuration options for bento-linker
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 import re
 import argparse
 import sys

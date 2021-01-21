@@ -1,3 +1,10 @@
+#
+# Runtime for the ARMv8 MPU
+# 
+# Copyright (c) 2020, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+
 from .. import argstuff
 from .. import runtimes
 from ..box import Region

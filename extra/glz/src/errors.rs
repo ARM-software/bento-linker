@@ -1,3 +1,10 @@
+//!
+//! GLZ error handling
+//!
+//! Copyright (c) 2020, Arm Limited. All rights reserved.
+//! SPDX-License-Identifier: BSD-3-Clause
+//!
+
 use error_chain::error_chain;
 use std::convert::TryFrom;
 

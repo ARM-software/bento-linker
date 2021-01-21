@@ -1,3 +1,10 @@
+//!
+//! GLZ entry point
+//!
+//! Copyright (c) 2020, Arm Limited. All rights reserved.
+//! SPDX-License-Identifier: BSD-3-Clause
+//!
+
 use glz::bits::*;
 use glz::errors::*;
 use glz::LEB128;
