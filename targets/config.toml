@@ -1,7 +1,0 @@
-
-# Rules that describe config options
-[text.start]
-type = 'int'
-doc = """
-
-"""
