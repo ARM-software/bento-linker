@@ -399,7 +399,7 @@ bento build && make build flash reset
   WebAssembly page size limitations (64KiB page vs 256KiB available RAM).
   Note this is something possible to fix in the WebAssembly spec.
 
-- **&lt;runtime&gt;-qsort** - This examples performas quick-sort on an
+- **&lt;runtime&gt;-qsort** - This examples performs quick-sort on an
   array on integers.
 
   ```
@@ -519,6 +519,9 @@ bento build && make build flash reset
 - **1box** - A minimal example with one box.
 
 - **3box** - A minimal example with three boxes loaded simultaneously.
+
+- **badbox** - A minimal example with a box that tries to break out of its
+  memory regions.
 
 - **nobox** - A minimal example with no box.
 
