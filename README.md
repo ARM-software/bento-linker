@@ -708,9 +708,27 @@ Additionally, there are a set of glue classes in [bento/glue](bento/glue),
 which provide some of the generic glue code that is common across all
 runtimes.
 
+## Related projects
+
+- [aWsm][aWsm] - An Ahead-of-Time compiler for WebAssembly that provides
+  software enforced memory isolation at near-native performance.
+
+- [Wamr][Wamr] - A WebAssembly interpreter with an optional
+  Ahead-of-Time compiler.
+
+- [Wasm3][Wasm3] - A WebAssembly interpreter built on continuation passing,
+  which allows for very few dependencies.
+
+- [Composite][Composite] - A component based OS for embedded systems with
+  similar ideas on compartamentalization and memory isolation.
 
 [WebAssembly]: https://webassembly.org/
 [nrf52840]: https://www.nordicsemi.com/Software-and-Tools/Development-Kits/nRF52840-DK
 [nrf5340]: https://www.nordicsemi.com/Software-and-tools/Development-Kits/nRF5340-PDK
 [littlefs]: https://github.com/ARMmbed/littlefs
 [mbedtls]: https://github.com/ARMmbed/mbedtls
+[aWsm]: https://github.com/gwsystems/awsm
+[Wamr]: https://github.com/bytecodealliance/wasm-micro-runtime
+[Wasm3]: https://github.com/wasm3/wasm3
+[Composite]: https://github.com/gwsystems/composite
+
